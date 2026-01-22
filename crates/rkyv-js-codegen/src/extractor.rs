@@ -369,10 +369,10 @@ mod tests {
         codegen.add_source_str(source);
 
         let code = codegen.generate();
-        assert!(code.contains("export const Point = r.object({"));
+        assert!(code.contains("export const PointCodec = r.object({"));
         assert!(code.contains("x: r.f64"));
         assert!(code.contains("y: r.f64"));
-        assert!(code.contains("export type Point = r.infer<typeof Point>;"));
+        assert!(code.contains("export type Point = r.infer<typeof PointCodec>;"));
     }
 
     #[test]
@@ -391,7 +391,7 @@ mod tests {
         codegen.add_source_str(source);
 
         let code = codegen.generate();
-        assert!(code.contains("export const Person = r.object({"));
+        assert!(code.contains("export const PersonCodec = r.object({"));
         assert!(code.contains("name: r.string"));
         assert!(code.contains("scores: r.vec(r.u32)"));
         assert!(code.contains("email: r.optional(r.string)"));
@@ -412,8 +412,8 @@ mod tests {
         codegen.add_source_str(source);
 
         let code = codegen.generate();
-        assert!(code.contains("export const Message = r.taggedEnum({"));
-        assert!(code.contains("export type Message = r.infer<typeof Message>;"));
+        assert!(code.contains("export const MessageCodec = r.taggedEnum({"));
+        assert!(code.contains("export type Message = r.infer<typeof MessageCodec>;"));
         assert!(code.contains("Quit: r.unit"));
         assert!(code.contains("Move: r.object({"));
         assert!(code.contains("Write: r.object({"));
@@ -438,7 +438,7 @@ mod tests {
 
         let code = codegen.generate();
         assert!(!code.contains("NotExported"));
-        assert!(code.contains("Exported"));
+        assert!(code.contains("ExportedCodec"));
     }
 
     #[test]
@@ -454,7 +454,7 @@ mod tests {
         codegen.add_source_str(source);
 
         let code = codegen.generate();
-        assert!(code.contains("export const QualifiedPath = r.object({"));
+        assert!(code.contains("export const QualifiedPathCodec = r.object({"));
         assert!(code.contains("value: r.u32"));
     }
 
@@ -478,9 +478,9 @@ mod tests {
         codegen.add_source_str(source);
 
         let code = codegen.generate();
-        assert!(code.contains("export const AliasedPath = r.object({"));
+        assert!(code.contains("export const AliasedPathCodec = r.object({"));
         assert!(code.contains("id: r.u64"));
-        assert!(code.contains("export const DeeplyNested = r.object({"));
+        assert!(code.contains("export const DeeplyNestedCodec = r.object({"));
         assert!(code.contains("data: r.string"));
     }
 
@@ -505,8 +505,8 @@ mod tests {
 
         let code = codegen.generate();
         // Both should be extracted
-        assert!(code.contains("export const CustomMarker = r.object({"));
-        assert!(code.contains("export const DefaultMarker = r.object({"));
+        assert!(code.contains("export const CustomMarkerCodec = r.object({"));
+        assert!(code.contains("export const DefaultMarkerCodec = r.object({"));
     }
 
     #[test]
@@ -529,7 +529,7 @@ mod tests {
         codegen.add_source_str(source);
 
         let code = codegen.generate();
-        assert!(code.contains("export const WithTS = r.object({"));
+        assert!(code.contains("export const WithTSCodec = r.object({"));
         // TypeScript marker should NOT be recognized
         assert!(!code.contains("WithTypeScript"));
     }
@@ -553,9 +553,9 @@ mod tests {
         codegen.add_source_str(source);
 
         let code = codegen.generate();
-        assert!(code.contains("export const Inner = r.object({"));
-        assert!(code.contains("export const Outer = r.object({"));
-        assert!(code.contains("inner: Inner"));
-        assert!(code.contains("items: r.vec(Inner)"));
+        assert!(code.contains("export const InnerCodec = r.object({"));
+        assert!(code.contains("export const OuterCodec = r.object({"));
+        assert!(code.contains("inner: InnerCodec"));
+        assert!(code.contains("items: r.vec(InnerCodec)"));
     }
 }

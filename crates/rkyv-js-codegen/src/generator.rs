@@ -376,7 +376,7 @@ impl CodeGenerator {
         let mut output = String::new();
 
         // Unified codec using r.object()
-        output.push_str(&format!("export const {} = r.object({{\n", name));
+        output.push_str(&format!("export const {}Codec = r.object({{\n", name));
         for (field_name, field_type) in fields {
             output.push_str(&format!(
                 "  {}: {},\n",
@@ -387,7 +387,10 @@ impl CodeGenerator {
         output.push_str("});\n\n");
 
         // TypeScript type inference
-        output.push_str(&format!("export type {} = r.infer<typeof {}>;", name, name));
+        output.push_str(&format!(
+            "export type {} = r.infer<typeof {}Codec>;",
+            name, name
+        ));
 
         output
     }
@@ -396,7 +399,7 @@ impl CodeGenerator {
         let mut output = String::new();
 
         // Unified codec using r.taggedEnum()
-        output.push_str(&format!("export const {} = r.taggedEnum({{\n", name));
+        output.push_str(&format!("export const {}Codec = r.taggedEnum({{\n", name));
         for variant in variants {
             match variant {
                 EnumVariant::Unit(vname) => {
@@ -431,7 +434,10 @@ impl CodeGenerator {
         output.push_str("});\n\n");
 
         // TypeScript type inference
-        output.push_str(&format!("export type {} = r.infer<typeof {}>;", name, name));
+        output.push_str(&format!(
+            "export type {} = r.infer<typeof {}Codec>;",
+            name, name
+        ));
 
         output
     }
@@ -457,7 +463,7 @@ impl CodeGenerator {
             name
         ));
         output.push_str(&format!(
-            "export const {} = r.union(\n  // discriminate: (reader, offset) => keyof {}Variants\n  (reader, offset) => {{ throw new Error('Discriminate function not implemented for {}'); }},\n  {{\n",
+            "export const {}Codec = r.union(\n  // discriminate: (reader, offset) => keyof {}Variants\n  (reader, offset) => {{ throw new Error('Discriminate function not implemented for {}'); }},\n  {{\n",
             name, name, name
         ));
         for variant in variants {
@@ -470,7 +476,10 @@ impl CodeGenerator {
         output.push_str("  }\n);\n\n");
 
         // TypeScript type inference
-        output.push_str(&format!("export type {} = r.infer<typeof {}>;", name, name));
+        output.push_str(&format!(
+            "export type {} = r.infer<typeof {}Codec>;",
+            name, name
+        ));
 
         output
     }
@@ -487,10 +496,10 @@ mod tests {
 
         let code = codegen.generate();
         assert!(code.contains("import { r } from 'rkyv-js';"));
-        assert!(code.contains("export const Point = r.object({"));
+        assert!(code.contains("export const PointCodec = r.object({"));
         assert!(code.contains("x: r.f64"));
         assert!(code.contains("y: r.f64"));
-        assert!(code.contains("export type Point = r.infer<typeof Point>;"));
+        assert!(code.contains("export type Point = r.infer<typeof PointCodec>;"));
     }
 
     #[test]
@@ -505,10 +514,10 @@ mod tests {
         );
 
         let code = codegen.generate();
-        assert!(code.contains("export const Status = r.taggedEnum({"));
+        assert!(code.contains("export const StatusCodec = r.taggedEnum({"));
         assert!(code.contains("Pending: r.unit"));
         assert!(code.contains("Active: r.unit"));
-        assert!(code.contains("export type Status = r.infer<typeof Status>;"));
+        assert!(code.contains("export type Status = r.infer<typeof StatusCodec>;"));
     }
 
     #[test]
@@ -548,7 +557,7 @@ mod tests {
         assert!(code.contains("asU32: number"));
         assert!(code.contains("asF32: number"));
         assert!(code.contains("asBytes: number[]"));
-        assert!(code.contains("export const NumberUnion = r.union("));
+        assert!(code.contains("export const NumberUnionCodec = r.union("));
         assert!(code.contains("asU32: r.u32"));
     }
 

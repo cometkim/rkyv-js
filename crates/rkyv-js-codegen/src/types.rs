@@ -75,7 +75,7 @@ impl TypeDef {
                 )
             }
 
-            TypeDef::Named(name) => name.to_string(),
+            TypeDef::Named(name) => format!("{}Codec", name),
         }
     }
 
@@ -213,7 +213,7 @@ mod tests {
     #[test]
     fn test_named_type_codec_expr() {
         let named = TypeDef::Named("Point".to_string());
-        assert_eq!(named.to_codec_expr(), "Point");
+        assert_eq!(named.to_codec_expr(), "PointCodec");
     }
 
     #[test]

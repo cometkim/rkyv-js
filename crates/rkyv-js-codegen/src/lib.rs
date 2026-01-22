@@ -48,19 +48,19 @@
 //! ```typescript
 //! import { r } from 'rkyv-js';
 //!
-//! export const Person = r.object({
+//! export const PersonCodec = r.object({
 //!   name: r.string,
 //!   age: r.u32,
 //!   email: r.optional(r.string),
 //! });
-//! export type Person = r.infer<typeof Person>;
+//! export type Person = r.infer<typeof PersonCodec>;
 //!
-//! export const Status = r.taggedEnum({
+//! export const StatusCodec = r.taggedEnum({
 //!   Pending: r.unit,
 //!   Active: r.unit,
 //!   Error: r.object({ message: r.string }),
 //! });
-//! export type Status = r.infer<typeof Status>;
+//! export type Status = r.infer<typeof StatusCodec>;
 //! ```
 //!
 //! ### Using `#[derive(TypeScript)]` macro

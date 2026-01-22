@@ -1025,8 +1025,14 @@ export function hashMap<K, V>(
  *
  * Note: The returned object is a Proxy and may not work with all serialization
  * or deep-comparison utilities. Use `decode()` if you need a plain object.
+ *
+ * @example
+ * ```typescript
+ * const person = r.access(Person, bytes);
+ * console.log(person.name); // Only 'name' is decoded
+ * ```
  */
-export function access<T>(bytes: ArrayBuffer | Uint8Array, codec: RkyvCodec<T>): T {
+export function access<T>(codec: RkyvCodec<T>, bytes: ArrayBuffer | Uint8Array): T {
   const reader = new RkyvReader(bytes);
   const rootPosition = reader.getRootPosition(codec.size);
   return codec.access(reader, rootPosition);
@@ -1037,17 +1043,27 @@ export function access<T>(bytes: ArrayBuffer | Uint8Array, codec: RkyvCodec<T>):
  *
  * Use this when you need all fields or when passing to code that
  * doesn't work well with Proxies (serialization, deep equality, etc.).
+ *
+ * @example
+ * ```typescript
+ * const person = r.decode(Person, bytes);
+ * ```
  */
-export function decode<T>(bytes: ArrayBuffer | Uint8Array, codec: RkyvCodec<T>): T {
+export function decode<T>(codec: RkyvCodec<T>, bytes: ArrayBuffer | Uint8Array): T {
   const reader = new RkyvReader(bytes);
   const rootPosition = reader.getRootPosition(codec.size);
   return codec.decode(reader, rootPosition);
 }
 
 /**
- * Encode a value to rkyv bytes
+ * Encode a value to rkyv bytes.
+ *
+ * @example
+ * ```typescript
+ * const bytes = r.encode(Person, { name: 'Alice', age: 30 });
+ * ```
  */
-export function encode<T>(value: T, codec: RkyvCodec<T>): Uint8Array {
+export function encode<T>(codec: RkyvCodec<T>, value: T): Uint8Array {
   const writer = new RkyvWriter();
   codec.encode(writer, value);
   return writer.finish();
