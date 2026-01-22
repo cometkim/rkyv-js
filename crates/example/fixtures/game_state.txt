@@ -1,0 +1,17 @@
+GameState {
+    player_position: Point {
+        x: 100.0,
+        y: 200.0,
+    },
+    health: 85,
+    inventory: [
+        "sword",
+        "shield",
+        "potion",
+    ],
+    current_message: Some(
+        Write(
+            "Level up!",
+        ),
+    ),
+}

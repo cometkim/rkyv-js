@@ -1,0 +1,145 @@
+/**
+ * RkyvReader provides low-level binary buffer reading operations
+ * for decoding rkyv-serialized data.
+ *
+ * rkyv uses little-endian byte ordering by default (configurable in Rust via features).
+ * This reader assumes little-endian format.
+ */
+export class RkyvReader {
+  private readonly view: DataView;
+  private readonly buffer: Uint8Array;
+
+  constructor(buffer: ArrayBuffer | Uint8Array) {
+    if (buffer instanceof Uint8Array) {
+      this.buffer = buffer;
+      this.view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+    } else {
+      this.buffer = new Uint8Array(buffer);
+      this.view = new DataView(buffer);
+    }
+  }
+
+  get length(): number {
+    return this.buffer.length;
+  }
+
+  /**
+   * Get the root position for rkyv archives.
+   * rkyv lays out objects depth-first from leaves to root,
+   * meaning the root object is at the end of the buffer.
+   */
+  getRootPosition(rootSize: number): number {
+    return this.length - rootSize;
+  }
+
+  // === Primitive Type Readers (Little Endian) ===
+
+  readU8(offset: number): number {
+    return this.view.getUint8(offset);
+  }
+
+  readI8(offset: number): number {
+    return this.view.getInt8(offset);
+  }
+
+  readU16(offset: number): number {
+    return this.view.getUint16(offset, true); // little-endian
+  }
+
+  readI16(offset: number): number {
+    return this.view.getInt16(offset, true);
+  }
+
+  readU32(offset: number): number {
+    return this.view.getUint32(offset, true);
+  }
+
+  readI32(offset: number): number {
+    return this.view.getInt32(offset, true);
+  }
+
+  readU64(offset: number): bigint {
+    return this.view.getBigUint64(offset, true);
+  }
+
+  readI64(offset: number): bigint {
+    return this.view.getBigInt64(offset, true);
+  }
+
+  readF32(offset: number): number {
+    return this.view.getFloat32(offset, true);
+  }
+
+  readF64(offset: number): number {
+    return this.view.getFloat64(offset, true);
+  }
+
+  readBool(offset: number): boolean {
+    return this.view.getUint8(offset) !== 0;
+  }
+
+  /**
+   * Read a raw byte slice from the buffer
+   */
+  readBytes(offset: number, length: number): Uint8Array {
+    return this.buffer.subarray(offset, offset + length);
+  }
+
+  /**
+   * Read a relative pointer (32-bit signed offset by default in rkyv).
+   * Returns the absolute position the pointer points to.
+   *
+   * @param offset - The position of the relative pointer in the buffer
+   * @returns The absolute position the pointer points to
+   */
+  readRelPtr32(offset: number): number {
+    const relativeOffset = this.view.getInt32(offset, true);
+    return offset + relativeOffset;
+  }
+
+  /**
+   * Read a 16-bit relative pointer.
+   */
+  readRelPtr16(offset: number): number {
+    const relativeOffset = this.view.getInt16(offset, true);
+    return offset + relativeOffset;
+  }
+
+  /**
+   * Read a 64-bit relative pointer.
+   */
+  readRelPtr64(offset: number): bigint {
+    const relativeOffset = this.view.getBigInt64(offset, true);
+    return BigInt(offset) + relativeOffset;
+  }
+}
+
+/**
+ * Configuration for the rkyv format.
+ * These should match the Rust compilation features used.
+ */
+export interface RkyvConfig {
+  /**
+   * Endianness of the serialized data.
+   * Default in rkyv is 'little'.
+   */
+  endianness: 'little' | 'big';
+
+  /**
+   * Pointer width for relative pointers (isize/usize serialization).
+   * Default in rkyv is 32.
+   */
+  pointerWidth: 16 | 32 | 64;
+
+  /**
+   * Whether primitives are aligned.
+   * Default in rkyv is true (aligned).
+   */
+  aligned: boolean;
+}
+
+export const DEFAULT_CONFIG: RkyvConfig = {
+  endianness: 'little',
+  pointerWidth: 32,
+  aligned: true,
+};

@@ -1,0 +1,20 @@
+[package]
+name = "rkyv-js-example"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+rkyv = { version = "0.8", features = ["bytecheck"] }
+rkyv-js-codegen = { path = "../rkyv-js-codegen" }
+
+[build-dependencies]
+rkyv-js-codegen = { path = "../rkyv-js-codegen" }
+
+[[bin]]
+name = "generate-fixtures"
+path = "src/bin/generate_fixtures.rs"
+
+[[bin]]
+name = "validate-roundtrip"
+path = "src/bin/validate_roundtrip.rs"

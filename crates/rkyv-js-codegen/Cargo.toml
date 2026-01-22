@@ -1,0 +1,24 @@
+[package]
+name = "rkyv-js-codegen"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "TypeScript code generator for rkyv types - generates decoder bindings for rkyv-js"
+repository = "https://github.com/cometkim/rkyv-js"
+keywords = ["rkyv", "typescript", "codegen", "serialization"]
+categories = ["development-tools::ffi", "encoding"]
+
+[dependencies]
+# For proc-macro re-export
+rkyv-js-derive = { version = "0.1.0", path = "../rkyv-js-derive", optional = true }
+
+# For parsing Rust source files
+syn = { version = "2.0", features = ["full", "parsing", "extra-traits"] }
+walkdir = "2.5"
+
+[features]
+default = ["derive"]
+derive = ["rkyv-js-derive"]
+
+[dev-dependencies]
+rkyv = { version = "0.8", features = ["bytecheck"] }
