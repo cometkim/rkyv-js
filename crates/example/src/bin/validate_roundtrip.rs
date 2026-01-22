@@ -7,7 +7,7 @@ use rkyv::rancor::Error;
 use rkyv_js_example::{ArchivedGameState, ArchivedMessage, ArchivedPerson, ArchivedPoint};
 use std::env;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn main() {
     let in_dir = env::args()
@@ -64,7 +64,7 @@ fn main() {
     }
 }
 
-fn validate_point(dir: &PathBuf, name: &str) -> bool {
+fn validate_point(dir: &Path, name: &str) -> bool {
     let path = dir.join(format!("{}.bin", name));
     print!("Validating {}... ", name);
 
@@ -90,7 +90,7 @@ fn validate_point(dir: &PathBuf, name: &str) -> bool {
     }
 }
 
-fn validate_person(dir: &PathBuf, name: &str) -> bool {
+fn validate_person(dir: &Path, name: &str) -> bool {
     let path = dir.join(format!("{}.bin", name));
     print!("Validating {}... ", name);
 
@@ -119,7 +119,7 @@ fn validate_person(dir: &PathBuf, name: &str) -> bool {
     }
 }
 
-fn validate_message(dir: &PathBuf, name: &str) -> bool {
+fn validate_message(dir: &Path, name: &str) -> bool {
     let path = dir.join(format!("{}.bin", name));
     print!("Validating {}... ", name);
 
@@ -151,7 +151,7 @@ fn validate_message(dir: &PathBuf, name: &str) -> bool {
     }
 }
 
-fn validate_game_state(dir: &PathBuf, name: &str) -> bool {
+fn validate_game_state(dir: &Path, name: &str) -> bool {
     let path = dir.join(format!("{}.bin", name));
     print!("Validating {}... ", name);
 

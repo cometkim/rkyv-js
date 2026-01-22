@@ -7,7 +7,7 @@ use std::io::{self, Write};
 use std::path::Path;
 
 /// Code generator that collects type definitions and outputs TypeScript code.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct CodeGenerator {
     /// Struct definitions: name -> fields
     structs: BTreeMap<String, Vec<(String, TypeDef)>>,
@@ -23,6 +23,22 @@ pub struct CodeGenerator {
 
     /// Custom header comment
     header: Option<String>,
+
+    /// Marker names to look for in derive attributes (default: ["TypeScript"])
+    pub(crate) markers: Vec<String>,
+}
+
+impl Default for CodeGenerator {
+    fn default() -> Self {
+        Self {
+            structs: BTreeMap::new(),
+            enums: BTreeMap::new(),
+            unions: BTreeMap::new(),
+            aliases: BTreeMap::new(),
+            header: None,
+            markers: vec!["TypeScript".to_string()],
+        }
+    }
 }
 
 impl CodeGenerator {
@@ -37,6 +53,33 @@ impl CodeGenerator {
         self
     }
 
+    /// Add a marker name to look for in derive attributes.
+    ///
+    /// By default, the generator looks for `TypeScript` (matching any path ending
+    /// with `TypeScript`, such as `TypeScript`, `rkyv_js_codegen::TypeScript`, etc.).
+    ///
+    /// Use this to add additional marker names if you've aliased the derive macro:
+    ///
+    /// ```rust,ignore
+    /// // If your code uses: `use rkyv_js_codegen::TypeScript as TS;`
+    /// generator.add_marker("TS");
+    /// ```
+    pub fn add_marker(&mut self, marker: impl Into<String>) -> &mut Self {
+        self.markers.push(marker.into());
+        self
+    }
+
+    /// Set the marker names to look for, replacing the defaults.
+    ///
+    /// ```rust,ignore
+    /// // Only look for `TS`, not `TypeScript`
+    /// generator.set_markers(&["TS"]);
+    /// ```
+    pub fn set_markers(&mut self, markers: &[impl AsRef<str>]) -> &mut Self {
+        self.markers = markers.iter().map(|s| s.as_ref().to_string()).collect();
+        self
+    }
+
     /// Add a struct definition.
     ///
     /// # Example
@@ -44,8 +87,8 @@ impl CodeGenerator {
     /// ```
     /// use rkyv_js_codegen::{CodeGenerator, TypeDef};
     ///
-    /// let mut gen = CodeGenerator::new();
-    /// gen.add_struct("Point", &[
+    /// let mut generator = CodeGenerator::new();
+    /// generator.add_struct("Point", &[
     ///     ("x", TypeDef::F64),
     ///     ("y", TypeDef::F64),
     /// ]);
@@ -70,8 +113,8 @@ impl CodeGenerator {
     /// ```
     /// use rkyv_js_codegen::{CodeGenerator, TypeDef, EnumVariant};
     ///
-    /// let mut gen = CodeGenerator::new();
-    /// gen.add_enum("Status", &[
+    /// let mut generator = CodeGenerator::new();
+    /// generator.add_enum("Status", &[
     ///     EnumVariant::Unit("Pending".to_string()),
     ///     EnumVariant::Unit("Active".to_string()),
     ///     EnumVariant::Struct("Error".to_string(), vec![
@@ -100,8 +143,8 @@ impl CodeGenerator {
     /// ```
     /// use rkyv_js_codegen::{CodeGenerator, TypeDef, UnionVariant};
     ///
-    /// let mut gen = CodeGenerator::new();
-    /// gen.add_union("NumberUnion", &[
+    /// let mut generator = CodeGenerator::new();
+    /// generator.add_union("NumberUnion", &[
     ///     UnionVariant::new("as_u32", TypeDef::U32),
     ///     UnionVariant::new("as_f32", TypeDef::F32),
     ///     UnionVariant::new("as_bytes", TypeDef::Array(Box::new(TypeDef::U8), 4)),
@@ -184,7 +227,7 @@ impl CodeGenerator {
         for (name, fields) in &self.structs {
             let type_deps = deps.entry(name.clone()).or_default();
             for (_, ty) in fields {
-                self.collect_named_deps(ty, type_deps);
+                Self::collect_named_deps(ty, type_deps);
             }
             // Only keep deps that are in our type set
             type_deps.retain(|d| all_types.contains(d));
@@ -198,12 +241,12 @@ impl CodeGenerator {
                     EnumVariant::Unit(_) => {}
                     EnumVariant::Tuple(_, types) => {
                         for ty in types {
-                            self.collect_named_deps(ty, type_deps);
+                            Self::collect_named_deps(ty, type_deps);
                         }
                     }
                     EnumVariant::Struct(_, fields) => {
                         for (_, ty) in fields {
-                            self.collect_named_deps(ty, type_deps);
+                            Self::collect_named_deps(ty, type_deps);
                         }
                     }
                 }
@@ -215,7 +258,7 @@ impl CodeGenerator {
         for (name, variants) in &self.unions {
             let type_deps = deps.entry(name.clone()).or_default();
             for variant in variants {
-                self.collect_named_deps(&variant.ty, type_deps);
+                Self::collect_named_deps(&variant.ty, type_deps);
             }
             type_deps.retain(|d| all_types.contains(d));
         }
@@ -223,7 +266,7 @@ impl CodeGenerator {
         // Build dependencies for aliases
         for (name, ty) in &self.aliases {
             let type_deps = deps.entry(name.clone()).or_default();
-            self.collect_named_deps(ty, type_deps);
+            Self::collect_named_deps(ty, type_deps);
             type_deps.retain(|d| all_types.contains(d));
         }
 
@@ -280,7 +323,7 @@ impl CodeGenerator {
         result
     }
 
-    fn collect_named_deps(&self, ty: &TypeDef, deps: &mut HashSet<String>) {
+    fn collect_named_deps(ty: &TypeDef, deps: &mut HashSet<String>) {
         match ty {
             TypeDef::Named(name) => {
                 deps.insert(name.clone());
@@ -289,16 +332,16 @@ impl CodeGenerator {
             | TypeDef::Option(inner)
             | TypeDef::Box(inner)
             | TypeDef::Array(inner, _) => {
-                self.collect_named_deps(inner, deps);
+                Self::collect_named_deps(inner, deps);
             }
             TypeDef::Tuple(elements) => {
                 for elem in elements {
-                    self.collect_named_deps(elem, deps);
+                    Self::collect_named_deps(elem, deps);
                 }
             }
             TypeDef::HashMap(k, v) | TypeDef::BTreeMap(k, v) => {
-                self.collect_named_deps(k, deps);
-                self.collect_named_deps(v, deps);
+                Self::collect_named_deps(k, deps);
+                Self::collect_named_deps(v, deps);
             }
             _ => {}
         }
@@ -317,293 +360,34 @@ impl CodeGenerator {
     }
 
     fn generate_imports(&self) -> String {
-        let mut imports = vec![
-            // Core functions
-            "access",
-            "accessAt",
-            "createArchive",
-            "toBytes",
-            "serialize",
-            // Schema builders (decoder)
-            "struct",
-            // Schema builders (encoder)
-            "structEncoder",
-        ];
-
-        // Check what primitive types are used
-        let mut used_types = std::collections::HashSet::new();
-        self.collect_used_types(&mut used_types);
-
-        // Primitive decoder imports
-        let primitive_decoders: Vec<_> = [
-            ("u8", "U8"),
-            ("i8", "I8"),
-            ("u16", "U16"),
-            ("i16", "I16"),
-            ("u32", "U32"),
-            ("i32", "I32"),
-            ("u64", "U64"),
-            ("i64", "I64"),
-            ("f32", "F32"),
-            ("f64", "F64"),
-            ("bool", "Bool"),
-            ("char", "Char"),
-            ("unit", "Unit"),
-            ("string", "String"),
-        ]
-        .iter()
-        .filter(|(_, rust_name)| used_types.contains(*rust_name))
-        .map(|(ts_name, _)| *ts_name)
-        .collect();
-
-        imports.extend(primitive_decoders.clone());
-
-        // Primitive encoder imports
-        let primitive_encoders: Vec<_> = [
-            ("u8Encoder", "U8"),
-            ("i8Encoder", "I8"),
-            ("u16Encoder", "U16"),
-            ("i16Encoder", "I16"),
-            ("u32Encoder", "U32"),
-            ("i32Encoder", "I32"),
-            ("u64Encoder", "U64"),
-            ("i64Encoder", "I64"),
-            ("f32Encoder", "F32"),
-            ("f64Encoder", "F64"),
-            ("boolEncoder", "Bool"),
-            ("charEncoder", "Char"),
-            ("unitEncoder", "Unit"),
-            ("stringEncoder", "String"),
-        ]
-        .iter()
-        .filter(|(_, rust_name)| used_types.contains(*rust_name))
-        .map(|(ts_name, _)| *ts_name)
-        .collect();
-
-        imports.extend(primitive_encoders);
-
-        // Container decoder imports
-        if used_types.contains("Vec") {
-            imports.push("vec");
-        }
-        if used_types.contains("Option") {
-            imports.push("option");
-        }
-        if used_types.contains("Box") {
-            imports.push("box_ as box");
-        }
-        if used_types.contains("Array") {
-            imports.push("array");
-        }
-        if used_types.contains("Tuple") {
-            imports.push("tuple");
-        }
-        if used_types.contains("HashMap") || used_types.contains("BTreeMap") {
-            imports.push("hashMap");
-        }
-
-        // Container encoder imports
-        if used_types.contains("Vec") {
-            imports.push("vecEncoder");
-        }
-        if used_types.contains("Option") {
-            imports.push("optionEncoder");
-        }
-        if used_types.contains("Box") {
-            imports.push("boxEncoder");
-        }
-        if used_types.contains("Array") {
-            imports.push("arrayEncoder");
-        }
-        if used_types.contains("Tuple") {
-            imports.push("tupleEncoder");
-        }
-        // Note: hashMapEncoder not yet implemented in TS, skip for now
-
-        // Add enumType if we have enums
-        if !self.enums.is_empty() {
-            imports.push("enumType");
-            imports.push("enumEncoder");
-        }
-
-        // Add union if we have unions
-        if !self.unions.is_empty() {
-            imports.push("union");
-            imports.push("unionEncoder");
-            imports.push("type UnionDecoder");
-            imports.push("type UnionEncoderType");
-        }
-
-        // Add type imports
-        imports.push("type RkyvDecoder");
-        imports.push("type RkyvEncoder");
-        imports.push("type Infer");
-
-        format!(
-            "import {{\n  {},\n}} from 'rkyv-js';",
-            imports.join(",\n  ")
-        )
-    }
-
-    fn collect_used_types(&self, used: &mut std::collections::HashSet<String>) {
-        for fields in self.structs.values() {
-            for (_, ty) in fields {
-                self.collect_type_names(ty, used);
-            }
-        }
-        for variants in self.enums.values() {
-            for variant in variants {
-                match variant {
-                    EnumVariant::Unit(_) => {}
-                    EnumVariant::Tuple(_, types) => {
-                        for ty in types {
-                            self.collect_type_names(ty, used);
-                        }
-                    }
-                    EnumVariant::Struct(_, fields) => {
-                        for (_, ty) in fields {
-                            self.collect_type_names(ty, used);
-                        }
-                    }
-                }
-            }
-        }
-        for ty in self.aliases.values() {
-            self.collect_type_names(ty, used);
-        }
-        for variants in self.unions.values() {
-            for variant in variants {
-                self.collect_type_names(&variant.ty, used);
-            }
-        }
-    }
-
-    fn collect_type_names(&self, ty: &TypeDef, used: &mut std::collections::HashSet<String>) {
-        match ty {
-            TypeDef::U8 => {
-                used.insert("U8".to_string());
-            }
-            TypeDef::I8 => {
-                used.insert("I8".to_string());
-            }
-            TypeDef::U16 => {
-                used.insert("U16".to_string());
-            }
-            TypeDef::I16 => {
-                used.insert("I16".to_string());
-            }
-            TypeDef::U32 => {
-                used.insert("U32".to_string());
-            }
-            TypeDef::I32 => {
-                used.insert("I32".to_string());
-            }
-            TypeDef::U64 => {
-                used.insert("U64".to_string());
-            }
-            TypeDef::I64 => {
-                used.insert("I64".to_string());
-            }
-            TypeDef::F32 => {
-                used.insert("F32".to_string());
-            }
-            TypeDef::F64 => {
-                used.insert("F64".to_string());
-            }
-            TypeDef::Bool => {
-                used.insert("Bool".to_string());
-            }
-            TypeDef::Char => {
-                used.insert("Char".to_string());
-            }
-            TypeDef::Unit => {
-                used.insert("Unit".to_string());
-            }
-            TypeDef::String => {
-                used.insert("String".to_string());
-            }
-            TypeDef::Vec(inner) => {
-                used.insert("Vec".to_string());
-                self.collect_type_names(inner, used);
-            }
-            TypeDef::Option(inner) => {
-                used.insert("Option".to_string());
-                self.collect_type_names(inner, used);
-            }
-            TypeDef::Box(inner) => {
-                used.insert("Box".to_string());
-                self.collect_type_names(inner, used);
-            }
-            TypeDef::Array(inner, _) => {
-                used.insert("Array".to_string());
-                self.collect_type_names(inner, used);
-            }
-            TypeDef::Tuple(elements) => {
-                used.insert("Tuple".to_string());
-                for elem in elements {
-                    self.collect_type_names(elem, used);
-                }
-            }
-            TypeDef::HashMap(k, v) => {
-                used.insert("HashMap".to_string());
-                self.collect_type_names(k, used);
-                self.collect_type_names(v, used);
-            }
-            TypeDef::BTreeMap(k, v) => {
-                used.insert("BTreeMap".to_string());
-                self.collect_type_names(k, used);
-                self.collect_type_names(v, used);
-            }
-            TypeDef::Named(_) => {}
-        }
+        // With the unified codec API, we only need to import `r`
+        "import { r } from 'rkyv-js';".to_string()
     }
 
     fn generate_alias(&self, name: &str, target: &TypeDef) -> String {
         format!(
-            "// Type alias: {name}\nexport type {name} = {};\nexport const {name}Decoder = {};\nexport const {name}Encoder = {};",
+            "// Type alias: {name}\nexport type {name} = {};\nexport const {name} = {};",
             target.to_ts_type(),
-            target.to_decoder_expr(),
-            target.to_encoder_expr()
+            target.to_codec_expr()
         )
     }
 
     fn generate_struct(&self, name: &str, fields: &[(String, TypeDef)]) -> String {
         let mut output = String::new();
 
-        // TypeScript interface
-        output.push_str(&format!("export interface {} {{\n", name));
-        for (field_name, field_type) in fields {
-            output.push_str(&format!("  {}: {};\n", field_name, field_type.to_ts_type()));
-        }
-        output.push_str("}\n\n");
-
-        // Decoder
-        output.push_str(&format!(
-            "export const {}Decoder: RkyvDecoder<{}> = struct({{\n",
-            name, name
-        ));
+        // Unified codec using r.object()
+        output.push_str(&format!("export const {} = r.object({{\n", name));
         for (field_name, field_type) in fields {
             output.push_str(&format!(
-                "  {}: {{ decoder: {} }},\n",
+                "  {}: {},\n",
                 field_name,
-                field_type.to_decoder_expr()
+                field_type.to_codec_expr()
             ));
         }
         output.push_str("});\n\n");
 
-        // Encoder
-        output.push_str(&format!(
-            "export const {}Encoder: RkyvEncoder<{}> = structEncoder({{\n",
-            name, name
-        ));
-        for (field_name, field_type) in fields {
-            output.push_str(&format!(
-                "  {}: {{ encoder: {} }},\n",
-                field_name,
-                field_type.to_encoder_expr()
-            ));
-        }
-        output.push_str("});");
+        // TypeScript type inference
+        output.push_str(&format!("export type {} = r.infer<typeof {}>;", name, name));
 
         output
     }
@@ -611,77 +395,22 @@ impl CodeGenerator {
     fn generate_enum(&self, name: &str, variants: &[EnumVariant]) -> String {
         let mut output = String::new();
 
-        // Generate variant value types
-        let mut variant_types = Vec::new();
+        // Unified codec using r.taggedEnum()
+        output.push_str(&format!("export const {} = r.taggedEnum({{\n", name));
         for variant in variants {
             match variant {
                 EnumVariant::Unit(vname) => {
-                    variant_types.push(format!("  {}: undefined", vname));
+                    output.push_str(&format!("  {}: r.unit,\n", vname));
                 }
                 EnumVariant::Tuple(vname, types) => {
-                    // For tuple variants, use numbered fields
+                    // For tuple variants, use numbered fields in an object
                     let fields: Vec<_> = types
                         .iter()
                         .enumerate()
-                        .map(|(i, t)| format!("_{}: {}", i, t.to_ts_type()))
-                        .collect();
-                    variant_types.push(format!("  {}: {{ {} }}", vname, fields.join("; ")));
-                }
-                EnumVariant::Struct(vname, fields) => {
-                    let fields: Vec<_> = fields
-                        .iter()
-                        .map(|(n, t)| format!("{}: {}", n, t.to_ts_type()))
-                        .collect();
-                    variant_types.push(format!("  {}: {{ {} }}", vname, fields.join("; ")));
-                }
-            }
-        }
-
-        // Variant map type
-        output.push_str(&format!(
-            "export type {}Variants = {{\n{};\n}};\n\n",
-            name,
-            variant_types.join(";\n")
-        ));
-
-        // Union type for the enum
-        let union_members: Vec<_> = variants
-            .iter()
-            .map(|v| {
-                let vname = v.name();
-                match v {
-                    EnumVariant::Unit(_) => format!("{{ tag: '{}'; value: undefined }}", vname),
-                    _ => format!(
-                        "{{ tag: '{}'; value: {}Variants['{}'] }}",
-                        vname, name, vname
-                    ),
-                }
-            })
-            .collect();
-        output.push_str(&format!(
-            "export type {} =\n  | {};\n\n",
-            name,
-            union_members.join("\n  | ")
-        ));
-
-        // Decoder
-        output.push_str(&format!(
-            "export const {}Decoder: RkyvDecoder<{}> = enumType<{}Variants>({{\n",
-            name, name, name
-        ));
-        for variant in variants {
-            match variant {
-                EnumVariant::Unit(vname) => {
-                    output.push_str(&format!("  {}: {{}},\n", vname));
-                }
-                EnumVariant::Tuple(vname, types) => {
-                    let fields: Vec<_> = types
-                        .iter()
-                        .enumerate()
-                        .map(|(i, t)| format!("_{}: {{ decoder: {} }}", i, t.to_decoder_expr()))
+                        .map(|(i, t)| format!("_{}: {}", i, t.to_codec_expr()))
                         .collect();
                     output.push_str(&format!(
-                        "  {}: {{ fields: {{ {} }} }},\n",
+                        "  {}: r.object({{ {} }}),\n",
                         vname,
                         fields.join(", ")
                     ));
@@ -689,10 +418,10 @@ impl CodeGenerator {
                 EnumVariant::Struct(vname, fields) => {
                     let field_defs: Vec<_> = fields
                         .iter()
-                        .map(|(n, t)| format!("{}: {{ decoder: {} }}", n, t.to_decoder_expr()))
+                        .map(|(n, t)| format!("{}: {}", n, t.to_codec_expr()))
                         .collect();
                     output.push_str(&format!(
-                        "  {}: {{ fields: {{ {} }} }},\n",
+                        "  {}: r.object({{ {} }}),\n",
                         vname,
                         field_defs.join(", ")
                     ));
@@ -701,42 +430,8 @@ impl CodeGenerator {
         }
         output.push_str("});\n\n");
 
-        // Encoder
-        output.push_str(&format!(
-            "export const {}Encoder: RkyvEncoder<{}> = enumEncoder<{}Variants>({{\n",
-            name, name, name
-        ));
-        for variant in variants {
-            match variant {
-                EnumVariant::Unit(vname) => {
-                    output.push_str(&format!("  {}: {{}},\n", vname));
-                }
-                EnumVariant::Tuple(vname, types) => {
-                    let fields: Vec<_> = types
-                        .iter()
-                        .enumerate()
-                        .map(|(i, t)| format!("_{}: {{ encoder: {} }}", i, t.to_encoder_expr()))
-                        .collect();
-                    output.push_str(&format!(
-                        "  {}: {{ fields: {{ {} }} }},\n",
-                        vname,
-                        fields.join(", ")
-                    ));
-                }
-                EnumVariant::Struct(vname, fields) => {
-                    let field_defs: Vec<_> = fields
-                        .iter()
-                        .map(|(n, t)| format!("{}: {{ encoder: {} }}", n, t.to_encoder_expr()))
-                        .collect();
-                    output.push_str(&format!(
-                        "  {}: {{ fields: {{ {} }} }},\n",
-                        vname,
-                        field_defs.join(", ")
-                    ));
-                }
-            }
-        }
-        output.push_str("});");
+        // TypeScript type inference
+        output.push_str(&format!("export type {} = r.infer<typeof {}>;", name, name));
 
         output
     }
@@ -744,7 +439,7 @@ impl CodeGenerator {
     fn generate_union(&self, name: &str, variants: &[UnionVariant]) -> String {
         let mut output = String::new();
 
-        // Generate the variants type (for accessing specific variants)
+        // Generate the variants interface for documentation
         output.push_str(&format!("export interface {}Variants {{\n", name));
         for variant in variants {
             output.push_str(&format!(
@@ -755,36 +450,27 @@ impl CodeGenerator {
         }
         output.push_str("}\n\n");
 
-        // Generate the union type (decoding all variants at once)
-        output.push_str(&format!("export type {} = {}Variants;\n\n", name, name));
-
-        // Generate the decoder
+        // Generate the union codec using r.union()
+        // Note: r.union requires a discriminate function - for now we generate a placeholder
         output.push_str(&format!(
-            "export const {}Decoder: UnionDecoder<{}Variants> = union({{\n",
-            name, name
+            "// Union codec for {}\n// Note: You need to provide a discriminate function based on your data format\n",
+            name
+        ));
+        output.push_str(&format!(
+            "export const {} = r.union(\n  // discriminate: (reader, offset) => keyof {}Variants\n  (reader, offset) => {{ throw new Error('Discriminate function not implemented for {}'); }},\n  {{\n",
+            name, name, name
         ));
         for variant in variants {
             output.push_str(&format!(
-                "  {}: {{ decoder: {} }},\n",
+                "    {}: {},\n",
                 variant.name,
-                variant.ty.to_decoder_expr()
+                variant.ty.to_codec_expr()
             ));
         }
-        output.push_str("});\n\n");
+        output.push_str("  }\n);\n\n");
 
-        // Generate the encoder
-        output.push_str(&format!(
-            "export const {}Encoder: UnionEncoderType<{}Variants> = unionEncoder({{\n",
-            name, name
-        ));
-        for variant in variants {
-            output.push_str(&format!(
-                "  {}: {{ encoder: {} }},\n",
-                variant.name,
-                variant.ty.to_encoder_expr()
-            ));
-        }
-        output.push_str("});");
+        // TypeScript type inference
+        output.push_str(&format!("export type {} = r.infer<typeof {}>;", name, name));
 
         output
     }
@@ -796,20 +482,21 @@ mod tests {
 
     #[test]
     fn test_generate_simple_struct() {
-        let mut gen = CodeGenerator::new();
-        gen.add_struct("Point", &[("x", TypeDef::F64), ("y", TypeDef::F64)]);
+        let mut codegen = CodeGenerator::new();
+        codegen.add_struct("Point", &[("x", TypeDef::F64), ("y", TypeDef::F64)]);
 
-        let code = gen.generate();
-        assert!(code.contains("export interface Point"));
-        assert!(code.contains("x: number"));
-        assert!(code.contains("y: number"));
-        assert!(code.contains("export const PointDecoder"));
+        let code = codegen.generate();
+        assert!(code.contains("import { r } from 'rkyv-js';"));
+        assert!(code.contains("export const Point = r.object({"));
+        assert!(code.contains("x: r.f64"));
+        assert!(code.contains("y: r.f64"));
+        assert!(code.contains("export type Point = r.infer<typeof Point>;"));
     }
 
     #[test]
     fn test_generate_enum() {
-        let mut gen = CodeGenerator::new();
-        gen.add_enum(
+        let mut codegen = CodeGenerator::new();
+        codegen.add_enum(
             "Status",
             &[
                 EnumVariant::Unit("Pending".to_string()),
@@ -817,16 +504,17 @@ mod tests {
             ],
         );
 
-        let code = gen.generate();
-        assert!(code.contains("export type StatusVariants"));
-        assert!(code.contains("export type Status ="));
-        assert!(code.contains("export const StatusDecoder"));
+        let code = codegen.generate();
+        assert!(code.contains("export const Status = r.taggedEnum({"));
+        assert!(code.contains("Pending: r.unit"));
+        assert!(code.contains("Active: r.unit"));
+        assert!(code.contains("export type Status = r.infer<typeof Status>;"));
     }
 
     #[test]
     fn test_generate_nested_types() {
-        let mut gen = CodeGenerator::new();
-        gen.add_struct(
+        let mut codegen = CodeGenerator::new();
+        codegen.add_struct(
             "Person",
             &[
                 ("name", TypeDef::String),
@@ -836,17 +524,17 @@ mod tests {
             ],
         );
 
-        let code = gen.generate();
-        assert!(code.contains("scores: number[]"));
-        assert!(code.contains("email: string | null"));
-        assert!(code.contains("vec(u32)"));
-        assert!(code.contains("option(string)"));
+        let code = codegen.generate();
+        assert!(code.contains("name: r.string"));
+        assert!(code.contains("age: r.u32"));
+        assert!(code.contains("scores: r.vec(r.u32)"));
+        assert!(code.contains("email: r.optional(r.string)"));
     }
 
     #[test]
     fn test_generate_union() {
-        let mut gen = CodeGenerator::new();
-        gen.add_union(
+        let mut codegen = CodeGenerator::new();
+        codegen.add_union(
             "NumberUnion",
             &[
                 UnionVariant::new("asU32", TypeDef::U32),
@@ -855,12 +543,36 @@ mod tests {
             ],
         );
 
-        let code = gen.generate();
+        let code = codegen.generate();
         assert!(code.contains("export interface NumberUnionVariants"));
         assert!(code.contains("asU32: number"));
         assert!(code.contains("asF32: number"));
         assert!(code.contains("asBytes: number[]"));
-        assert!(code.contains("export const NumberUnionDecoder: UnionDecoder"));
-        assert!(code.contains("union({"));
+        assert!(code.contains("export const NumberUnion = r.union("));
+        assert!(code.contains("asU32: r.u32"));
+    }
+
+    #[test]
+    fn test_generate_enum_with_data() {
+        let mut codegen = CodeGenerator::new();
+        codegen.add_enum(
+            "Message",
+            &[
+                EnumVariant::Unit("Quit".to_string()),
+                EnumVariant::Struct(
+                    "Move".to_string(),
+                    vec![
+                        ("x".to_string(), TypeDef::I32),
+                        ("y".to_string(), TypeDef::I32),
+                    ],
+                ),
+                EnumVariant::Tuple("Write".to_string(), vec![TypeDef::String]),
+            ],
+        );
+
+        let code = codegen.generate();
+        assert!(code.contains("Quit: r.unit"));
+        assert!(code.contains("Move: r.object({ x: r.i32, y: r.i32 })"));
+        assert!(code.contains("Write: r.object({ _0: r.string })"));
     }
 }

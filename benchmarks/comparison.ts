@@ -1,90 +1,33 @@
-/**
- * Benchmark comparing rkyv-js against other serialization formats.
- *
- * Run with: npm run benchmark
- */
-
+import * as path from 'node:path';
 import { run, bench, group, summary } from 'mitata';
 import * as capnp from 'capnp-es';
 import { encode as cborEncode, decode as cborDecode } from 'cbor-x';
 import protobuf from 'protobufjs';
 
-// Import rkyv-js from dist
-import {
-  access,
-  toBytes,
-  struct,
-  vec,
-  option,
-  string,
-  u32,
-  f64,
-  bool,
-  structEncoder,
-  vecEncoder,
-  optionEncoder,
-  stringEncoder,
-  u32Encoder,
-  f64Encoder,
-  boolEncoder,
-  type RkyvDecoder,
-  type RkyvEncoder,
-} from '../dist/index.js';
+import { r } from 'rkyv-js';
 
-// Import Cap'n Proto generated types
-import { Point as CapnpPoint, Person as CapnpPerson } from './schema.ts';
+import { Point as CapnpPoint, Person as CapnpPerson } from './capnp/schema.ts';
 
-// Load protobuf schema
-const protoRoot = await protobuf.load(new URL('./schema.proto', import.meta.url).pathname);
-const ProtoPoint = protoRoot.lookupType('Point');
-const ProtoPerson = protoRoot.lookupType('Person');
+const ProtoRoot = await protobuf.load(path.join(import.meta.dirname, 'protobuf/schema.proto'));
+const ProtoPoint = ProtoRoot.lookupType('Point');
+const ProtoPerson = ProtoRoot.lookupType('Person');
 
-// ============================================================================
-// rkyv-js type definitions
-// ============================================================================
-
-interface Point {
-  x: number;
-  y: number;
-}
-
-interface Person {
-  name: string;
-  age: number;
-  email: string | null;
-  scores: number[];
-  active: boolean;
-}
-
-const PointDecoder: RkyvDecoder<Point> = struct({
-  x: { decoder: f64 },
-  y: { decoder: f64 },
+const PointCodec = r.object({
+  x: r.f64,
+  y: r.f64,
 });
 
-const PointEncoder: RkyvEncoder<Point> = structEncoder({
-  x: { encoder: f64Encoder },
-  y: { encoder: f64Encoder },
+type Point = r.infer<typeof PointCodec>;
+
+const PersonCodec = r.object({
+  name: r.string,
+  age: r.u32,
+  email: r.optional(r.string),
+  scores: r.vec(r.u32),
+  active: r.bool,
 });
 
-const PersonDecoder: RkyvDecoder<Person> = struct({
-  name: { decoder: string },
-  age: { decoder: u32 },
-  email: { decoder: option(string) },
-  scores: { decoder: vec(u32) },
-  active: { decoder: bool },
-});
-
-const PersonEncoder: RkyvEncoder<Person> = structEncoder({
-  name: { encoder: stringEncoder },
-  age: { encoder: u32Encoder },
-  email: { encoder: optionEncoder(stringEncoder) },
-  scores: { encoder: vecEncoder(u32Encoder) },
-  active: { encoder: boolEncoder },
-});
-
-// ============================================================================
-// Test data
-// ============================================================================
+type Person = r.infer<typeof PersonCodec>;
 
 const testPoint: Point = {
   x: 42.5,
@@ -107,16 +50,10 @@ const testPersonLarge: Person = {
   active: true,
 };
 
-// ============================================================================
-// Pre-serialized buffers for decode benchmarks
-// ============================================================================
+const rkyvPointBytes = r.encode(testPoint, PointCodec);
+const rkyvPersonBytes = r.encode(testPerson, PersonCodec);
+const rkyvPersonLargeBytes = r.encode(testPersonLarge, PersonCodec);
 
-// rkyv buffers
-const rkyvPointBytes = toBytes(testPoint, PointEncoder);
-const rkyvPersonBytes = toBytes(testPerson, PersonEncoder);
-const rkyvPersonLargeBytes = toBytes(testPersonLarge, PersonEncoder);
-
-// Cap'n Proto buffers
 function createCapnpPoint(point: Point): ArrayBuffer {
   const message = new capnp.Message();
   const root = message.initRoot(CapnpPoint);
@@ -143,29 +80,24 @@ const capnpPointBuffer = createCapnpPoint(testPoint);
 const capnpPersonBuffer = createCapnpPerson(testPerson);
 const capnpPersonLargeBuffer = createCapnpPerson(testPersonLarge);
 
-// Create Uint8Array views for capnp (Message constructor accepts ArrayBufferView)
 const capnpPointBytes = new Uint8Array(capnpPointBuffer);
 const capnpPersonBytes = new Uint8Array(capnpPersonBuffer);
 const capnpPersonLargeBytes = new Uint8Array(capnpPersonLargeBuffer);
 
-// JSON buffers (for fair bytes comparison)
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
 const jsonPointStr = JSON.stringify(testPoint);
-const jsonPersonStr = JSON.stringify(testPerson);
-const jsonPersonLargeStr = JSON.stringify(testPersonLarge);
-
 const jsonPointBytes = textEncoder.encode(jsonPointStr);
+const jsonPersonStr = JSON.stringify(testPerson);
 const jsonPersonBytes = textEncoder.encode(jsonPersonStr);
+const jsonPersonLargeStr = JSON.stringify(testPersonLarge);
 const jsonPersonLargeBytes = textEncoder.encode(jsonPersonLargeStr);
 
-// CBOR buffers
 const cborPointBytes = cborEncode(testPoint);
 const cborPersonBytes = cborEncode(testPerson);
 const cborPersonLargeBytes = cborEncode(testPersonLarge);
 
-// Protobuf buffers
 const protoPointBytes = ProtoPoint.encode(ProtoPoint.fromObject(testPoint)).finish();
 const protoPersonBytes = ProtoPerson.encode(ProtoPerson.fromObject({
   ...testPerson,
@@ -175,10 +107,6 @@ const protoPersonLargeBytes = ProtoPerson.encode(ProtoPerson.fromObject({
   ...testPersonLarge,
   email: testPersonLarge.email ?? undefined,
 })).finish();
-
-// ============================================================================
-// Benchmarks
-// ============================================================================
 
 console.log('Buffer sizes comparison:');
 console.log('  Point:');
@@ -208,8 +136,8 @@ summary(() => {
       JSON.parse(textDecoder.decode(jsonPointBytes));
     });
 
-    bench('rkyv-js', () => {
-      access(rkyvPointBytes, PointDecoder);
+    bench('rkyv-js decode', () => {
+      r.decode(rkyvPointBytes, PointCodec);
     }).baseline();
 
     bench('cbor-x', () => {
@@ -230,7 +158,6 @@ summary(() => {
   });
 });
 
-// Point encode benchmarks (object -> bytes)
 summary(() => {
   group('Point encode', () => {
     bench('JSON (to bytes)', () => {
@@ -238,7 +165,7 @@ summary(() => {
     });
 
     bench('rkyv-js', () => {
-      toBytes(testPoint, PointEncoder);
+      r.encode(testPoint, PointCodec);
     }).baseline();
 
     bench('cbor-x', () => {
@@ -262,8 +189,8 @@ summary(() => {
       JSON.parse(textDecoder.decode(jsonPersonBytes));
     });
 
-    bench('rkyv-js', () => {
-      access(rkyvPersonBytes, PersonDecoder);
+    bench('rkyv-js decode', () => {
+      r.decode(rkyvPersonBytes, PersonCodec);
     }).baseline();
 
     bench('cbor-x', () => {
@@ -287,7 +214,6 @@ summary(() => {
   });
 });
 
-// Person (small) encode benchmarks (object -> bytes)
 summary(() => {
   group('Person (small) encode', () => {
     bench('JSON (to bytes)', () => {
@@ -295,18 +221,19 @@ summary(() => {
     });
 
     bench('rkyv-js', () => {
-      toBytes(testPerson, PersonEncoder);
+      r.encode(testPerson, PersonCodec);
     }).baseline();
 
     bench('cbor-x', () => {
       cborEncode(testPerson);
     });
 
+    const testPersonUndefined = {
+      ...testPerson,
+      email: testPerson.email ?? undefined,
+    };
     bench('protobufjs', () => {
-      ProtoPerson.encode(ProtoPerson.fromObject({
-        ...testPerson,
-        email: testPerson.email ?? undefined,
-      })).finish();
+      ProtoPerson.encode(ProtoPerson.fromObject(testPersonUndefined)).finish();
     });
 
     bench('capnp-es', () => {
@@ -315,16 +242,19 @@ summary(() => {
   });
 });
 
-// Person (large) decode benchmarks (bytes -> object)
 summary(() => {
   group('Person (large) decode', () => {
     bench('JSON (bytes)', () => {
       JSON.parse(textDecoder.decode(jsonPersonLargeBytes));
     });
 
-    bench('rkyv-js', () => {
-      access(rkyvPersonLargeBytes, PersonDecoder);
+    bench('rkyv-js decode', () => {
+      r.decode(rkyvPersonLargeBytes, PersonCodec);
     }).baseline();
+
+    bench('rkyv-js access', () => {
+      r.access(rkyvPersonLargeBytes, PersonCodec);
+    });
 
     bench('cbor-x', () => {
       cborDecode(cborPersonLargeBytes);
@@ -347,7 +277,6 @@ summary(() => {
   });
 });
 
-// Person (large) encode benchmarks (object -> bytes)
 summary(() => {
   group('Person (large) encode', () => {
     bench('JSON (to bytes)', () => {
@@ -355,18 +284,19 @@ summary(() => {
     });
 
     bench('rkyv-js', () => {
-      toBytes(testPersonLarge, PersonEncoder);
+      r.encode(testPersonLarge, PersonCodec);
     }).baseline();
 
     bench('cbor-x', () => {
       cborEncode(testPersonLarge);
     });
 
+    const testPersonLargeUndefined = {
+      ...testPersonLarge,
+      email: testPersonLarge.email ?? undefined,
+    };
     bench('protobufjs', () => {
-      ProtoPerson.encode(ProtoPerson.fromObject({
-        ...testPersonLarge,
-        email: testPersonLarge.email ?? undefined,
-      })).finish();
+      ProtoPerson.encode(ProtoPerson.fromObject(testPersonLargeUndefined)).finish();
     });
 
     bench('capnp-es', () => {
@@ -377,7 +307,7 @@ summary(() => {
 
 // Zero-copy access pattern (rkyv's strength)
 summary(() => {
-  group('Zero-copy field access (1000 iterations)', () => {
+  group('Field access after decode (1000 iterations)', () => {
     const iterations = 1000;
 
     bench('JSON (parse once, access fields)', () => {
@@ -389,14 +319,23 @@ summary(() => {
       }
     });
 
-    bench('rkyv-js (decode once, access fields)', () => {
-      const person = access(rkyvPersonLargeBytes, PersonDecoder);
+    bench('rkyv-js decode', () => {
+      const person = r.decode(rkyvPersonLargeBytes, PersonCodec);
       for (let i = 0; i < iterations; i++) {
         void person.name;
         void person.age;
         void person.active;
       }
     }).baseline();
+
+    bench('rkyv-js access (lazy)', () => {
+      const person = r.access(rkyvPersonLargeBytes, PersonCodec);
+      for (let i = 0; i < iterations; i++) {
+        void person.name;
+        void person.age;
+        void person.active;
+      }
+    });
 
     bench('cbor-x (decode once, access fields)', () => {
       const obj = cborDecode(cborPersonLargeBytes);
@@ -428,7 +367,7 @@ summary(() => {
   });
 });
 
-// Selective field access (only access some fields)
+// Selective field access (only access some fields) - this is where zero-copy shines
 summary(() => {
   group('Selective field access (name + age only)', () => {
     bench('JSON (bytes)', () => {
@@ -437,8 +376,14 @@ summary(() => {
       void obj.age;
     });
 
-    bench('rkyv-js', () => {
-      const person = access(rkyvPersonLargeBytes, PersonDecoder);
+    bench('rkyv-js decode', () => {
+      const person = r.decode(rkyvPersonLargeBytes, PersonCodec);
+      void person.name;
+      void person.age;
+    });
+
+    bench('rkyv-js access (lazy)', () => {
+      const person = r.access(rkyvPersonLargeBytes, PersonCodec);
       void person.name;
       void person.age;
     }).baseline();
@@ -455,7 +400,7 @@ summary(() => {
       void obj.age;
     });
 
-    bench('capnp-es', () => {
+    bench('capnp-es (lazy)', () => {
       const message = new capnp.Message(capnpPersonLargeBytes, false);
       const person = message.getRoot(CapnpPerson);
       void person.name;
@@ -464,6 +409,52 @@ summary(() => {
   });
 });
 
-await run({
-  colors: true,
+// Partial array access - only access first few elements of large array
+summary(() => {
+  group('Partial array access (first 3 of 100 scores)', () => {
+    bench('JSON (bytes)', () => {
+      const obj = JSON.parse(textDecoder.decode(jsonPersonLargeBytes));
+      void obj.scores[0];
+      void obj.scores[1];
+      void obj.scores[2];
+    });
+
+    bench('rkyv-js decode', () => {
+      const person = r.decode(rkyvPersonLargeBytes, PersonCodec);
+      void person.scores[0];
+      void person.scores[1];
+      void person.scores[2];
+    });
+
+    bench('rkyv-js access (lazy)', () => {
+      const person = r.access(rkyvPersonLargeBytes, PersonCodec);
+      void person.scores[0];
+      void person.scores[1];
+      void person.scores[2];
+    }).baseline();
+
+    bench('cbor-x', () => {
+      const obj = cborDecode(cborPersonLargeBytes);
+      void obj.scores[0];
+      void obj.scores[1];
+      void obj.scores[2];
+    });
+
+    bench('protobufjs', () => {
+      const obj = ProtoPerson.decode(protoPersonLargeBytes) as unknown as Person;
+      void obj.scores[0];
+      void obj.scores[1];
+      void obj.scores[2];
+    });
+
+    bench('capnp-es (lazy)', () => {
+      const message = new capnp.Message(capnpPersonLargeBytes, false);
+      const person = message.getRoot(CapnpPerson);
+      void person.scores.get(0);
+      void person.scores.get(1);
+      void person.scores.get(2);
+    });
+  });
 });
+
+await run();

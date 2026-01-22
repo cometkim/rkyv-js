@@ -1,9 +1,0 @@
-GameState {
-    player_position: Point {
-        x: 0.0,
-        y: 0.0,
-    },
-    health: 100,
-    inventory: [],
-    current_message: None,
-}

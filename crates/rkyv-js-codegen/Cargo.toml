@@ -1,9 +1,9 @@
 [package]
 name = "rkyv-js-codegen"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 license = "MIT"
-description = "TypeScript code generator for rkyv types - generates decoder bindings for rkyv-js"
+description = "TypeScript code generator for rkyv types"
 repository = "https://github.com/cometkim/rkyv-js"
 keywords = ["rkyv", "typescript", "codegen", "serialization"]
 categories = ["development-tools::ffi", "encoding"]

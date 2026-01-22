@@ -13,16 +13,25 @@ use syn::{
 };
 use walkdir::WalkDir;
 
-/// Check if a derive input has the `TypeScript` derive macro.
-fn has_typescript_derive(attrs: &[Attribute]) -> bool {
+/// Check if a derive input has any of the specified marker derives.
+///
+/// Matches any path whose last segment matches one of the markers, which handles:
+/// - `TypeScript` (direct import)
+/// - `rkyv_js_codegen::TypeScript` (qualified path)
+/// - `my_alias::TypeScript` (re-exports)
+/// - Custom aliases via `add_marker("TS")`
+fn has_marker_derive(attrs: &[Attribute], markers: &[String]) -> bool {
     for attr in attrs {
         if attr.path().is_ident("derive") {
             if let Ok(nested) = attr.parse_args_with(
                 syn::punctuated::Punctuated::<syn::Path, syn::Token![,]>::parse_terminated,
             ) {
                 for path in nested {
-                    if path.is_ident("TypeScript") {
-                        return true;
+                    if let Some(last_segment) = path.segments.last() {
+                        let ident = last_segment.ident.to_string();
+                        if markers.iter().any(|m| m == &ident) {
+                            return true;
+                        }
                     }
                 }
             }
@@ -226,9 +235,9 @@ fn extract_enum(
         .collect()
 }
 
-/// Process a single DeriveInput and add it to the generator if it has TypeScript derive.
-fn process_derive_input(gen: &mut CodeGenerator, input: &DeriveInput) {
-    if !has_typescript_derive(&input.attrs) {
+/// Process a single DeriveInput and add it to the generator if it has a marker derive.
+fn process_derive_input(codegen: &mut CodeGenerator, input: &DeriveInput, markers: &[String]) {
+    if !has_marker_derive(&input.attrs, markers) {
         return;
     }
 
@@ -241,12 +250,12 @@ fn process_derive_input(gen: &mut CodeGenerator, input: &DeriveInput) {
                     .iter()
                     .map(|(n, t)| (n.as_str(), t.clone()))
                     .collect();
-                gen.add_struct(&name, &fields_ref);
+                codegen.add_struct(&name, &fields_ref);
             }
         }
         Data::Enum(data) => {
             if let Some(variants) = extract_enum(&data.variants) {
-                gen.add_enum(&name, &variants);
+                codegen.add_enum(&name, &variants);
             }
         }
         Data::Union(_) => {
@@ -255,8 +264,8 @@ fn process_derive_input(gen: &mut CodeGenerator, input: &DeriveInput) {
     }
 }
 
-/// Parse a Rust source file and extract TypeScript-annotated types.
-fn parse_source_file(gen: &mut CodeGenerator, source: &str) {
+/// Parse a Rust source file and extract marker-annotated types.
+fn parse_source_file(codegen: &mut CodeGenerator, source: &str, markers: &[String]) {
     let file = match syn::parse_file(source) {
         Ok(f) => f,
         Err(_) => return,
@@ -275,7 +284,7 @@ fn parse_source_file(gen: &mut CodeGenerator, source: &str) {
                     semi_token: s.semi_token,
                 }),
             };
-            process_derive_input(gen, &input);
+            process_derive_input(codegen, &input, markers);
         } else if let syn::Item::Enum(e) = item {
             let input = DeriveInput {
                 attrs: e.attrs,
@@ -288,13 +297,16 @@ fn parse_source_file(gen: &mut CodeGenerator, source: &str) {
                     variants: e.variants,
                 }),
             };
-            process_derive_input(gen, &input);
+            process_derive_input(codegen, &input, markers);
         }
     }
 }
 
 impl CodeGenerator {
-    /// Parse a single Rust source file and extract types with `#[derive(TypeScript)]`.
+    /// Parse a single Rust source file and extract types with marker derives.
+    ///
+    /// By default, looks for `#[derive(TypeScript)]` or any path ending with `TypeScript`.
+    /// Use `add_marker()` to recognize additional marker names.
     ///
     /// # Example
     ///
@@ -305,13 +317,13 @@ impl CodeGenerator {
     /// ```
     pub fn add_source_file(&mut self, path: impl AsRef<Path>) -> std::io::Result<&mut Self> {
         let source = fs::read_to_string(path)?;
-        parse_source_file(self, &source);
+        parse_source_file(self, &source, &self.markers.clone());
         Ok(self)
     }
 
-    /// Parse Rust source from a string and extract types with `#[derive(TypeScript)]`.
+    /// Parse Rust source from a string and extract types with marker derives.
     pub fn add_source_str(&mut self, source: &str) -> &mut Self {
-        parse_source_file(self, source);
+        parse_source_file(self, source, &self.markers.clone());
         self
     }
 
@@ -325,10 +337,12 @@ impl CodeGenerator {
     /// gen.write_to_file("bindings.ts")?;
     /// ```
     pub fn add_source_dir(&mut self, path: impl AsRef<Path>) -> std::io::Result<&mut Self> {
+        let markers = self.markers.clone();
         for entry in WalkDir::new(path).into_iter().filter_map(|e| e.ok()) {
             let path = entry.path();
             if path.extension().map(|e| e == "rs").unwrap_or(false) {
-                self.add_source_file(path)?;
+                let source = fs::read_to_string(path)?;
+                parse_source_file(self, &source, &markers);
             }
         }
         Ok(self)
@@ -351,15 +365,14 @@ mod tests {
             }
         "#;
 
-        let mut gen = CodeGenerator::new();
-        gen.add_source_str(source);
+        let mut codegen = CodeGenerator::new();
+        codegen.add_source_str(source);
 
-        let code = gen.generate();
-        assert!(code.contains("export interface Point"));
-        assert!(code.contains("x: number"));
-        assert!(code.contains("y: number"));
-        assert!(code.contains("PointDecoder"));
-        assert!(code.contains("PointEncoder"));
+        let code = codegen.generate();
+        assert!(code.contains("export const Point = r.object({"));
+        assert!(code.contains("x: r.f64"));
+        assert!(code.contains("y: r.f64"));
+        assert!(code.contains("export type Point = r.infer<typeof Point>;"));
     }
 
     #[test]
@@ -374,14 +387,14 @@ mod tests {
             }
         "#;
 
-        let mut gen = CodeGenerator::new();
-        gen.add_source_str(source);
+        let mut codegen = CodeGenerator::new();
+        codegen.add_source_str(source);
 
-        let code = gen.generate();
-        assert!(code.contains("export interface Person"));
-        assert!(code.contains("name: string"));
-        assert!(code.contains("scores: number[]"));
-        assert!(code.contains("email: string | null"));
+        let code = codegen.generate();
+        assert!(code.contains("export const Person = r.object({"));
+        assert!(code.contains("name: r.string"));
+        assert!(code.contains("scores: r.vec(r.u32)"));
+        assert!(code.contains("email: r.optional(r.string)"));
     }
 
     #[test]
@@ -395,16 +408,15 @@ mod tests {
             }
         "#;
 
-        let mut gen = CodeGenerator::new();
-        gen.add_source_str(source);
+        let mut codegen = CodeGenerator::new();
+        codegen.add_source_str(source);
 
-        let code = gen.generate();
-        assert!(code.contains("export type Message"));
-        assert!(code.contains("MessageDecoder"));
-        assert!(code.contains("MessageEncoder"));
-        assert!(code.contains("Quit"));
-        assert!(code.contains("Move"));
-        assert!(code.contains("Write"));
+        let code = codegen.generate();
+        assert!(code.contains("export const Message = r.taggedEnum({"));
+        assert!(code.contains("export type Message = r.infer<typeof Message>;"));
+        assert!(code.contains("Quit: r.unit"));
+        assert!(code.contains("Move: r.object({"));
+        assert!(code.contains("Write: r.object({"));
     }
 
     #[test]
@@ -421,12 +433,105 @@ mod tests {
             }
         "#;
 
-        let mut gen = CodeGenerator::new();
-        gen.add_source_str(source);
+        let mut codegen = CodeGenerator::new();
+        codegen.add_source_str(source);
 
-        let code = gen.generate();
+        let code = codegen.generate();
         assert!(!code.contains("NotExported"));
         assert!(code.contains("Exported"));
+    }
+
+    #[test]
+    fn test_qualified_typescript_derive() {
+        let source = r#"
+            #[derive(rkyv_js_codegen::TypeScript)]
+            struct QualifiedPath {
+                value: u32,
+            }
+        "#;
+
+        let mut codegen = CodeGenerator::new();
+        codegen.add_source_str(source);
+
+        let code = codegen.generate();
+        assert!(code.contains("export const QualifiedPath = r.object({"));
+        assert!(code.contains("value: r.u32"));
+    }
+
+    #[test]
+    fn test_aliased_typescript_derive() {
+        // Handles re-exports like `use rkyv_js_codegen::TypeScript`
+        // from another module path
+        let source = r#"
+            #[derive(some_alias::TypeScript)]
+            struct AliasedPath {
+                id: u64,
+            }
+
+            #[derive(deeply::nested::module::TypeScript)]
+            struct DeeplyNested {
+                data: String,
+            }
+        "#;
+
+        let mut codegen = CodeGenerator::new();
+        codegen.add_source_str(source);
+
+        let code = codegen.generate();
+        assert!(code.contains("export const AliasedPath = r.object({"));
+        assert!(code.contains("id: r.u64"));
+        assert!(code.contains("export const DeeplyNested = r.object({"));
+        assert!(code.contains("data: r.string"));
+    }
+
+    #[test]
+    fn test_custom_marker_name() {
+        // When using `use rkyv_js_codegen::TypeScript as TS;`
+        let source = r#"
+            #[derive(TS)]
+            struct CustomMarker {
+                value: i32,
+            }
+
+            #[derive(TypeScript)]
+            struct DefaultMarker {
+                value: u32,
+            }
+        "#;
+
+        let mut codegen = CodeGenerator::new();
+        codegen.add_marker("TS");
+        codegen.add_source_str(source);
+
+        let code = codegen.generate();
+        // Both should be extracted
+        assert!(code.contains("export const CustomMarker = r.object({"));
+        assert!(code.contains("export const DefaultMarker = r.object({"));
+    }
+
+    #[test]
+    fn test_replace_markers() {
+        let source = r#"
+            #[derive(TS)]
+            struct WithTS {
+                a: i32,
+            }
+
+            #[derive(TypeScript)]
+            struct WithTypeScript {
+                b: i32,
+            }
+        "#;
+
+        let mut codegen = CodeGenerator::new();
+        // Only look for TS, not TypeScript
+        codegen.set_markers(&["TS"]);
+        codegen.add_source_str(source);
+
+        let code = codegen.generate();
+        assert!(code.contains("export const WithTS = r.object({"));
+        // TypeScript marker should NOT be recognized
+        assert!(!code.contains("WithTypeScript"));
     }
 
     #[test]
@@ -444,14 +549,13 @@ mod tests {
             }
         "#;
 
-        let mut gen = CodeGenerator::new();
-        gen.add_source_str(source);
+        let mut codegen = CodeGenerator::new();
+        codegen.add_source_str(source);
 
-        let code = gen.generate();
-        assert!(code.contains("export interface Inner"));
-        assert!(code.contains("export interface Outer"));
+        let code = codegen.generate();
+        assert!(code.contains("export const Inner = r.object({"));
+        assert!(code.contains("export const Outer = r.object({"));
         assert!(code.contains("inner: Inner"));
-        assert!(code.contains("InnerDecoder"));
-        assert!(code.contains("InnerEncoder"));
+        assert!(code.contains("items: r.vec(Inner)"));
     }
 }

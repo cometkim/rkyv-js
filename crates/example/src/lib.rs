@@ -8,10 +8,9 @@
 //! using `CodeGenerator`.
 
 use rkyv::{Archive, Deserialize, Serialize};
-use rkyv_js_codegen::TypeScript;
 
 /// A simple 2D point.
-#[derive(Archive, Deserialize, Serialize, TypeScript, Debug, Clone)]
+#[derive(Debug, Clone, Archive, Deserialize, Serialize, rkyv_js_codegen::TypeScript)]
 #[rkyv(compare(PartialEq), derive(Debug))]
 pub struct Point {
     pub x: f64,
@@ -19,7 +18,7 @@ pub struct Point {
 }
 
 /// A person with various field types.
-#[derive(Archive, Deserialize, Serialize, TypeScript, Debug, Clone)]
+#[derive(Debug, Clone, Archive, Deserialize, Serialize, rkyv_js_codegen::TypeScript)]
 #[rkyv(compare(PartialEq), derive(Debug))]
 pub struct Person {
     pub name: String,
@@ -30,7 +29,7 @@ pub struct Person {
 }
 
 /// A message enum with different variant types.
-#[derive(Archive, Deserialize, Serialize, TypeScript, Debug, Clone)]
+#[derive(Debug, Clone, Archive, Deserialize, Serialize, rkyv_js_codegen::TypeScript)]
 #[rkyv(compare(PartialEq), derive(Debug))]
 pub enum Message {
     /// No content
@@ -44,7 +43,7 @@ pub enum Message {
 }
 
 /// Game state containing nested structures.
-#[derive(Archive, Deserialize, Serialize, TypeScript, Debug, Clone)]
+#[derive(Debug, Clone, Archive, Deserialize, Serialize, rkyv_js_codegen::TypeScript)]
 #[rkyv(compare(PartialEq), derive(Debug))]
 pub struct GameState {
     pub player_position: Point,

@@ -1,13 +1,13 @@
 [workspace]
 resolver = "2"
 members = [
-    "rkyv-js-codegen",
-    "rkyv-js-derive",
-    "example",
+  "crates/rkyv-js-codegen",
+  "crates/rkyv-js-derive",
+  "crates/example",
 ]
 
 [workspace.package]
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 license = "MIT"
 repository = "https://github.com/cometkim/rkyv-js"

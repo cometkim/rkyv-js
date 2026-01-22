@@ -1,6 +1,6 @@
 //! Type definitions for the code generator.
 
-/// Represents a Rust/rkyv type that can be converted to a TypeScript decoder.
+/// Represents a Rust/rkyv type that can be converted to a TypeScript codec.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypeDef {
     // Primitives
@@ -39,86 +39,56 @@ pub enum TypeDef {
 }
 
 impl TypeDef {
-    /// Generate the TypeScript decoder expression for this type.
-    pub fn to_decoder_expr(&self) -> String {
+    /// Generate the unified codec expression using the `r.*` API.
+    pub fn to_codec_expr(&self) -> String {
         match self {
-            TypeDef::U8 => "u8".to_string(),
-            TypeDef::I8 => "i8".to_string(),
-            TypeDef::U16 => "u16".to_string(),
-            TypeDef::I16 => "i16".to_string(),
-            TypeDef::U32 => "u32".to_string(),
-            TypeDef::I32 => "i32".to_string(),
-            TypeDef::U64 => "u64".to_string(),
-            TypeDef::I64 => "i64".to_string(),
-            TypeDef::F32 => "f32".to_string(),
-            TypeDef::F64 => "f64".to_string(),
-            TypeDef::Bool => "bool".to_string(),
-            TypeDef::Char => "char".to_string(),
-            TypeDef::Unit => "unit".to_string(),
-            TypeDef::String => "string".to_string(),
+            TypeDef::U8 => "r.u8".to_string(),
+            TypeDef::I8 => "r.i8".to_string(),
+            TypeDef::U16 => "r.u16".to_string(),
+            TypeDef::I16 => "r.i16".to_string(),
+            TypeDef::U32 => "r.u32".to_string(),
+            TypeDef::I32 => "r.i32".to_string(),
+            TypeDef::U64 => "r.u64".to_string(),
+            TypeDef::I64 => "r.i64".to_string(),
+            TypeDef::F32 => "r.f32".to_string(),
+            TypeDef::F64 => "r.f64".to_string(),
+            TypeDef::Bool => "r.bool".to_string(),
+            TypeDef::Char => "r.char".to_string(),
+            TypeDef::Unit => "r.unit".to_string(),
+            TypeDef::String => "r.string".to_string(),
 
-            TypeDef::Vec(inner) => format!("vec({})", inner.to_decoder_expr()),
-            TypeDef::Option(inner) => format!("option({})", inner.to_decoder_expr()),
-            TypeDef::Box(inner) => format!("box_({})", inner.to_decoder_expr()),
-            TypeDef::Array(inner, len) => format!("array({}, {})", inner.to_decoder_expr(), len),
+            TypeDef::Vec(inner) => format!("r.vec({})", inner.to_codec_expr()),
+            TypeDef::Option(inner) => format!("r.optional({})", inner.to_codec_expr()),
+            TypeDef::Box(inner) => format!("r.box({})", inner.to_codec_expr()),
+            TypeDef::Array(inner, len) => format!("r.array({}, {})", inner.to_codec_expr(), len),
 
             TypeDef::Tuple(elements) => {
-                let exprs: Vec<_> = elements.iter().map(|t| t.to_decoder_expr()).collect();
-                format!("tuple({})", exprs.join(", "))
+                let exprs: Vec<_> = elements.iter().map(|t| t.to_codec_expr()).collect();
+                format!("r.tuple({})", exprs.join(", "))
             }
 
             TypeDef::HashMap(key, value) | TypeDef::BTreeMap(key, value) => {
                 format!(
-                    "hashMap({}, {})",
-                    key.to_decoder_expr(),
-                    value.to_decoder_expr()
+                    "r.hashMap({}, {})",
+                    key.to_codec_expr(),
+                    value.to_codec_expr()
                 )
             }
 
-            TypeDef::Named(name) => format!("{}Decoder", name),
+            TypeDef::Named(name) => name.to_string(),
         }
     }
 
+    /// Generate the TypeScript decoder expression for this type.
+    /// @deprecated Use to_codec_expr() instead
+    pub fn to_decoder_expr(&self) -> String {
+        self.to_codec_expr()
+    }
+
     /// Generate the TypeScript encoder expression for this type.
+    /// @deprecated Use to_codec_expr() instead
     pub fn to_encoder_expr(&self) -> String {
-        match self {
-            TypeDef::U8 => "u8Encoder".to_string(),
-            TypeDef::I8 => "i8Encoder".to_string(),
-            TypeDef::U16 => "u16Encoder".to_string(),
-            TypeDef::I16 => "i16Encoder".to_string(),
-            TypeDef::U32 => "u32Encoder".to_string(),
-            TypeDef::I32 => "i32Encoder".to_string(),
-            TypeDef::U64 => "u64Encoder".to_string(),
-            TypeDef::I64 => "i64Encoder".to_string(),
-            TypeDef::F32 => "f32Encoder".to_string(),
-            TypeDef::F64 => "f64Encoder".to_string(),
-            TypeDef::Bool => "boolEncoder".to_string(),
-            TypeDef::Char => "charEncoder".to_string(),
-            TypeDef::Unit => "unitEncoder".to_string(),
-            TypeDef::String => "stringEncoder".to_string(),
-
-            TypeDef::Vec(inner) => format!("vecEncoder({})", inner.to_encoder_expr()),
-            TypeDef::Option(inner) => format!("optionEncoder({})", inner.to_encoder_expr()),
-            TypeDef::Box(inner) => format!("boxEncoder({})", inner.to_encoder_expr()),
-            TypeDef::Array(inner, len) => {
-                format!("arrayEncoder({}, {})", inner.to_encoder_expr(), len)
-            }
-
-            TypeDef::Tuple(elements) => {
-                let exprs: Vec<_> = elements.iter().map(|t| t.to_encoder_expr()).collect();
-                format!("tupleEncoder({})", exprs.join(", "))
-            }
-
-            TypeDef::HashMap(key, value) | TypeDef::BTreeMap(key, value) => {
-                format!(
-                    "hashMapEncoder({}, {})",
-                    key.to_encoder_expr(),
-                    value.to_encoder_expr()
-                )
-            }
-
-            TypeDef::Named(name) => format!("{}Encoder", name),
-        }
+        self.to_codec_expr()
     }
 
     /// Generate the TypeScript type for values decoded by this type.
@@ -209,24 +179,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_primitive_decoder_expr() {
-        assert_eq!(TypeDef::U32.to_decoder_expr(), "u32");
-        assert_eq!(TypeDef::String.to_decoder_expr(), "string");
+    fn test_primitive_codec_expr() {
+        assert_eq!(TypeDef::U32.to_codec_expr(), "r.u32");
+        assert_eq!(TypeDef::String.to_codec_expr(), "r.string");
+        assert_eq!(TypeDef::Bool.to_codec_expr(), "r.bool");
     }
 
     #[test]
-    fn test_container_decoder_expr() {
+    fn test_container_codec_expr() {
         let vec_u32 = TypeDef::Vec(Box::new(TypeDef::U32));
-        assert_eq!(vec_u32.to_decoder_expr(), "vec(u32)");
+        assert_eq!(vec_u32.to_codec_expr(), "r.vec(r.u32)");
 
         let option_string = TypeDef::Option(Box::new(TypeDef::String));
-        assert_eq!(option_string.to_decoder_expr(), "option(string)");
+        assert_eq!(option_string.to_codec_expr(), "r.optional(r.string)");
     }
 
     #[test]
-    fn test_nested_decoder_expr() {
+    fn test_nested_codec_expr() {
         let nested = TypeDef::Vec(Box::new(TypeDef::Option(Box::new(TypeDef::U32))));
-        assert_eq!(nested.to_decoder_expr(), "vec(option(u32))");
+        assert_eq!(nested.to_codec_expr(), "r.vec(r.optional(r.u32))");
     }
 
     #[test]
@@ -240,29 +211,26 @@ mod tests {
     }
 
     #[test]
-    fn test_primitive_encoder_expr() {
-        assert_eq!(TypeDef::U32.to_encoder_expr(), "u32Encoder");
-        assert_eq!(TypeDef::String.to_encoder_expr(), "stringEncoder");
+    fn test_named_type_codec_expr() {
+        let named = TypeDef::Named("Point".to_string());
+        assert_eq!(named.to_codec_expr(), "Point");
     }
 
     #[test]
-    fn test_container_encoder_expr() {
-        let vec_u32 = TypeDef::Vec(Box::new(TypeDef::U32));
-        assert_eq!(vec_u32.to_encoder_expr(), "vecEncoder(u32Encoder)");
-
-        let option_string = TypeDef::Option(Box::new(TypeDef::String));
-        assert_eq!(
-            option_string.to_encoder_expr(),
-            "optionEncoder(stringEncoder)"
-        );
+    fn test_array_codec_expr() {
+        let arr = TypeDef::Array(Box::new(TypeDef::U8), 4);
+        assert_eq!(arr.to_codec_expr(), "r.array(r.u8, 4)");
     }
 
     #[test]
-    fn test_nested_encoder_expr() {
-        let nested = TypeDef::Vec(Box::new(TypeDef::Option(Box::new(TypeDef::U32))));
-        assert_eq!(
-            nested.to_encoder_expr(),
-            "vecEncoder(optionEncoder(u32Encoder))"
-        );
+    fn test_tuple_codec_expr() {
+        let tuple = TypeDef::Tuple(vec![TypeDef::U32, TypeDef::String]);
+        assert_eq!(tuple.to_codec_expr(), "r.tuple(r.u32, r.string)");
+    }
+
+    #[test]
+    fn test_hashmap_codec_expr() {
+        let map = TypeDef::HashMap(Box::new(TypeDef::String), Box::new(TypeDef::U32));
+        assert_eq!(map.to_codec_expr(), "r.hashMap(r.string, r.u32)");
     }
 }

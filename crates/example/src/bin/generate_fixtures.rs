@@ -1,13 +1,12 @@
 //! Generates rkyv-serialized test fixtures for round-trip testing.
 //!
-//! This binary creates .bin files containing rkyv-serialized data
-//! and .txt files with the debug representation.
+//! This binary creates .bin files containing rkyv-serialized data.
 
 use rkyv::rancor::Error;
 use rkyv_js_example::{GameState, Message, Person, Point};
 use std::env;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn main() {
     let out_dir = env::args()
@@ -81,7 +80,7 @@ fn main() {
     println!("Generated fixtures in: {}", out_dir.display());
 }
 
-fn write_fixture<T>(dir: &PathBuf, name: &str, value: &T)
+fn write_fixture<T>(dir: &Path, name: &str, value: &T)
 where
     T: rkyv::Archive
         + for<'a> rkyv::Serialize<
@@ -94,17 +93,12 @@ where
                 Error,
             >,
         >,
-    T: std::fmt::Debug,
 {
     let bytes = rkyv::to_bytes::<Error>(value).expect("Failed to serialize");
 
     // Write binary file
     let bin_path = dir.join(format!("{}.bin", name));
     fs::write(&bin_path, bytes.as_slice()).expect("Failed to write binary file");
-
-    // Write debug representation for reference
-    let debug_path = dir.join(format!("{}.txt", name));
-    fs::write(&debug_path, format!("{:#?}", value)).expect("Failed to write debug file");
 
     println!("  {} ({} bytes)", name, bytes.len());
 }

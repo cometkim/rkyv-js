@@ -1,7 +1,0 @@
-Person {
-    name: "Bob",
-    age: 25,
-    email: None,
-    scores: [],
-    active: false,
-}

@@ -1,31 +1,17 @@
 {
   "name": "rkyv-js",
   "version": "0.1.0",
-  "description": "A TypeScript decoder library for rkyv (Rust zero-copy deserialization framework)",
+  "description": "An unofficial library for rkyv (Rust zero-copy serialization framework)",
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
-    },
-    "./schema": {
-      "import": "./dist/schema.js",
-      "types": "./dist/schema.d.ts"
-    }
+  "license": "MIT",
+  "homepage": "https://github.com/cometkim/rkyv-js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cometkim/rkyv-js.git"
   },
-  "files": [
-    "dist",
-    "src"
-  ],
-  "scripts": {
-    "build": "tsc",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "lint": "eslint src",
-    "benchmark": "node --experimental-transform-types benchmarks/index.ts",
-    "prepublishOnly": "npm run build"
+  "author": {
+    "name": "Hyeseong Kim",
+    "email": "hey@hyeseong.kim"
   },
   "keywords": [
     "rkyv",
@@ -33,22 +19,62 @@
     "serialization",
     "deserialization",
     "zero-copy",
-    "binary"
+    "binary",
+    "codec",
+    "encoding",
+    "decoding"
   ],
-  "author": "",
-  "license": "MIT",
+  "workspaces": [
+    "crates/example"
+  ],
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./codec": "./src/codec.ts",
+    "./reader": "./src/reader.ts",
+    "./writer": "./src/writer.ts"
+  },
+  "publishConfig": {
+    "access": "public",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js"
+      },
+      "./codec": {
+        "types": "./dist/codec.d.ts",
+        "import": "./dist/codec.js"
+      },
+      "./reader": {
+        "types": "./dist/reader.d.ts",
+        "import": "./dist/reader.js"
+      },
+      "./writer": {
+        "types": "./dist/writer.d.ts",
+        "import": "./dist/writer.js"
+      },
+      "./package.json": "./package.json"
+    }
+  },
+  "files": [
+    "src",
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "benchmark": "node --experimental-transform-types benchmarks/index.ts",
+    "prepublishOnly": "npm run build"
+  },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "@typescript/native-preview": "^7.0.0-dev.20260122.3",
     "capnp-es": "^0.0.14",
-    "mitata": "^1.0.34",
-    "typescript": "^5.7.0",
-    "vitest": "^3.0.0"
-  },
-  "engines": {
-    "node": ">=18.0.0"
-  },
-  "dependencies": {
     "cbor-x": "^1.6.0",
-    "protobufjs": "^8.0.0"
+    "mitata": "^1.0.34",
+    "protobufjs": "^8.0.0",
+    "vitest": "^3.0.0"
   }
 }
