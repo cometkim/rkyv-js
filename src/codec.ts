@@ -691,7 +691,7 @@ export type EnumValue<V extends Record<string, unknown>> = {
  * ```
  */
 export function taggedEnum<V extends Record<string, unknown>>(
-  variants: { [K in keyof V]: V[K] extends undefined ? RkyvCodec<null> : RkyvCodec<V[K]> }
+  variants: { [K in keyof V]: V[K] extends null ? RkyvCodec<null> : RkyvCodec<V[K]> }
 ): RkyvCodec<EnumValue<V>> {
   const variantNames = Object.keys(variants) as (keyof V)[];
   const variantCount = variantNames.length;
@@ -734,7 +734,7 @@ export function taggedEnum<V extends Record<string, unknown>>(
       const info = variantInfo.get(tag)!;
 
       if (info.isUnit) {
-        return { tag, value: undefined } as EnumValue<V>;
+        return { tag, value: null } as EnumValue<V>;
       }
 
       const variantPadding = alignOffset(discriminantSize, info.codec.align) - discriminantSize;
@@ -753,7 +753,7 @@ export function taggedEnum<V extends Record<string, unknown>>(
       const info = variantInfo.get(tag)!;
 
       if (info.isUnit) {
-        return { tag, value: undefined } as EnumValue<V>;
+        return { tag, value: null } as EnumValue<V>;
       }
 
       const variantPadding = alignOffset(discriminantSize, info.codec.align) - discriminantSize;
