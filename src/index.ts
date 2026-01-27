@@ -27,7 +27,7 @@ export {
   tuple,
 
   // Structs & Enums
-  object,
+  struct,
   taggedEnum,
   union,
 

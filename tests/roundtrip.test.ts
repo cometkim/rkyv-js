@@ -15,19 +15,18 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import { r } from '../src/index.js';
 
-// Import generated bindings (unified codec API)
 import {
-  PointCodec,
-  PersonCodec,
-  MessageCodec,
-  GameStateCodec,
+  ArchivedPoint,
+  ArchivedPerson,
+  ArchivedMessage,
+  ArchivedGameState,
   type Point,
   type Person,
   type Message,
   type GameState,
-} from '../crates/example/generated/bindings.js';
+} from 'rkyv-example';
 
-const FIXTURES_DIR = join(__dirname, '../crates/example/fixtures');
+const FIXTURES_DIR = join(__dirname, '../rkyv-example/fixtures');
 
 function readFixture(name: string): Uint8Array {
   const path = join(FIXTURES_DIR, `${name}.bin`);
@@ -39,17 +38,17 @@ describe('Round-trip tests with Rust rkyv', () => {
   describe('Point', () => {
     it('should decode and re-encode point', () => {
       const bytes = readFixture('point');
-      const point = r.decode(PointCodec, bytes);
+      const point = r.decode(ArchivedPoint, bytes);
 
       expect(point.x).toBe(42.5);
       expect(point.y).toBe(-17.25);
 
       // Re-encode
-      const reencoded = r.encode(PointCodec, point);
+      const reencoded = r.encode(ArchivedPoint, point);
 
 
       // Verify we can decode our own encoding
-      const decoded2 = r.decode(PointCodec, reencoded);
+      const decoded2 = r.decode(ArchivedPoint, reencoded);
       expect(decoded2.x).toBe(point.x);
       expect(decoded2.y).toBe(point.y);
     });
@@ -58,7 +57,7 @@ describe('Round-trip tests with Rust rkyv', () => {
   describe('Person', () => {
     it('should decode and re-encode person with all fields', () => {
       const bytes = readFixture('person');
-      const person = r.decode(PersonCodec, bytes);
+      const person = r.decode(ArchivedPerson, bytes);
 
       expect(person.name).toBe('Alice');
       expect(person.age).toBe(30);
@@ -67,17 +66,17 @@ describe('Round-trip tests with Rust rkyv', () => {
       expect(person.active).toBe(true);
 
       // Re-encode
-      const reencoded = r.encode(PersonCodec, person);
+      const reencoded = r.encode(ArchivedPerson, person);
 
 
       // Verify
-      const decoded2 = r.decode(PersonCodec, reencoded);
+      const decoded2 = r.decode(ArchivedPerson, reencoded);
       expect(decoded2).toEqual(person);
     });
 
     it('should decode and re-encode person with null email', () => {
       const bytes = readFixture('person_no_email');
-      const person = r.decode(PersonCodec, bytes);
+      const person = r.decode(ArchivedPerson, bytes);
 
       expect(person.name).toBe('Bob');
       expect(person.age).toBe(25);
@@ -86,11 +85,11 @@ describe('Round-trip tests with Rust rkyv', () => {
       expect(person.active).toBe(false);
 
       // Re-encode
-      const reencoded = r.encode(PersonCodec, person);
+      const reencoded = r.encode(ArchivedPerson, person);
 
 
       // Verify
-      const decoded2 = r.decode(PersonCodec, reencoded);
+      const decoded2 = r.decode(ArchivedPerson, reencoded);
       expect(decoded2).toEqual(person);
     });
   });
@@ -98,57 +97,57 @@ describe('Round-trip tests with Rust rkyv', () => {
   describe('Message enum', () => {
     it('should decode and re-encode Quit variant', () => {
       const bytes = readFixture('message_quit');
-      const msg = r.decode(MessageCodec, bytes);
+      const msg = r.decode(ArchivedMessage, bytes);
 
       expect(msg.tag).toBe('Quit');
       expect(msg.value).toBeUndefined();
 
-      const reencoded = r.encode(MessageCodec, msg);
+      const reencoded = r.encode(ArchivedMessage, msg);
 
 
-      const decoded2 = r.decode(MessageCodec, reencoded);
+      const decoded2 = r.decode(ArchivedMessage, reencoded);
       expect(decoded2.tag).toBe('Quit');
     });
 
     it('should decode and re-encode Move variant', () => {
       const bytes = readFixture('message_move');
-      const msg = r.decode(MessageCodec, bytes);
+      const msg = r.decode(ArchivedMessage, bytes);
 
       expect(msg.tag).toBe('Move');
       expect(msg.value).toEqual({ x: 10, y: -20 });
 
-      const reencoded = r.encode(MessageCodec, msg);
+      const reencoded = r.encode(ArchivedMessage, msg);
 
 
-      const decoded2 = r.decode(MessageCodec, reencoded);
+      const decoded2 = r.decode(ArchivedMessage, reencoded);
       expect(decoded2).toEqual(msg);
     });
 
     it('should decode and re-encode Write variant', () => {
       const bytes = readFixture('message_write');
-      const msg = r.decode(MessageCodec, bytes);
+      const msg = r.decode(ArchivedMessage, bytes);
 
       expect(msg.tag).toBe('Write');
       expect(msg.value).toEqual({ _0: 'Hello, World!' });
 
-      const reencoded = r.encode(MessageCodec, msg);
+      const reencoded = r.encode(ArchivedMessage, msg);
 
 
-      const decoded2 = r.decode(MessageCodec, reencoded);
+      const decoded2 = r.decode(ArchivedMessage, reencoded);
       expect(decoded2).toEqual(msg);
     });
 
     it('should decode and re-encode ChangeColor variant', () => {
       const bytes = readFixture('message_color');
-      const msg = r.decode(MessageCodec, bytes);
+      const msg = r.decode(ArchivedMessage, bytes);
 
       expect(msg.tag).toBe('ChangeColor');
       expect(msg.value).toEqual({ _0: 255, _1: 128, _2: 0 });
 
-      const reencoded = r.encode(MessageCodec, msg);
+      const reencoded = r.encode(ArchivedMessage, msg);
 
 
-      const decoded2 = r.decode(MessageCodec, reencoded);
+      const decoded2 = r.decode(ArchivedMessage, reencoded);
       expect(decoded2).toEqual(msg);
     });
   });
@@ -156,7 +155,7 @@ describe('Round-trip tests with Rust rkyv', () => {
   describe('GameState (nested)', () => {
     it('should decode and re-encode complex game state', () => {
       const bytes = readFixture('game_state');
-      const state = r.decode(GameStateCodec, bytes);
+      const state = r.decode(ArchivedGameState, bytes);
 
       expect(state.player_position.x).toBe(100.0);
       expect(state.player_position.y).toBe(200.0);
@@ -165,10 +164,10 @@ describe('Round-trip tests with Rust rkyv', () => {
       expect(state.current_message).not.toBeNull();
       expect(state.current_message?.tag).toBe('Write');
 
-      const reencoded = r.encode(GameStateCodec, state);
+      const reencoded = r.encode(ArchivedGameState, state);
 
 
-      const decoded2 = r.decode(GameStateCodec, reencoded);
+      const decoded2 = r.decode(ArchivedGameState, reencoded);
       expect(decoded2.player_position).toEqual(state.player_position);
       expect(decoded2.health).toBe(state.health);
       expect(decoded2.inventory).toEqual(state.inventory);
@@ -176,7 +175,7 @@ describe('Round-trip tests with Rust rkyv', () => {
 
     it('should decode and re-encode simple game state', () => {
       const bytes = readFixture('game_state_simple');
-      const state = r.decode(GameStateCodec, bytes);
+      const state = r.decode(ArchivedGameState, bytes);
 
       expect(state.player_position.x).toBe(0.0);
       expect(state.player_position.y).toBe(0.0);
@@ -184,10 +183,10 @@ describe('Round-trip tests with Rust rkyv', () => {
       expect(state.inventory).toEqual([]);
       expect(state.current_message).toBeNull();
 
-      const reencoded = r.encode(GameStateCodec, state);
+      const reencoded = r.encode(ArchivedGameState, state);
 
 
-      const decoded2 = r.decode(GameStateCodec, reencoded);
+      const decoded2 = r.decode(ArchivedGameState, reencoded);
       expect(decoded2).toEqual(state);
     });
   });

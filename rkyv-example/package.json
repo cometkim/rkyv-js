@@ -1,0 +1,9 @@
+{
+  "private": true,
+  "name": "rkyv-example",
+  "type": "module",
+  "main": "./generated/bindings.ts",
+  "dependencies": {
+    "rkyv-js": "workspace:^"
+  }
+}

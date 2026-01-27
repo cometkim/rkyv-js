@@ -77,9 +77,9 @@ describe('Unified Codec API', () => {
     });
   });
 
-  describe('r.object', () => {
+  describe('r.struct', () => {
     it('should encode and decode simple struct', () => {
-      const Point = r.object({
+      const Point = r.struct({
         x: r.f64,
         y: r.f64,
       });
@@ -91,7 +91,7 @@ describe('Unified Codec API', () => {
     });
 
     it('should encode and decode struct with string', () => {
-      const Person = r.object({
+      const Person = r.struct({
         name: r.string,
         age: r.u32,
       });
@@ -103,7 +103,7 @@ describe('Unified Codec API', () => {
     });
 
     it('should encode and decode complex struct', () => {
-      const Person = r.object({
+      const Person = r.struct({
         name: r.string,
         age: r.u32,
         email: r.optional(r.string),
@@ -132,7 +132,7 @@ describe('Unified Codec API', () => {
         Move: { x: number; y: number };
       }>({
         Quit: r.unit,
-        Move: r.object({ x: r.i32, y: r.i32 }),
+        Move: r.struct({ x: r.i32, y: r.i32 }),
       });
 
       const value = { tag: 'Quit' as const, value: undefined };
@@ -142,12 +142,9 @@ describe('Unified Codec API', () => {
     });
 
     it('should encode and decode struct variant', () => {
-      const Message = r.taggedEnum<{
-        Quit: undefined;
-        Move: { x: number; y: number };
-      }>({
+      const Message = r.taggedEnum({
         Quit: r.unit,
-        Move: r.object({ x: r.i32, y: r.i32 }),
+        Move: r.struct({ x: r.i32, y: r.i32 }),
       });
 
       const value = { tag: 'Move' as const, value: { x: 10, y: 20 } };
@@ -179,7 +176,7 @@ describe('Unified Codec API', () => {
 
   describe('type inference', () => {
     it('should infer types correctly', () => {
-      const Person = r.object({
+      const Person = r.struct({
         name: r.string,
         age: r.u32,
         scores: r.vec(r.u32),
@@ -226,7 +223,7 @@ describe('Unified Codec API', () => {
       }
 
       const TreeNode: RkyvCodec<TreeNode> = r.lazy(() =>
-        r.object({
+        r.struct({
           value: r.u32,
           children: r.vec(TreeNode),
         })
@@ -248,7 +245,7 @@ describe('Unified Codec API', () => {
 
   describe('r.access (zero-copy lazy access)', () => {
     it('should lazily access object fields', () => {
-      const Person = r.object({
+      const Person = r.struct({
         name: r.string,
         age: r.u32,
         email: r.optional(r.string),
@@ -283,11 +280,11 @@ describe('Unified Codec API', () => {
     });
 
     it('should lazily access nested objects', () => {
-      const Inner = r.object({
+      const Inner = r.struct({
         value: r.u32,
         text: r.string,
       });
-      const Outer = r.object({
+      const Outer = r.struct({
         id: r.u32,
         inner: Inner,
       });
@@ -302,7 +299,7 @@ describe('Unified Codec API', () => {
     });
 
     it('should lazily access vec of objects', () => {
-      const Point = r.object({ x: r.f64, y: r.f64 });
+      const Point = r.struct({ x: r.f64, y: r.f64 });
       const Points = r.vec(Point);
 
       const points = [
@@ -337,7 +334,7 @@ describe('Unified Codec API', () => {
     });
 
     it('should support Object.keys on object proxy', () => {
-      const Person = r.object({
+      const Person = r.struct({
         name: r.string,
         age: r.u32,
       });
@@ -350,7 +347,7 @@ describe('Unified Codec API', () => {
     });
 
     it('should cache accessed fields (not re-decode)', () => {
-      const Person = r.object({
+      const Person = r.struct({
         name: r.string,
         age: r.u32,
       });
@@ -396,16 +393,13 @@ describe('Unified Codec API', () => {
     });
 
     it('should handle access on taggedEnum', () => {
-      const Message = r.taggedEnum<{
-        Quit: undefined;
-        Move: { x: number; y: number };
-      }>({
+      const Message = r.taggedEnum({
         Quit: r.unit,
-        Move: r.object({ x: r.i32, y: r.i32 }),
+        Move: r.struct({ x: r.i32, y: r.i32 }),
       });
 
       // Unit variant
-      const quit = { tag: 'Quit' as const, value: undefined };
+      const quit = { tag: 'Quit' as const, value: null };
       const quitBytes = r.encode(Message, quit);
       const quitProxy = r.access(Message, quitBytes);
       expect(quitProxy.tag).toBe('Quit');
@@ -422,10 +416,10 @@ describe('Unified Codec API', () => {
     });
 
     it('should handle deeply nested access', () => {
-      const Inner = r.object({
+      const Inner = r.struct({
         data: r.vec(r.u32),
       });
-      const Outer = r.object({
+      const Outer = r.struct({
         items: r.vec(Inner),
       });
 

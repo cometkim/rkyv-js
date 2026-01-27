@@ -2,7 +2,6 @@
   "name": "rkyv-js",
   "version": "0.1.0",
   "description": "An unofficial library for rkyv (Rust zero-copy serialization framework)",
-  "type": "module",
   "license": "MIT",
   "homepage": "https://github.com/cometkim/rkyv-js",
   "repository": {
@@ -25,8 +24,9 @@
     "decoding"
   ],
   "workspaces": [
-    "crates/example"
+    "rkyv-example"
   ],
+  "type": "module",
   "main": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
@@ -63,18 +63,18 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsgo",
     "test": "vitest run",
-    "benchmark": "node --experimental-transform-types benchmarks/index.ts",
-    "prepublishOnly": "npm run build"
+    "benchmark": "node benchmarks/index.ts",
+    "prepublishOnly": "yarn build"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "@typescript/native-preview": "^7.0.0-dev.20260122.3",
     "capnp-es": "^0.0.14",
     "cbor-x": "^1.6.0",
     "mitata": "^1.0.34",
     "protobufjs": "^8.0.0",
+    "typescript": "^5.9.3",
     "vitest": "^3.0.0"
   }
 }

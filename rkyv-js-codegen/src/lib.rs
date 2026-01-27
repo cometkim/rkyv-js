@@ -1,14 +1,14 @@
 //! # rkyv-js-codegen
 //!
-//! TypeScript code generator for rkyv types. This crate generates unified codec bindings
-//! that work with the `rkyv-js` npm package's Zod-like `r.*` API.
+//! JavaScript/TypeScript code generator for rkyv types. This crate generates unified codec bindings
+//! that work with the `rkyv-js` package API.
 //!
 //! ## Features
 //!
-//! - Generates TypeScript codecs for structs, enums, and unions
+//! - Generates JavaScript/TypeScript codecs for structs, enums, and unions
 //! - Full support for rkyv's type system (primitives, containers, nested types)
 //! - Automatic dependency ordering for type definitions
-//! - Source file parsing to extract types annotated with `#[derive(TypeScript)]`
+//! - Source file parsing to extract types annotated with `#[derive(Archive)]`
 //!
 //! ## Quick Start
 //!
@@ -48,28 +48,27 @@
 //! ```typescript
 //! import { r } from 'rkyv-js';
 //!
-//! export const PersonCodec = r.object({
+//! export const ArchivedPerson = r.object({
 //!   name: r.string,
 //!   age: r.u32,
 //!   email: r.optional(r.string),
 //! });
-//! export type Person = r.infer<typeof PersonCodec>;
+//! export type Person = r.infer<typeof ArchivedPerson>;
 //!
-//! export const StatusCodec = r.taggedEnum({
+//! export const ArchivedStatus = r.taggedEnum({
 //!   Pending: r.unit,
 //!   Active: r.unit,
 //!   Error: r.object({ message: r.string }),
 //! });
-//! export type Status = r.infer<typeof StatusCodec>;
+//! export type Status = r.infer<typeof ArchivedStatus>;
 //! ```
 //!
-//! ### Using `#[derive(TypeScript)]` macro
+//! ### Using `#[derive(Archive)]` macro
 //!
 //! ```rust,ignore
 //! use rkyv::Archive;
-//! use rkyv_js_codegen::TypeScript;
 //!
-//! #[derive(Archive, TypeScript)]
+//! #[derive(Archive)]
 //! struct Person {
 //!     name: String,
 //!     age: u32,
@@ -113,6 +112,3 @@ mod types;
 
 pub use generator::CodeGenerator;
 pub use types::{EnumVariant, TypeDef, UnionVariant};
-
-#[cfg(feature = "derive")]
-pub use rkyv_js_derive::TypeScript;

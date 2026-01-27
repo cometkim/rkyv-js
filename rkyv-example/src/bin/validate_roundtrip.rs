@@ -13,7 +13,7 @@ fn main() {
     let in_dir = env::args()
         .nth(1)
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("fixtures/roundtrip"));
+        .unwrap_or_else(|| PathBuf::from("fixtures"));
 
     let mut passed = 0;
     let mut failed = 0;

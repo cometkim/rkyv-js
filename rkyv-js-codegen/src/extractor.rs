@@ -1,4 +1,4 @@
-//! Source file parser that extracts types annotated with `#[derive(TypeScript)]`.
+//! Source file parser that extracts types annotated with `#[derive(Archive)]`.
 //!
 //! This module provides functionality to scan Rust source files and automatically
 //! extract type definitions for TypeScript binding generation.
@@ -16,10 +16,10 @@ use walkdir::WalkDir;
 /// Check if a derive input has any of the specified marker derives.
 ///
 /// Matches any path whose last segment matches one of the markers, which handles:
-/// - `TypeScript` (direct import)
-/// - `rkyv_js_codegen::TypeScript` (qualified path)
-/// - `my_alias::TypeScript` (re-exports)
-/// - Custom aliases via `add_marker("TS")`
+/// - `Archive` (direct import)
+/// - `rkyv::Archive` (qualified path)
+/// - `my_alias::Archive` (re-exports)
+/// - Custom aliases via `add_marker("Rkyv")`
 fn has_marker_derive(attrs: &[Attribute], markers: &[String]) -> bool {
     for attr in attrs {
         if attr.path().is_ident("derive") {
@@ -305,7 +305,7 @@ fn parse_source_file(codegen: &mut CodeGenerator, source: &str, markers: &[Strin
 impl CodeGenerator {
     /// Parse a single Rust source file and extract types with marker derives.
     ///
-    /// By default, looks for `#[derive(TypeScript)]` or any path ending with `TypeScript`.
+    /// By default, looks for `#[derive(Archive)]` or any path ending with `Archive`.
     /// Use `add_marker()` to recognize additional marker names.
     ///
     /// # Example
@@ -356,9 +356,9 @@ mod tests {
     #[test]
     fn test_extract_simple_struct() {
         let source = r#"
-            use rkyv_js_codegen::TypeScript;
+            use rkyv::Archive;
 
-            #[derive(TypeScript)]
+            #[derive(Archive)]
             struct Point {
                 x: f64,
                 y: f64,
@@ -369,16 +369,16 @@ mod tests {
         codegen.add_source_str(source);
 
         let code = codegen.generate();
-        assert!(code.contains("export const PointCodec = r.object({"));
+        assert!(code.contains("export const ArchivedPoint = r.struct({"));
         assert!(code.contains("x: r.f64"));
         assert!(code.contains("y: r.f64"));
-        assert!(code.contains("export type Point = r.infer<typeof PointCodec>;"));
+        assert!(code.contains("export type Point = r.infer<typeof ArchivedPoint>;"));
     }
 
     #[test]
     fn test_extract_struct_with_containers() {
         let source = r#"
-            #[derive(TypeScript)]
+            #[derive(Archive)]
             struct Person {
                 name: String,
                 age: u32,
@@ -391,7 +391,7 @@ mod tests {
         codegen.add_source_str(source);
 
         let code = codegen.generate();
-        assert!(code.contains("export const PersonCodec = r.object({"));
+        assert!(code.contains("export const ArchivedPerson = r.struct({"));
         assert!(code.contains("name: r.string"));
         assert!(code.contains("scores: r.vec(r.u32)"));
         assert!(code.contains("email: r.optional(r.string)"));
@@ -400,7 +400,7 @@ mod tests {
     #[test]
     fn test_extract_enum() {
         let source = r#"
-            #[derive(TypeScript)]
+            #[derive(Archive)]
             enum Message {
                 Quit,
                 Move { x: i32, y: i32 },
@@ -412,11 +412,11 @@ mod tests {
         codegen.add_source_str(source);
 
         let code = codegen.generate();
-        assert!(code.contains("export const MessageCodec = r.taggedEnum({"));
-        assert!(code.contains("export type Message = r.infer<typeof MessageCodec>;"));
+        assert!(code.contains("export const ArchivedMessage = r.taggedEnum({"));
+        assert!(code.contains("export type Message = r.infer<typeof ArchivedMessage>;"));
         assert!(code.contains("Quit: r.unit"));
-        assert!(code.contains("Move: r.object({"));
-        assert!(code.contains("Write: r.object({"));
+        assert!(code.contains("Move: r.struct({"));
+        assert!(code.contains("Write: r.struct({"));
     }
 
     #[test]
@@ -427,7 +427,7 @@ mod tests {
                 x: i32,
             }
 
-            #[derive(TypeScript)]
+            #[derive(Debug, Archive)]
             struct Exported {
                 y: i32,
             }
@@ -437,14 +437,14 @@ mod tests {
         codegen.add_source_str(source);
 
         let code = codegen.generate();
-        assert!(!code.contains("NotExported"));
-        assert!(code.contains("ExportedCodec"));
+        assert!(!code.contains("ArchivedNotExported"));
+        assert!(code.contains("ArchivedExported"));
     }
 
     #[test]
-    fn test_qualified_typescript_derive() {
+    fn test_qualified_archive_derive() {
         let source = r#"
-            #[derive(rkyv_js_codegen::TypeScript)]
+            #[derive(rkyv::Archive)]
             struct QualifiedPath {
                 value: u32,
             }
@@ -454,21 +454,19 @@ mod tests {
         codegen.add_source_str(source);
 
         let code = codegen.generate();
-        assert!(code.contains("export const QualifiedPathCodec = r.object({"));
+        assert!(code.contains("export const ArchivedQualifiedPath = r.struct({"));
         assert!(code.contains("value: r.u32"));
     }
 
     #[test]
-    fn test_aliased_typescript_derive() {
-        // Handles re-exports like `use rkyv_js_codegen::TypeScript`
-        // from another module path
+    fn test_aliased_archive_derive() {
         let source = r#"
-            #[derive(some_alias::TypeScript)]
+            #[derive(some_alias::Archive)]
             struct AliasedPath {
                 id: u64,
             }
 
-            #[derive(deeply::nested::module::TypeScript)]
+            #[derive(deeply::nested::module::Archive)]
             struct DeeplyNested {
                 data: String,
             }
@@ -478,71 +476,68 @@ mod tests {
         codegen.add_source_str(source);
 
         let code = codegen.generate();
-        assert!(code.contains("export const AliasedPathCodec = r.object({"));
+        assert!(code.contains("export const ArchivedAliasedPath = r.struct({"));
         assert!(code.contains("id: r.u64"));
-        assert!(code.contains("export const DeeplyNestedCodec = r.object({"));
+        assert!(code.contains("export const ArchivedDeeplyNested = r.struct({"));
         assert!(code.contains("data: r.string"));
     }
 
     #[test]
     fn test_custom_marker_name() {
-        // When using `use rkyv_js_codegen::TypeScript as TS;`
+        // When using `use rkyv::Archive as Rkyv;`
         let source = r#"
-            #[derive(TS)]
+            #[derive(Rkyv)]
             struct CustomMarker {
                 value: i32,
             }
 
-            #[derive(TypeScript)]
+            #[derive(Archive)]
             struct DefaultMarker {
                 value: u32,
             }
         "#;
 
         let mut codegen = CodeGenerator::new();
-        codegen.add_marker("TS");
+        codegen.add_marker("Rkyv");
         codegen.add_source_str(source);
 
         let code = codegen.generate();
-        // Both should be extracted
-        assert!(code.contains("export const CustomMarkerCodec = r.object({"));
-        assert!(code.contains("export const DefaultMarkerCodec = r.object({"));
+        assert!(code.contains("export const ArchivedCustomMarker = r.struct({"));
+        assert!(code.contains("export const ArchivedDefaultMarker = r.struct({"));
     }
 
     #[test]
     fn test_replace_markers() {
         let source = r#"
-            #[derive(TS)]
-            struct WithTS {
+            #[derive(Rkyv)]
+            struct WithRkyv {
                 a: i32,
             }
 
-            #[derive(TypeScript)]
-            struct WithTypeScript {
+            #[derive(Archive)]
+            struct WithArchive {
                 b: i32,
             }
         "#;
 
         let mut codegen = CodeGenerator::new();
-        // Only look for TS, not TypeScript
-        codegen.set_markers(&["TS"]);
+        codegen.set_markers(&["Rkyv"]);
         codegen.add_source_str(source);
 
         let code = codegen.generate();
-        assert!(code.contains("export const WithTSCodec = r.object({"));
-        // TypeScript marker should NOT be recognized
-        assert!(!code.contains("WithTypeScript"));
+        assert!(code.contains("export const ArchivedWithRkyv = r.struct({"));
+        assert!(!code.contains("WithArchive"));
     }
 
     #[test]
     fn test_extract_nested_types() {
         let source = r#"
-            #[derive(TypeScript)]
+            #[derive(Archive)]
             struct Inner {
                 value: u32,
             }
 
-            #[derive(TypeScript)]
+            #[derive(Archive)]
             struct Outer {
                 inner: Inner,
                 items: Vec<Inner>,
@@ -553,9 +548,9 @@ mod tests {
         codegen.add_source_str(source);
 
         let code = codegen.generate();
-        assert!(code.contains("export const InnerCodec = r.object({"));
-        assert!(code.contains("export const OuterCodec = r.object({"));
-        assert!(code.contains("inner: InnerCodec"));
-        assert!(code.contains("items: r.vec(InnerCodec)"));
+        assert!(code.contains("export const ArchivedInner = r.struct({"));
+        assert!(code.contains("export const ArchivedOuter = r.struct({"));
+        assert!(code.contains("inner: ArchivedInner"));
+        assert!(code.contains("items: r.vec(ArchivedInner)"));
     }
 }

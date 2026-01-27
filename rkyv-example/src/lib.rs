@@ -3,14 +3,14 @@
 //! This crate shows how to define Rust types with rkyv serialization
 //! and generate TypeScript bindings for them.
 //!
-//! The `#[derive(TypeScript)]` macro is a no-op annotation that serves
+//! The `#[derive(Archive)]` macro is a no-op annotation that serves
 //! as documentation. The actual binding generation happens in build.rs
 //! using `CodeGenerator`.
 
 use rkyv::{Archive, Deserialize, Serialize};
 
 /// A simple 2D point.
-#[derive(Debug, Clone, Archive, Deserialize, Serialize, rkyv_js_codegen::TypeScript)]
+#[derive(Debug, Clone, Archive, Deserialize, Serialize)]
 #[rkyv(compare(PartialEq), derive(Debug))]
 pub struct Point {
     pub x: f64,
@@ -18,7 +18,7 @@ pub struct Point {
 }
 
 /// A person with various field types.
-#[derive(Debug, Clone, Archive, Deserialize, Serialize, rkyv_js_codegen::TypeScript)]
+#[derive(Debug, Clone, Archive, Deserialize, Serialize)]
 #[rkyv(compare(PartialEq), derive(Debug))]
 pub struct Person {
     pub name: String,
@@ -29,7 +29,7 @@ pub struct Person {
 }
 
 /// A message enum with different variant types.
-#[derive(Debug, Clone, Archive, Deserialize, Serialize, rkyv_js_codegen::TypeScript)]
+#[derive(Debug, Clone, Archive, Deserialize, Serialize)]
 #[rkyv(compare(PartialEq), derive(Debug))]
 pub enum Message {
     /// No content
@@ -43,7 +43,7 @@ pub enum Message {
 }
 
 /// Game state containing nested structures.
-#[derive(Debug, Clone, Archive, Deserialize, Serialize, rkyv_js_codegen::TypeScript)]
+#[derive(Debug, Clone, Archive, Deserialize, Serialize)]
 #[rkyv(compare(PartialEq), derive(Debug))]
 pub struct GameState {
     pub player_position: Point,

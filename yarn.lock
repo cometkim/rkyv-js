@@ -573,87 +573,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@typescript/native-preview-darwin-arm64@npm:7.0.0-dev.20260122.3":
-  version: 7.0.0-dev.20260122.3
-  resolution: "@typescript/native-preview-darwin-arm64@npm:7.0.0-dev.20260122.3"
-  conditions: os=darwin & cpu=arm64
-  languageName: node
-  linkType: hard
-
-"@typescript/native-preview-darwin-x64@npm:7.0.0-dev.20260122.3":
-  version: 7.0.0-dev.20260122.3
-  resolution: "@typescript/native-preview-darwin-x64@npm:7.0.0-dev.20260122.3"
-  conditions: os=darwin & cpu=x64
-  languageName: node
-  linkType: hard
-
-"@typescript/native-preview-linux-arm64@npm:7.0.0-dev.20260122.3":
-  version: 7.0.0-dev.20260122.3
-  resolution: "@typescript/native-preview-linux-arm64@npm:7.0.0-dev.20260122.3"
-  conditions: os=linux & cpu=arm64
-  languageName: node
-  linkType: hard
-
-"@typescript/native-preview-linux-arm@npm:7.0.0-dev.20260122.3":
-  version: 7.0.0-dev.20260122.3
-  resolution: "@typescript/native-preview-linux-arm@npm:7.0.0-dev.20260122.3"
-  conditions: os=linux & cpu=arm
-  languageName: node
-  linkType: hard
-
-"@typescript/native-preview-linux-x64@npm:7.0.0-dev.20260122.3":
-  version: 7.0.0-dev.20260122.3
-  resolution: "@typescript/native-preview-linux-x64@npm:7.0.0-dev.20260122.3"
-  conditions: os=linux & cpu=x64
-  languageName: node
-  linkType: hard
-
-"@typescript/native-preview-win32-arm64@npm:7.0.0-dev.20260122.3":
-  version: 7.0.0-dev.20260122.3
-  resolution: "@typescript/native-preview-win32-arm64@npm:7.0.0-dev.20260122.3"
-  conditions: os=win32 & cpu=arm64
-  languageName: node
-  linkType: hard
-
-"@typescript/native-preview-win32-x64@npm:7.0.0-dev.20260122.3":
-  version: 7.0.0-dev.20260122.3
-  resolution: "@typescript/native-preview-win32-x64@npm:7.0.0-dev.20260122.3"
-  conditions: os=win32 & cpu=x64
-  languageName: node
-  linkType: hard
-
-"@typescript/native-preview@npm:^7.0.0-dev.20260122.3":
-  version: 7.0.0-dev.20260122.3
-  resolution: "@typescript/native-preview@npm:7.0.0-dev.20260122.3"
-  dependencies:
-    "@typescript/native-preview-darwin-arm64": "npm:7.0.0-dev.20260122.3"
-    "@typescript/native-preview-darwin-x64": "npm:7.0.0-dev.20260122.3"
-    "@typescript/native-preview-linux-arm": "npm:7.0.0-dev.20260122.3"
-    "@typescript/native-preview-linux-arm64": "npm:7.0.0-dev.20260122.3"
-    "@typescript/native-preview-linux-x64": "npm:7.0.0-dev.20260122.3"
-    "@typescript/native-preview-win32-arm64": "npm:7.0.0-dev.20260122.3"
-    "@typescript/native-preview-win32-x64": "npm:7.0.0-dev.20260122.3"
-  dependenciesMeta:
-    "@typescript/native-preview-darwin-arm64":
-      optional: true
-    "@typescript/native-preview-darwin-x64":
-      optional: true
-    "@typescript/native-preview-linux-arm":
-      optional: true
-    "@typescript/native-preview-linux-arm64":
-      optional: true
-    "@typescript/native-preview-linux-x64":
-      optional: true
-    "@typescript/native-preview-win32-arm64":
-      optional: true
-    "@typescript/native-preview-win32-x64":
-      optional: true
-  bin:
-    tsgo: bin/tsgo.js
-  checksum: 10c0/6876c2cd2d8db99cabc0394df2852b0214f228a5cafc57174a9c728d90ce935ca402794baa4a14ef00bd050cbaf86e0c4d39029166be5bd43cd9b8ff3c93fed5
-  languageName: node
-  linkType: hard
-
 "@vitest/expect@npm:3.2.4":
   version: 3.2.4
   resolution: "@vitest/expect@npm:3.2.4"
@@ -1469,9 +1388,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"rkyv-js-example@workspace:crates/example":
+"rkyv-example@workspace:rkyv-example":
   version: 0.0.0-use.local
-  resolution: "rkyv-js-example@workspace:crates/example"
+  resolution: "rkyv-example@workspace:rkyv-example"
   dependencies:
     rkyv-js: "workspace:^"
   languageName: unknown
@@ -1482,11 +1401,11 @@ __metadata:
   resolution: "rkyv-js@workspace:."
   dependencies:
     "@types/node": "npm:^22.0.0"
-    "@typescript/native-preview": "npm:^7.0.0-dev.20260122.3"
     capnp-es: "npm:^0.0.14"
     cbor-x: "npm:^1.6.0"
     mitata: "npm:^1.0.34"
     protobufjs: "npm:^8.0.0"
+    typescript: "npm:^5.9.3"
     vitest: "npm:^3.0.0"
   languageName: unknown
   linkType: soft
@@ -1726,6 +1645,26 @@ __metadata:
   version: 4.0.4
   resolution: "tinyspy@npm:4.0.4"
   checksum: 10c0/a8020fc17799251e06a8398dcc352601d2770aa91c556b9531ecd7a12581161fd1c14e81cbdaff0c1306c93bfdde8ff6d1c1a3f9bbe6d91604f0fd4e01e2f1eb
+  languageName: node
+  linkType: hard
+
+"typescript@npm:^5.9.3":
+  version: 5.9.3
+  resolution: "typescript@npm:5.9.3"
+  bin:
+    tsc: bin/tsc
+    tsserver: bin/tsserver
+  checksum: 10c0/6bd7552ce39f97e711db5aa048f6f9995b53f1c52f7d8667c1abdc1700c68a76a308f579cd309ce6b53646deb4e9a1be7c813a93baaf0a28ccd536a30270e1c5
+  languageName: node
+  linkType: hard
+
+"typescript@patch:typescript@npm%3A^5.9.3#optional!builtin<compat/typescript>":
+  version: 5.9.3
+  resolution: "typescript@patch:typescript@npm%3A5.9.3#optional!builtin<compat/typescript>::version=5.9.3&hash=5786d5"
+  bin:
+    tsc: bin/tsc
+    tsserver: bin/tsserver
+  checksum: 10c0/ad09fdf7a756814dce65bc60c1657b40d44451346858eea230e10f2e95a289d9183b6e32e5c11e95acc0ccc214b4f36289dcad4bf1886b0adb84d711d336a430
   languageName: node
   linkType: hard
 

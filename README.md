@@ -1,17 +1,26 @@
 # rkyv-js
 
-An unofficial JavaScript library for [rkyv](https://rkyv.org/) (Rust's zero-copy deserialization framework) with codegen support.
+An unofficial library to use [rkyv](https://rkyv.org/) (Zero-copy deserialization framework for Rust) in JavaScript/TypeScript projects.
+
+## Motivation
+
+This library allows JavaScript programs to efficiently exchange data with a Rust backend using rkyv types.
+
+- Archived Rust types can be read directly from JS programs without an additional serialization layer.
+- Bytes written in JS programs can be deserialized in Rust programs in a zero-copy manner.
+
+Unlike Protobuf or Cap'n Proto, the schema derived directly from your Rust codebase without having to manage additional schema files.
 
 ## Components
 
 This project consists of two parts:
 
 1. `rkyv-js` (NPM package) - JavaScript runtime library for encoding/decoding rkyv archives
-2. `rkyv-js-codegen` (Rust crate) - Code generator that creates TypeScript bindings from Rust types
+2. `rkyv-js-codegen` (Rust crate) - Code generator that creates JavaScript/TypeScript bindings from Rust source
 
 ## Installation
 
-### JavaScript/TypeScript
+### JavaScript
 
 ```bash
 yarn add rkyv-js
@@ -20,10 +29,6 @@ yarn add rkyv-js
 ### Rust (for code generation)
 
 ```toml
-# Cargo.toml
-[dependencies]
-rkyv-js-codegen = "0.1"
-
 [build-dependencies]
 rkyv-js-codegen = "0.1"
 ```
@@ -32,12 +37,12 @@ rkyv-js-codegen = "0.1"
 
 ### Option 1: Code Generation (Recommended)
 
-You can annotate your rkyv types with `rkyv-js-codegen::TypeScript` macro to generate TypeScript bindings:
+To `rkyv-js-codegen` extract archived types from your Rust codebase.
 
 ```rs
-use rkyv_js_codegen::TypeScript;
+use rkyv::{Archive, Deserialize, Serialize};
 
-#[derive(Archive, Serialize, Deserialize, TypeScript)]
+#[derive(Archive, Serialize, Deserialize)]
 struct Person {
     name: String,
     age: u32,
@@ -46,7 +51,7 @@ struct Person {
 }
 ```
 
-Then configure the output in your `build.rs`:
+Configure the output in your `build.rs`:
 
 ```rs
 use rkyv_js_codegen::{CodeGenerator, TypeDef};
@@ -62,7 +67,7 @@ fn main() {
          These types match the Rust structs in src/lib.rs",
     );
 
-    // Automatically extract all types annotated with #[derive(TypeScript)]
+    // Automatically extract all types annotated with #[derive(rkyv::Archive)]
     codegen.add_source_file(manifest_dir.join("src/lib.rs"))
         .expect("Failed to parse source file");
 
@@ -83,13 +88,15 @@ You can also use `rkyv-js` as a standalone library without Rust code generation:
 import { r } from 'rkyv-js';
 
 // Define a codec matching your Rust struct:
+//
+// #[derive(rkyv::Archive)]
 // struct Person {
-//     name: String,
-//     age: u32,
-//     email: Option<String>,
-//     scores: Vec<u32>,
+//   name: String,
+//   age: u32,
+//   email: Option<String>,
+//   scores: Vec<u32>,
 // }
-const PersonCodec = r.object({
+const ArchivedPerson = r.struct({
   name: r.string,
   age: r.u32,
   email: r.optional(r.string),
@@ -97,10 +104,10 @@ const PersonCodec = r.object({
 });
 
 // Infer TypeScript type from the codec
-type Person = r.infer<typeof PersonCodec>;
+type Person = r.infer<typeof ArchivedPerson>;
 
 // Encode to rkyv bytes
-const data = r.encode(PersonCodec, { 
+const data = r.encode(ArchivedPerson, { 
   name: "Bob",
   age: 25,
   email: null,
@@ -108,19 +115,19 @@ const data = r.encode(PersonCodec, {
 });
 
 // Decode from rkyv data
-const person = r.decode(PersonCodec, data);
+const person = r.decode(ArchivedPerson, data);
 console.log(person.name);   // "Alice"
 console.log(person.age);    // 30
 console.log(person.scores); // [95, 87, 92]
 
 // Lazy access (decodes fields on demand)
-const lazy = r.access(PersonCodec, data);
+const lazy = r.access(ArchivedPerson, data);
 console.log(lazy.name); // Only 'name' field is decoded
 ```
 
 ### Option 3: Low-level CodeGenerator API
 
-You can generate TypeScript codes without macros if you want programmatic control:
+You can generate bindings without rkyv macros if you want programmatic control:
 
 ```rust
 use rkyv_js_codegen::{CodeGenerator, TypeDef};
@@ -172,9 +179,11 @@ If your Rust code uses different `rkyv` features (`big_endian`, `unaligned`, `po
 
 ## Limitations
 
-- **No validation**: Unlike rkyv's `bytecheck`, this library does not validate data integrity
+- **No validation**: Unlike rkyv's `bytecheck`, `rkyv-js` does not validate data integrity
 - **HashMap layout**: Simplified sequential storage (not hashbrown's actual layout)
 - **Trait objects (`rkyv_dyn`)**: Not supported
+
+Also advanced features like wrapper types and remote types are not yet supported.
 
 ## License
 

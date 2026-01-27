@@ -1,7 +1,0 @@
-{
-  "private": true,
-  "name": "rkyv-js-example",
-  "dependencies": {
-    "rkyv-js": "workspace:^"
-  }
-}

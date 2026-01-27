@@ -569,13 +569,13 @@ export function tuple<T extends unknown[]>(
  *
  * @example
  * ```typescript
- * const Point = r.object({
+ * const Point = r.struct({
  *   x: r.f64,
  *   y: r.f64,
  * });
  * ```
  */
-export function object<T extends Record<string, unknown>>(
+export function struct<T extends Record<string, unknown>>(
   fields: { [K in keyof T]: RkyvCodec<T[K]> }
 ): RkyvCodec<T> {
   const fieldNames = Object.keys(fields) as (keyof T)[];
@@ -1094,7 +1094,7 @@ export const r = {
   tuple,
 
   // Structs & Enums
-  object,
+  struct,
   taggedEnum,
   union,
 

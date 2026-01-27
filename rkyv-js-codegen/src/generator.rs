@@ -24,7 +24,7 @@ pub struct CodeGenerator {
     /// Custom header comment
     header: Option<String>,
 
-    /// Marker names to look for in derive attributes (default: ["TypeScript"])
+    /// Marker names to look for in derive attributes (default: ["Archive"])
     pub(crate) markers: Vec<String>,
 }
 
@@ -36,7 +36,7 @@ impl Default for CodeGenerator {
             unions: BTreeMap::new(),
             aliases: BTreeMap::new(),
             header: None,
-            markers: vec!["TypeScript".to_string()],
+            markers: vec!["Archive".to_string()],
         }
     }
 }
@@ -55,14 +55,14 @@ impl CodeGenerator {
 
     /// Add a marker name to look for in derive attributes.
     ///
-    /// By default, the generator looks for `TypeScript` (matching any path ending
-    /// with `TypeScript`, such as `TypeScript`, `rkyv_js_codegen::TypeScript`, etc.).
+    /// By default, the generator looks for `Archive` (matching any path ending
+    /// with `Archive`, such as `Archive`, `rkyv::Archive`, etc.).
     ///
     /// Use this to add additional marker names if you've aliased the derive macro:
     ///
     /// ```rust,ignore
-    /// // If your code uses: `use rkyv_js_codegen::TypeScript as TS;`
-    /// generator.add_marker("TS");
+    /// // If your code uses: `use rkyv::Archive as Rkyv;`
+    /// generator.add_marker("Rkyv");
     /// ```
     pub fn add_marker(&mut self, marker: impl Into<String>) -> &mut Self {
         self.markers.push(marker.into());
@@ -72,8 +72,8 @@ impl CodeGenerator {
     /// Set the marker names to look for, replacing the defaults.
     ///
     /// ```rust,ignore
-    /// // Only look for `TS`, not `TypeScript`
-    /// generator.set_markers(&["TS"]);
+    /// // Only look for `Rkyv`, not `Archive`
+    /// generator.set_markers(&["Rkyv"]);
     /// ```
     pub fn set_markers(&mut self, markers: &[impl AsRef<str>]) -> &mut Self {
         self.markers = markers.iter().map(|s| s.as_ref().to_string()).collect();
@@ -375,8 +375,8 @@ impl CodeGenerator {
     fn generate_struct(&self, name: &str, fields: &[(String, TypeDef)]) -> String {
         let mut output = String::new();
 
-        // Unified codec using r.object()
-        output.push_str(&format!("export const {}Codec = r.object({{\n", name));
+        // Unified codec using r.struct()
+        output.push_str(&format!("export const Archived{} = r.struct({{\n", name));
         for (field_name, field_type) in fields {
             output.push_str(&format!(
                 "  {}: {},\n",
@@ -388,7 +388,7 @@ impl CodeGenerator {
 
         // TypeScript type inference
         output.push_str(&format!(
-            "export type {} = r.infer<typeof {}Codec>;",
+            "export type {} = r.infer<typeof Archived{}>;",
             name, name
         ));
 
@@ -399,7 +399,7 @@ impl CodeGenerator {
         let mut output = String::new();
 
         // Unified codec using r.taggedEnum()
-        output.push_str(&format!("export const {}Codec = r.taggedEnum({{\n", name));
+        output.push_str(&format!("export const Archived{} = r.taggedEnum({{\n", name));
         for variant in variants {
             match variant {
                 EnumVariant::Unit(vname) => {
@@ -413,7 +413,7 @@ impl CodeGenerator {
                         .map(|(i, t)| format!("_{}: {}", i, t.to_codec_expr()))
                         .collect();
                     output.push_str(&format!(
-                        "  {}: r.object({{ {} }}),\n",
+                        "  {}: r.struct({{ {} }}),\n",
                         vname,
                         fields.join(", ")
                     ));
@@ -424,7 +424,7 @@ impl CodeGenerator {
                         .map(|(n, t)| format!("{}: {}", n, t.to_codec_expr()))
                         .collect();
                     output.push_str(&format!(
-                        "  {}: r.object({{ {} }}),\n",
+                        "  {}: r.struct({{ {} }}),\n",
                         vname,
                         field_defs.join(", ")
                     ));
@@ -435,7 +435,7 @@ impl CodeGenerator {
 
         // TypeScript type inference
         output.push_str(&format!(
-            "export type {} = r.infer<typeof {}Codec>;",
+            "export type {} = r.infer<typeof Archived{}>;",
             name, name
         ));
 
@@ -463,7 +463,7 @@ impl CodeGenerator {
             name
         ));
         output.push_str(&format!(
-            "export const {}Codec = r.union(\n  // discriminate: (reader, offset) => keyof {}Variants\n  (reader, offset) => {{ throw new Error('Discriminate function not implemented for {}'); }},\n  {{\n",
+            "export const Archived{} = r.union(\n  // discriminate: (reader, offset) => keyof {}Variants\n  (reader, offset) => {{ throw new Error('Discriminate function not implemented for {}'); }},\n  {{\n",
             name, name, name
         ));
         for variant in variants {
@@ -477,7 +477,7 @@ impl CodeGenerator {
 
         // TypeScript type inference
         output.push_str(&format!(
-            "export type {} = r.infer<typeof {}Codec>;",
+            "export type {} = r.infer<typeof Archived{}>;",
             name, name
         ));
 
@@ -496,10 +496,10 @@ mod tests {
 
         let code = codegen.generate();
         assert!(code.contains("import { r } from 'rkyv-js';"));
-        assert!(code.contains("export const PointCodec = r.object({"));
+        assert!(code.contains("export const ArchivedPoint = r.struct({"));
         assert!(code.contains("x: r.f64"));
         assert!(code.contains("y: r.f64"));
-        assert!(code.contains("export type Point = r.infer<typeof PointCodec>;"));
+        assert!(code.contains("export type Point = r.infer<typeof ArchivedPoint>;"));
     }
 
     #[test]
@@ -514,10 +514,10 @@ mod tests {
         );
 
         let code = codegen.generate();
-        assert!(code.contains("export const StatusCodec = r.taggedEnum({"));
+        assert!(code.contains("export const ArchivedStatus = r.taggedEnum({"));
         assert!(code.contains("Pending: r.unit"));
         assert!(code.contains("Active: r.unit"));
-        assert!(code.contains("export type Status = r.infer<typeof StatusCodec>;"));
+        assert!(code.contains("export type Status = r.infer<typeof ArchivedStatus>;"));
     }
 
     #[test]
@@ -557,7 +557,7 @@ mod tests {
         assert!(code.contains("asU32: number"));
         assert!(code.contains("asF32: number"));
         assert!(code.contains("asBytes: number[]"));
-        assert!(code.contains("export const NumberUnionCodec = r.union("));
+        assert!(code.contains("export const ArchivedNumberUnion = r.union("));
         assert!(code.contains("asU32: r.u32"));
     }
 
@@ -581,7 +581,7 @@ mod tests {
 
         let code = codegen.generate();
         assert!(code.contains("Quit: r.unit"));
-        assert!(code.contains("Move: r.object({ x: r.i32, y: r.i32 })"));
-        assert!(code.contains("Write: r.object({ _0: r.string })"));
+        assert!(code.contains("Move: r.struct({ x: r.i32, y: r.i32 })"));
+        assert!(code.contains("Write: r.struct({ _0: r.string })"));
     }
 }
