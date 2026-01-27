@@ -1,7 +1,7 @@
 import { run, bench, group, summary } from 'mitata';
 import { r } from 'rkyv-js';
 
-const PersonCodec = r.object({
+const ArchivedPerson = r.struct({
   name: r.string,
   age: r.u32,
   email: r.optional(r.string),
@@ -9,7 +9,7 @@ const PersonCodec = r.object({
   active: r.bool,
 });
 
-type Person = r.infer<typeof PersonCodec>;
+type Person = r.infer<typeof ArchivedPerson>;
 
 const testPersonLarge: Person = {
   name: 'Bob Johnson with a very long name that exceeds inline storage',
@@ -19,25 +19,25 @@ const testPersonLarge: Person = {
   active: true,
 };
 
-const rkyvPersonLargeBytes = r.encode(testPersonLarge, PersonCodec);
+const rkyvPersonLargeBytes = r.encode(ArchivedPerson, testPersonLarge);
 
 summary(() => {
   group('rkyv-js: access vs decode (Person large)', () => {
     bench('decode (eager, full object)', () => {
-      r.decode(rkyvPersonLargeBytes, PersonCodec);
+      r.decode(ArchivedPerson, rkyvPersonLargeBytes);
     }).baseline();
 
     bench('access (lazy)', () => {
-      r.access(rkyvPersonLargeBytes, PersonCodec);
+      r.access(ArchivedPerson, rkyvPersonLargeBytes);
     });
 
     bench('access + read 1 field', () => {
-      const p = r.access(rkyvPersonLargeBytes, PersonCodec);
+      const p = r.access(ArchivedPerson, rkyvPersonLargeBytes);
       void p.name;
     });
 
     bench('access + read all fields', () => {
-      const p = r.access(rkyvPersonLargeBytes, PersonCodec);
+      const p = r.access(ArchivedPerson, rkyvPersonLargeBytes);
       void p.name;
       void p.age;
       void p.email;
