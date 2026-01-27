@@ -183,7 +183,18 @@ If your Rust code uses different `rkyv` features (`big_endian`, `unaligned`, `po
 - **HashMap layout**: Simplified sequential storage (not hashbrown's actual layout)
 - **Trait objects (`rkyv_dyn`)**: Not supported
 
-Also advanced features like wrapper types and remote types are not yet supported.
+## TODOs
+
+This library does not support all rkyv features, but these are planned to support in the future:
+
+- [ ] Built-in crates supports (`arrayvec`, `bytes`, `uuid`, etc)
+- [ ] Non-default formats
+  - Big-endian
+  - Unalined primitives
+  - 16-bit and 64-bit pointer width
+- [ ] Rename with `archived = ...` attr
+- [ ] Remote types
+- [ ] Wrapper types
 
 ## License
 
