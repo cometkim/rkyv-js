@@ -10,38 +10,34 @@
  * Run the full round-trip test with: npm run test:roundtrip
  */
 
-import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'fs';
-import { join } from 'path';
-import { r } from '../src/index.js';
+import * as assert from 'node:assert';
+import { describe, it } from 'node:test';
+import { readFileSync } from 'node:fs';
+import * as path from 'node:path';
 
+import { r } from 'rkyv-js';
 import {
   ArchivedPoint,
   ArchivedPerson,
   ArchivedMessage,
   ArchivedGameState,
-  type Point,
-  type Person,
-  type Message,
-  type GameState,
 } from 'rkyv-example';
 
-const FIXTURES_DIR = join(__dirname, '../rkyv-example/fixtures');
+const FIXTURES_DIR = path.join(import.meta.dirname, '../rkyv-example/fixtures');
 
 function readFixture(name: string): Uint8Array {
-  const path = join(FIXTURES_DIR, `${name}.bin`);
-  return new Uint8Array(readFileSync(path));
+  const file = path.join(FIXTURES_DIR, `${name}.bin`);
+  return new Uint8Array(readFileSync(file));
 }
 
 describe('Round-trip tests with Rust rkyv', () => {
-
   describe('Point', () => {
     it('should decode and re-encode point', () => {
       const bytes = readFixture('point');
       const point = r.decode(ArchivedPoint, bytes);
 
-      expect(point.x).toBe(42.5);
-      expect(point.y).toBe(-17.25);
+      assert.strictEqual(point.x, 42.5);
+      assert.strictEqual(point.y, -17.25);
 
       // Re-encode
       const reencoded = r.encode(ArchivedPoint, point);
@@ -49,8 +45,8 @@ describe('Round-trip tests with Rust rkyv', () => {
 
       // Verify we can decode our own encoding
       const decoded2 = r.decode(ArchivedPoint, reencoded);
-      expect(decoded2.x).toBe(point.x);
-      expect(decoded2.y).toBe(point.y);
+      assert.strictEqual(decoded2.x, point.x);
+      assert.strictEqual(decoded2.y, point.y);
     });
   });
 
@@ -59,11 +55,11 @@ describe('Round-trip tests with Rust rkyv', () => {
       const bytes = readFixture('person');
       const person = r.decode(ArchivedPerson, bytes);
 
-      expect(person.name).toBe('Alice');
-      expect(person.age).toBe(30);
-      expect(person.email).toBe('alice@example.com');
-      expect(person.scores).toEqual([100, 95, 87, 92]);
-      expect(person.active).toBe(true);
+      assert.strictEqual(person.name, 'Alice');
+      assert.strictEqual(person.age, 30);
+      assert.strictEqual(person.email, 'alice@example.com');
+      assert.deepStrictEqual(person.scores, [100, 95, 87, 92]);
+      assert.strictEqual(person.active, true);
 
       // Re-encode
       const reencoded = r.encode(ArchivedPerson, person);
@@ -71,18 +67,18 @@ describe('Round-trip tests with Rust rkyv', () => {
 
       // Verify
       const decoded2 = r.decode(ArchivedPerson, reencoded);
-      expect(decoded2).toEqual(person);
+      assert.deepStrictEqual(decoded2, person);
     });
 
     it('should decode and re-encode person with null email', () => {
       const bytes = readFixture('person_no_email');
       const person = r.decode(ArchivedPerson, bytes);
 
-      expect(person.name).toBe('Bob');
-      expect(person.age).toBe(25);
-      expect(person.email).toBeNull();
-      expect(person.scores).toEqual([]);
-      expect(person.active).toBe(false);
+      assert.strictEqual(person.name, 'Bob');
+      assert.strictEqual(person.age, 25);
+      assert.strictEqual(person.email, null);
+      assert.deepStrictEqual(person.scores, []);
+      assert.strictEqual(person.active, false);
 
       // Re-encode
       const reencoded = r.encode(ArchivedPerson, person);
@@ -90,7 +86,7 @@ describe('Round-trip tests with Rust rkyv', () => {
 
       // Verify
       const decoded2 = r.decode(ArchivedPerson, reencoded);
-      expect(decoded2).toEqual(person);
+      assert.deepStrictEqual(decoded2, person);
     });
   });
 
@@ -99,56 +95,53 @@ describe('Round-trip tests with Rust rkyv', () => {
       const bytes = readFixture('message_quit');
       const msg = r.decode(ArchivedMessage, bytes);
 
-      expect(msg.tag).toBe('Quit');
-      expect(msg.value).toBeUndefined();
+      assert.strictEqual(msg.tag, 'Quit');
+      assert.strictEqual(msg.value, null);
 
       const reencoded = r.encode(ArchivedMessage, msg);
 
-
       const decoded2 = r.decode(ArchivedMessage, reencoded);
-      expect(decoded2.tag).toBe('Quit');
+      assert.strictEqual(decoded2.tag, 'Quit');
     });
 
     it('should decode and re-encode Move variant', () => {
       const bytes = readFixture('message_move');
       const msg = r.decode(ArchivedMessage, bytes);
 
-      expect(msg.tag).toBe('Move');
-      expect(msg.value).toEqual({ x: 10, y: -20 });
+      assert.strictEqual(msg.tag, 'Move');
+      assert.deepStrictEqual(msg.value, { x: 10, y: -20 });
 
       const reencoded = r.encode(ArchivedMessage, msg);
 
 
       const decoded2 = r.decode(ArchivedMessage, reencoded);
-      expect(decoded2).toEqual(msg);
+      assert.deepStrictEqual(decoded2, msg);
     });
 
     it('should decode and re-encode Write variant', () => {
       const bytes = readFixture('message_write');
       const msg = r.decode(ArchivedMessage, bytes);
 
-      expect(msg.tag).toBe('Write');
-      expect(msg.value).toEqual({ _0: 'Hello, World!' });
+      assert.strictEqual(msg.tag, 'Write');
+      assert.deepStrictEqual(msg.value, { _0: 'Hello, World!' });
 
       const reencoded = r.encode(ArchivedMessage, msg);
 
-
       const decoded2 = r.decode(ArchivedMessage, reencoded);
-      expect(decoded2).toEqual(msg);
+      assert.deepStrictEqual(decoded2, msg);
     });
 
     it('should decode and re-encode ChangeColor variant', () => {
       const bytes = readFixture('message_color');
       const msg = r.decode(ArchivedMessage, bytes);
 
-      expect(msg.tag).toBe('ChangeColor');
-      expect(msg.value).toEqual({ _0: 255, _1: 128, _2: 0 });
+      assert.strictEqual(msg.tag, 'ChangeColor');
+      assert.deepStrictEqual(msg.value, { _0: 255, _1: 128, _2: 0 });
 
       const reencoded = r.encode(ArchivedMessage, msg);
 
-
       const decoded2 = r.decode(ArchivedMessage, reencoded);
-      expect(decoded2).toEqual(msg);
+      assert.deepStrictEqual(decoded2, msg);
     });
   });
 
@@ -157,37 +150,35 @@ describe('Round-trip tests with Rust rkyv', () => {
       const bytes = readFixture('game_state');
       const state = r.decode(ArchivedGameState, bytes);
 
-      expect(state.player_position.x).toBe(100.0);
-      expect(state.player_position.y).toBe(200.0);
-      expect(state.health).toBe(85);
-      expect(state.inventory).toEqual(['sword', 'shield', 'potion']);
-      expect(state.current_message).not.toBeNull();
-      expect(state.current_message?.tag).toBe('Write');
+      assert.strictEqual(state.player_position.x, 100.0);
+      assert.strictEqual(state.player_position.y, 200.0);
+      assert.strictEqual(state.health, 85);
+      assert.deepStrictEqual(state.inventory, ['sword', 'shield', 'potion']);
+      assert.notStrictEqual(state.current_message, null);
+      assert.strictEqual(state.current_message?.tag, 'Write');
 
       const reencoded = r.encode(ArchivedGameState, state);
 
-
       const decoded2 = r.decode(ArchivedGameState, reencoded);
-      expect(decoded2.player_position).toEqual(state.player_position);
-      expect(decoded2.health).toBe(state.health);
-      expect(decoded2.inventory).toEqual(state.inventory);
+      assert.deepStrictEqual(decoded2.player_position, state.player_position);
+      assert.strictEqual(decoded2.health, state.health);
+      assert.deepStrictEqual(decoded2.inventory, state.inventory);
     });
 
     it('should decode and re-encode simple game state', () => {
       const bytes = readFixture('game_state_simple');
       const state = r.decode(ArchivedGameState, bytes);
 
-      expect(state.player_position.x).toBe(0.0);
-      expect(state.player_position.y).toBe(0.0);
-      expect(state.health).toBe(100);
-      expect(state.inventory).toEqual([]);
-      expect(state.current_message).toBeNull();
+      assert.strictEqual(state.player_position.x, 0.0);
+      assert.strictEqual(state.player_position.y, 0.0);
+      assert.strictEqual(state.health, 100);
+      assert.deepStrictEqual(state.inventory, []);
+      assert.strictEqual(state.current_message, null);
 
       const reencoded = r.encode(ArchivedGameState, state);
 
-
       const decoded2 = r.decode(ArchivedGameState, reencoded);
-      expect(decoded2).toEqual(state);
+      assert.deepStrictEqual(decoded2, state);
     });
   });
 });

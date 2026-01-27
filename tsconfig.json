@@ -13,6 +13,10 @@
     "skipLibCheck": true,
     "erasableSyntaxOnly": true
   },
+  "include": [
+    "src",
+    "rkyv-example"
+  ],
   "exclude": [
     "**/node_modules",
     "**/target"

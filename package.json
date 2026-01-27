@@ -63,10 +63,8 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsgo",
-    "test": "vitest run",
-    "benchmark": "node benchmarks/index.ts",
-    "prepublishOnly": "yarn build"
+    "test": "node --test",
+    "benchmark": "node benchmarks/index.ts"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
@@ -74,7 +72,6 @@
     "cbor-x": "^1.6.0",
     "mitata": "^1.0.34",
     "protobufjs": "^8.0.0",
-    "typescript": "^5.9.3",
-    "vitest": "^3.0.0"
+    "typescript": "^5.9.3"
   }
 }

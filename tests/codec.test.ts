@@ -1,38 +1,38 @@
-import { describe, it, expect } from 'vitest';
+import * as assert from 'node:assert';
+import { describe, it } from 'node:test';
 import { r, type RkyvCodec } from 'rkyv-js';
-import assert from 'node:assert';
 
 describe('Unified Codec API', () => {
   describe('primitives', () => {
     it('should encode and decode u32', () => {
       const bytes = r.encode(r.u32, 42);
       const value = r.decode(r.u32, bytes);
-      expect(value).toBe(42);
+      assert.strictEqual(value, 42);
     });
 
     it('should encode and decode f64', () => {
       const bytes = r.encode(r.f64, 3.14159);
       const value = r.decode(r.f64, bytes);
-      expect(value).toBeCloseTo(3.14159);
+      assert.strictEqual(value, 3.14159);
     });
 
     it('should encode and decode bool', () => {
       const bytes = r.encode(r.bool, true);
       const value = r.decode(r.bool, bytes);
-      expect(value).toBe(true);
+      assert.strictEqual(value ,true);
     });
 
     it('should encode and decode string', () => {
       const bytes = r.encode(r.string, 'hello');
       const value = r.decode(r.string, bytes);
-      expect(value).toBe('hello');
+      assert.strictEqual(value, 'hello');
     });
 
     it('should encode and decode long string (out-of-line)', () => {
       const longStr = 'This is a very long string that exceeds 8 bytes';
       const bytes = r.encode(r.string, longStr);
       const value = r.decode(r.string, bytes);
-      expect(value).toBe(longStr);
+      assert.strictEqual(value, longStr);
     });
   });
 
@@ -42,14 +42,14 @@ describe('Unified Codec API', () => {
       const codec = r.vec(r.u32);
       const bytes = r.encode(codec, arr);
       const value = r.decode(codec, bytes);
-      expect(value).toEqual(arr);
+      assert.deepStrictEqual(value, arr);
     });
 
     it('should encode and decode empty vec', () => {
       const codec = r.vec(r.u32);
       const bytes = r.encode(codec, []);
       const value = r.decode(codec, bytes);
-      expect(value).toEqual([]);
+      assert.deepStrictEqual(value, []);
     });
 
     it('should encode and decode vec of strings', () => {
@@ -57,7 +57,7 @@ describe('Unified Codec API', () => {
       const codec = r.vec(r.string);
       const bytes = r.encode(codec, arr);
       const value = r.decode(codec, bytes);
-      expect(value).toEqual(arr);
+      assert.deepStrictEqual(value, arr);
     });
   });
 
@@ -66,14 +66,14 @@ describe('Unified Codec API', () => {
       const codec = r.optional(r.u32);
       const bytes = r.encode(codec, 42);
       const value = r.decode(codec, bytes);
-      expect(value).toBe(42);
+      assert.strictEqual(value, 42);
     });
 
     it('should encode and decode None', () => {
       const codec = r.optional(r.u32);
       const bytes = r.encode(codec, null);
       const value = r.decode(codec, bytes);
-      expect(value).toBeNull();
+      assert.strictEqual(value, null);
     });
   });
 
@@ -87,7 +87,7 @@ describe('Unified Codec API', () => {
       const point = { x: 1.5, y: 2.5 };
       const bytes = r.encode(Point, point);
       const decoded = r.decode(Point, bytes);
-      expect(decoded).toEqual(point);
+      assert.deepStrictEqual(decoded, point);
     });
 
     it('should encode and decode struct with string', () => {
@@ -99,7 +99,7 @@ describe('Unified Codec API', () => {
       const person = { name: 'Alice', age: 30 };
       const bytes = r.encode(Person, person);
       const decoded = r.decode(Person, bytes);
-      expect(decoded).toEqual(person);
+      assert.deepStrictEqual(decoded, person);
     });
 
     it('should encode and decode complex struct', () => {
@@ -121,24 +121,21 @@ describe('Unified Codec API', () => {
 
       const bytes = r.encode(Person, person);
       const decoded = r.decode(Person, bytes);
-      expect(decoded).toEqual(person);
+      assert.deepStrictEqual(decoded, person);
     });
   });
 
   describe('r.taggedEnum', () => {
     it('should encode and decode unit variant', () => {
-      const Message = r.taggedEnum<{
-        Quit: undefined;
-        Move: { x: number; y: number };
-      }>({
+      const Message = r.taggedEnum({
         Quit: r.unit,
         Move: r.struct({ x: r.i32, y: r.i32 }),
       });
 
-      const value = { tag: 'Quit' as const, value: undefined };
+      const value = { tag: 'Quit' as const, value: null };
       const bytes = r.encode(Message, value);
       const decoded = r.decode(Message, bytes);
-      expect(decoded.tag).toBe('Quit');
+      assert.strictEqual(decoded.tag, 'Quit');
     });
 
     it('should encode and decode struct variant', () => {
@@ -150,17 +147,17 @@ describe('Unified Codec API', () => {
       const value = { tag: 'Move' as const, value: { x: 10, y: 20 } };
       const bytes = r.encode(Message, value);
       const decoded = r.decode(Message, bytes);
-      expect(decoded).toEqual(value);
+      assert.deepStrictEqual(decoded, value);
     });
   });
 
   describe('r.tuple', () => {
     it('should encode and decode tuple', () => {
       const codec = r.tuple(r.u32, r.string, r.bool);
-      const value: [number, string, boolean] = [42, 'hello', true];
+      const value: r.infer<typeof codec> = [42, 'hello', true];
       const bytes = r.encode(codec, value);
       const decoded = r.decode(codec, bytes);
-      expect(decoded).toEqual(value);
+      assert.deepStrictEqual(decoded, value);
     });
   });
 
@@ -170,7 +167,7 @@ describe('Unified Codec API', () => {
       const value = [1, 2, 3];
       const bytes = r.encode(codec, value);
       const decoded = r.decode(codec, bytes);
-      expect(decoded).toEqual(value);
+      assert.deepStrictEqual(decoded, value);
     });
   });
 
@@ -193,9 +190,9 @@ describe('Unified Codec API', () => {
 
       const bytes = r.encode(Person, person);
       const decoded: Person = r.decode(Person, bytes);
-      expect(decoded.name).toBe('Alice');
-      expect(decoded.age).toBe(30);
-      expect(decoded.scores).toEqual([100, 95]);
+      assert.deepStrictEqual(decoded.name, 'Alice');
+      assert.deepStrictEqual(decoded.age, 30);
+      assert.deepStrictEqual(decoded.scores, [100, 95]);
     });
   });
 
@@ -211,7 +208,7 @@ describe('Unified Codec API', () => {
       const date = new Date('2024-01-15T12:00:00Z');
       const bytes = r.encode(DateCodec, date);
       const decoded = r.decode(DateCodec, bytes);
-      expect(decoded.getTime()).toBe(date.getTime());
+      assert.strictEqual(decoded.getTime(), date.getTime());
     });
   });
 
@@ -239,7 +236,7 @@ describe('Unified Codec API', () => {
 
       const bytes = r.encode(TreeNode, tree);
       const decoded = r.decode(TreeNode, bytes);
-      expect(decoded).toEqual(tree);
+      assert.deepStrictEqual(decoded, tree);
     });
   });
 
@@ -256,9 +253,9 @@ describe('Unified Codec API', () => {
       const proxy = r.access(Person, bytes);
 
       // Access individual fields
-      expect(proxy.name).toBe('Alice');
-      expect(proxy.age).toBe(30);
-      expect(proxy.email).toBe('alice@example.com');
+      assert.strictEqual(proxy.name, 'Alice');
+      assert.strictEqual(proxy.age, 30);
+      assert.strictEqual(proxy.email, 'alice@example.com');
     });
 
     it('should lazily access vec elements', () => {
@@ -268,15 +265,15 @@ describe('Unified Codec API', () => {
       const proxy = r.access(Numbers, bytes);
 
       // Access individual elements
-      expect(proxy.length).toBe(5);
-      expect(proxy[0]).toBe(10);
-      expect(proxy[2]).toBe(30);
-      expect(proxy[4]).toBe(50);
+      assert.strictEqual(proxy.length, 5);
+      assert.strictEqual(proxy[0], 10);
+      assert.strictEqual(proxy[2], 30);
+      assert.strictEqual(proxy[4], 50);
 
       // Test 'in' operator
-      expect(0 in proxy).toBe(true);
-      expect(4 in proxy).toBe(true);
-      expect(5 in proxy).toBe(false);
+      assert.ok(0 in proxy);
+      assert.ok(4 in proxy);
+      assert.ok(!(5 in proxy));
     });
 
     it('should lazily access nested objects', () => {
@@ -284,6 +281,7 @@ describe('Unified Codec API', () => {
         value: r.u32,
         text: r.string,
       });
+
       const Outer = r.struct({
         id: r.u32,
         inner: Inner,
@@ -293,9 +291,9 @@ describe('Unified Codec API', () => {
       const bytes = r.encode(Outer, data);
       const proxy = r.access(Outer, bytes);
 
-      expect(proxy.id).toBe(1);
-      expect(proxy.inner.value).toBe(42);
-      expect(proxy.inner.text).toBe('nested');
+      assert.strictEqual(proxy.id, 1);
+      assert.strictEqual(proxy.inner.value, 42);
+      assert.strictEqual(proxy.inner.text, 'nested');
     });
 
     it('should lazily access vec of objects', () => {
@@ -310,10 +308,10 @@ describe('Unified Codec API', () => {
       const bytes = r.encode(Points, points);
       const proxy = r.access(Points, bytes);
 
-      expect(proxy.length).toBe(3);
-      expect(proxy[0].x).toBe(1.0);
-      expect(proxy[1].y).toBe(4.0);
-      expect(proxy[2].x).toBe(5.0);
+      assert.strictEqual(proxy.length, 3);
+      assert.strictEqual(proxy[0].x, 1.0);
+      assert.strictEqual(proxy[1].y, 4.0);
+      assert.strictEqual(proxy[2].x, 5.0);
     });
 
     it('should support iteration over vec proxy', () => {
@@ -323,14 +321,14 @@ describe('Unified Codec API', () => {
       const proxy = r.access(Numbers, bytes);
 
       // Test spread operator
-      expect([...proxy]).toEqual([1, 2, 3]);
+      assert.deepStrictEqual([...proxy], [1, 2, 3]);
 
       // Test for...of
       const collected: number[] = [];
       for (const n of proxy) {
         collected.push(n);
       }
-      expect(collected).toEqual([1, 2, 3]);
+      assert.deepStrictEqual(collected, [1, 2, 3]);
     });
 
     it('should support Object.keys on object proxy', () => {
@@ -343,7 +341,7 @@ describe('Unified Codec API', () => {
       const bytes = r.encode(Person, person);
       const proxy = r.access(Person, bytes);
 
-      expect(Object.keys(proxy)).toEqual(['name', 'age']);
+      assert.deepStrictEqual(Object.keys(proxy), ['name', 'age']);
     });
 
     it('should cache accessed fields (not re-decode)', () => {
@@ -362,9 +360,9 @@ describe('Unified Codec API', () => {
       const name3 = proxy.name;
 
       // All should return the same cached value
-      expect(name1).toBe('Cache');
-      expect(name2).toBe('Cache');
-      expect(name3).toBe('Cache');
+      assert.strictEqual(name1, 'Cache');
+      assert.strictEqual(name2, 'Cache');
+      assert.strictEqual(name3, 'Cache');
       // Note: We can't easily test that it's cached without internal access,
       // but the API contract is that it should be cached
     });
@@ -375,21 +373,21 @@ describe('Unified Codec API', () => {
       const bytes = r.encode(Coords, coords);
       const proxy = r.access(Coords, bytes);
 
-      expect(proxy.length).toBe(3);
-      expect(proxy[0]).toBe(1.5);
-      expect(proxy[1]).toBe(2.5);
-      expect(proxy[2]).toBe(3.5);
+      assert.strictEqual(proxy.length, 3);
+      assert.strictEqual(proxy[0], 1.5);
+      assert.strictEqual(proxy[1], 2.5);
+      assert.strictEqual(proxy[2], 3.5);
     });
 
     it('should handle access on tuple', () => {
       const Pair = r.tuple(r.string, r.u32);
-      const pair: [string, number] = ['hello', 42];
+      const pair: r.infer<typeof Pair> = ['hello', 42];
       const bytes = r.encode(Pair, pair);
       const proxy = r.access(Pair, bytes);
 
-      expect(proxy.length).toBe(2);
-      expect(proxy[0]).toBe('hello');
-      expect(proxy[1]).toBe(42);
+      assert.strictEqual(proxy.length, 2);
+      assert.strictEqual(proxy[0], 'hello');
+      assert.strictEqual(proxy[1], 42);
     });
 
     it('should handle access on taggedEnum', () => {
@@ -402,17 +400,17 @@ describe('Unified Codec API', () => {
       const quit = { tag: 'Quit' as const, value: null };
       const quitBytes = r.encode(Message, quit);
       const quitProxy = r.access(Message, quitBytes);
-      expect(quitProxy.tag).toBe('Quit');
-      expect(quitProxy.value).toBeUndefined();
+      assert.strictEqual(quitProxy.tag, 'Quit');
+      assert.strictEqual(quitProxy.value, null);
 
       // Struct variant
       const move = { tag: 'Move' as const, value: { x: 10, y: 20 } };
       const moveBytes = r.encode(Message, move);
       const moveProxy = r.access(Message, moveBytes);
 
-      assert(moveProxy.tag === 'Move');
-      expect(moveProxy.value.x).toBe(10);
-      expect(moveProxy.value.y).toBe(20);
+      assert.ok(moveProxy.tag === 'Move');
+      assert.strictEqual(moveProxy.value.x, 10);
+      assert.strictEqual(moveProxy.value.y, 20);
     });
 
     it('should handle deeply nested access', () => {
@@ -434,9 +432,9 @@ describe('Unified Codec API', () => {
       const proxy = r.access(Outer, bytes);
 
       // Deep access through proxies
-      expect(proxy.items[0].data[0]).toBe(1);
-      expect(proxy.items[1].data[2]).toBe(6);
-      expect(proxy.items[2].data[1]).toBe(8);
+      assert.strictEqual(proxy.items[0].data[0], 1);
+      assert.strictEqual(proxy.items[1].data[2], 6);
+      assert.strictEqual(proxy.items[2].data[1], 8);
     });
   });
 });

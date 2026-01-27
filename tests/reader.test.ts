@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { RkyvReader } from '../src/reader.js';
+import * as assert from 'node:assert';
+import { describe, it } from 'node:test';
+import { RkyvReader } from 'rkyv-js/reader';
 
 describe('RkyvReader', () => {
   describe('primitive reads', () => {
@@ -7,57 +8,57 @@ describe('RkyvReader', () => {
       const buffer = new Uint8Array([0xff, 0x00, 0x7f]);
       const reader = new RkyvReader(buffer);
 
-      expect(reader.readU8(0)).toBe(255);
-      expect(reader.readU8(1)).toBe(0);
-      expect(reader.readU8(2)).toBe(127);
+      assert.strictEqual(reader.readU8(0), 255);
+      assert.strictEqual(reader.readU8(1), 0);
+      assert.strictEqual(reader.readU8(2), 127);
     });
 
     it('should read i8', () => {
       const buffer = new Uint8Array([0xff, 0x00, 0x7f, 0x80]);
       const reader = new RkyvReader(buffer);
 
-      expect(reader.readI8(0)).toBe(-1);
-      expect(reader.readI8(1)).toBe(0);
-      expect(reader.readI8(2)).toBe(127);
-      expect(reader.readI8(3)).toBe(-128);
+      assert.strictEqual(reader.readI8(0), -1);
+      assert.strictEqual(reader.readI8(1), 0);
+      assert.strictEqual(reader.readI8(2), 127);
+      assert.strictEqual(reader.readI8(3), -128);
     });
 
     it('should read u16 (little-endian)', () => {
       const buffer = new Uint8Array([0x01, 0x00, 0xff, 0xff, 0x34, 0x12]);
       const reader = new RkyvReader(buffer);
 
-      expect(reader.readU16(0)).toBe(1);
-      expect(reader.readU16(2)).toBe(65535);
-      expect(reader.readU16(4)).toBe(0x1234);
+      assert.strictEqual(reader.readU16(0), 1);
+      assert.strictEqual(reader.readU16(2), 65535);
+      assert.strictEqual(reader.readU16(4), 0x1234);
     });
 
     it('should read i16 (little-endian)', () => {
       const buffer = new Uint8Array([0xff, 0xff, 0x00, 0x80]);
       const reader = new RkyvReader(buffer);
 
-      expect(reader.readI16(0)).toBe(-1);
-      expect(reader.readI16(2)).toBe(-32768);
+      assert.strictEqual(reader.readI16(0), -1);
+      assert.strictEqual(reader.readI16(2), -32768);
     });
 
     it('should read u32 (little-endian)', () => {
       const buffer = new Uint8Array([0x78, 0x56, 0x34, 0x12]);
       const reader = new RkyvReader(buffer);
 
-      expect(reader.readU32(0)).toBe(0x12345678);
+      assert.strictEqual(reader.readU32(0), 0x12345678);
     });
 
     it('should read i32 (little-endian)', () => {
       const buffer = new Uint8Array([0xff, 0xff, 0xff, 0xff]);
       const reader = new RkyvReader(buffer);
 
-      expect(reader.readI32(0)).toBe(-1);
+      assert.strictEqual(reader.readI32(0), -1);
     });
 
     it('should read u64 (little-endian)', () => {
       const buffer = new Uint8Array([0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
       const reader = new RkyvReader(buffer);
 
-      expect(reader.readU64(0)).toBe(1n);
+      assert.strictEqual(reader.readU64(0), 1n);
     });
 
     it('should read f32 (little-endian)', () => {
@@ -65,7 +66,7 @@ describe('RkyvReader', () => {
       const buffer = new Uint8Array([0x00, 0x00, 0x80, 0x3f]);
       const reader = new RkyvReader(buffer);
 
-      expect(reader.readF32(0)).toBeCloseTo(1.0);
+      assert.strictEqual(reader.readF32(0), 1.0);
     });
 
     it('should read f64 (little-endian)', () => {
@@ -73,16 +74,16 @@ describe('RkyvReader', () => {
       const buffer = new Uint8Array([0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0x3f]);
       const reader = new RkyvReader(buffer);
 
-      expect(reader.readF64(0)).toBeCloseTo(1.0);
+      assert.strictEqual(reader.readF64(0), 1.0);
     });
 
     it('should read bool', () => {
       const buffer = new Uint8Array([0x00, 0x01, 0xff]);
       const reader = new RkyvReader(buffer);
 
-      expect(reader.readBool(0)).toBe(false);
-      expect(reader.readBool(1)).toBe(true);
-      expect(reader.readBool(2)).toBe(true); // non-zero is true
+      assert.strictEqual(reader.readBool(0), false);
+      assert.strictEqual(reader.readBool(1), true);
+      assert.strictEqual(reader.readBool(2), true); // non-zero is true
     });
   });
 
@@ -96,7 +97,7 @@ describe('RkyvReader', () => {
       ]);
       const reader = new RkyvReader(buffer);
 
-      expect(reader.readRelPtr32(0)).toBe(8);
+      assert.strictEqual(reader.readRelPtr32(0), 8);
     });
 
     it('should handle negative relative pointers', () => {
@@ -108,7 +109,7 @@ describe('RkyvReader', () => {
       ]);
       const reader = new RkyvReader(buffer);
 
-      expect(reader.readRelPtr32(8)).toBe(4);
+      assert.strictEqual(reader.readRelPtr32(8), 4);
     });
   });
 
@@ -118,7 +119,7 @@ describe('RkyvReader', () => {
       const reader = new RkyvReader(buffer);
 
       const bytes = reader.readBytes(0, 5);
-      expect(bytes).toEqual(new Uint8Array([0x48, 0x65, 0x6c, 0x6c, 0x6f]));
+      assert.deepStrictEqual(bytes, new Uint8Array([0x48, 0x65, 0x6c, 0x6c, 0x6f]));
     });
   });
 
@@ -128,7 +129,7 @@ describe('RkyvReader', () => {
       const reader = new RkyvReader(buffer);
 
       // For a root object of size 8, root position is 100 - 8 = 92
-      expect(reader.getRootPosition(8)).toBe(92);
+      assert.strictEqual(reader.getRootPosition(8), 92);
     });
   });
 });
