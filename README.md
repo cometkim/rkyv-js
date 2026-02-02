@@ -179,9 +179,9 @@ If your Rust code uses different `rkyv` features (`big_endian`, `unaligned`, `po
 
 ## Limitations
 
-- **No validation**: Unlike rkyv's `bytecheck`, `rkyv-js` does not validate data integrity
-- **HashMap layout**: Simplified sequential storage (not hashbrown's actual layout)
-- **Trait objects (`rkyv_dyn`)**: Not supported
+- No validation: Unlike rkyv's `bytecheck`, `rkyv-js` does not validate data integrity
+- HashMap layout: Simplified sequential storage (not hashbrown's actual layout)
+- Trait objects (`rkyv_dyn`) are not supported
 
 ## TODOs
 
