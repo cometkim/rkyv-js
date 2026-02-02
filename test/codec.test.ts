@@ -510,6 +510,72 @@ describe('Codec API', () => {
     });
   });
 
+  describe('r.btreeMap', () => {
+    it('should encode and decode BTreeMap', () => {
+      const codec = r.btreeMap(r.string, r.u32);
+      const map = new Map([
+        ['alpha', 1],
+        ['beta', 2],
+        ['gamma', 3],
+      ]);
+      const bytes = r.encode(codec, map);
+      const decoded = r.decode(codec, bytes);
+      assert.deepStrictEqual(decoded, map);
+    });
+
+    it('should handle empty BTreeMap', () => {
+      const codec = r.btreeMap(r.string, r.u32);
+      const map = new Map<string, number>();
+      const bytes = r.encode(codec, map);
+      const decoded = r.decode(codec, bytes);
+      assert.strictEqual(decoded.size, 0);
+    });
+
+    it('should work with numeric keys', () => {
+      const codec = r.btreeMap(r.u32, r.string);
+      const map = new Map([
+        [1, 'one'],
+        [2, 'two'],
+        [3, 'three'],
+      ]);
+      const bytes = r.encode(codec, map);
+      const decoded = r.decode(codec, bytes);
+      assert.deepStrictEqual(decoded, map);
+    });
+
+    it('should handle larger maps (more than E entries)', () => {
+      const codec = r.btreeMap(r.u32, r.u32);
+      const map = new Map<number, number>();
+      for (let i = 0; i < 20; i++) {
+        map.set(i, i * 10);
+      }
+      const bytes = r.encode(codec, map);
+      const decoded = r.decode(codec, bytes);
+      assert.strictEqual(decoded.size, 20);
+      for (let i = 0; i < 20; i++) {
+        assert.strictEqual(decoded.get(i), i * 10);
+      }
+    });
+
+    it('should work in struct', () => {
+      const Config = r.struct({
+        settings: r.btreeMap(r.string, r.u32),
+        version: r.u32,
+      });
+      const config = {
+        settings: new Map([
+          ['timeout', 30],
+          ['retries', 3],
+        ]),
+        version: 1,
+      };
+      const bytes = r.encode(Config, config);
+      const decoded = r.decode(Config, bytes);
+      assert.deepStrictEqual(decoded.settings, config.settings);
+      assert.strictEqual(decoded.version, config.version);
+    });
+  });
+
   describe('built-in crates', () => {
     describe('uuid', () => {
       it('should encode and decode UUID', () => {

@@ -8,11 +8,13 @@
 use rkyv::rancor::Error;
 use rkyv_js_codegen::CodeGenerator;
 use rkyv_js_example::{
-    Arc, ArcShared, ArrayVec, ArrayVecBuffer, Bytes, BytesMessage, GameState, IndexMap,
-    IndexMapConfig, IndexSet, IndexSetTags, Message, Person, Point, SmallVec, SmallVecData,
-    SmolStr, SmolStrConfig, ThinVec, ThinVecData, TinyVec, TinyVecData, Uuid, UuidRecord,
+    Arc, ArcShared, ArrayVec, ArrayVecBuffer, BTreeMapConfig, Bytes, BytesMessage, GameState,
+    IndexMap, IndexMapConfig, IndexSet, IndexSetTags, Message, Person, Point, SmallVec,
+    SmallVecData, SmolStr, SmolStrConfig, ThinVec, ThinVecData, TinyVec, TinyVecData, Uuid,
+    UuidRecord,
 };
 use serde::Serialize;
+use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -210,6 +212,20 @@ fn main() {
         &ArcShared {
             shared_data: Arc::new("shared-value".to_string()),
             local_data: 42,
+        },
+    );
+
+    // BTreeMap fixture
+    let mut btree_settings: BTreeMap<String, u32> = BTreeMap::new();
+    btree_settings.insert("alpha".to_string(), 1);
+    btree_settings.insert("beta".to_string(), 2);
+    btree_settings.insert("gamma".to_string(), 3);
+    write_fixture::<BTreeMapConfig>(
+        &out_dir,
+        "btreemap_config",
+        &BTreeMapConfig {
+            settings: btree_settings,
+            version: 1,
         },
     );
 
@@ -488,6 +504,24 @@ impl GenerateCodec for ArcShared {
             struct ArcShared {
                 shared_data: Arc<String>,
                 local_data: u32,
+            }
+            "#,
+        );
+    }
+}
+
+impl GenerateCodec for BTreeMapConfig {
+    const CODEC_NAME: &'static str = "ArchivedBTreeMapConfig";
+
+    fn generate_codec(codegen: &mut CodeGenerator) {
+        codegen.add_source_str(
+            r#"
+            use std::collections::BTreeMap;
+
+            #[derive(Archive)]
+            struct BTreeMapConfig {
+                settings: BTreeMap<String, u32>,
+                version: u32,
             }
             "#,
         );

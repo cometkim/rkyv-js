@@ -271,3 +271,30 @@ pub struct ArcShared {
     pub shared_data: Arc<String>,
     pub local_data: u32,
 }
+
+/// Configuration using std::collections::BTreeMap for sorted key order.
+#[derive(Debug, Clone, Archive, Deserialize, Serialize)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct BTreeMapConfig {
+    pub settings: std::collections::BTreeMap<String, u32>,
+    pub version: u32,
+}
+
+// Custom serde serializer for BTreeMapConfig
+impl serde::Serialize for BTreeMapConfig {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        #[derive(serde::Serialize)]
+        struct Inner<'a> {
+            settings: Vec<(&'a str, &'a u32)>,
+            version: u32,
+        }
+        let inner = Inner {
+            settings: self.settings.iter().map(|(k, v)| (k.as_str(), v)).collect(),
+            version: self.version,
+        };
+        inner.serialize(serializer)
+    }
+}

@@ -37,7 +37,7 @@ pub enum TypeDef {
     // Reference to a named type (struct or enum)
     Named(String),
 
-    // Built-in crate types (r.lib.*)
+    // Built-in crate types
     Lib(LibTypeDef),
 }
 
@@ -120,9 +120,16 @@ impl TypeDef {
                 format!("r.tuple({})", exprs.join(", "))
             }
 
-            TypeDef::HashMap(key, value) | TypeDef::BTreeMap(key, value) => {
+            TypeDef::HashMap(key, value) => {
                 format!(
                     "r.hashMap({}, {})",
+                    key.to_codec_expr(),
+                    value.to_codec_expr()
+                )
+            }
+            TypeDef::BTreeMap(key, value) => {
+                format!(
+                    "r.btreeMap({}, {})",
                     key.to_codec_expr(),
                     value.to_codec_expr()
                 )

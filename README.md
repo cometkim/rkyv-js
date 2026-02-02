@@ -163,6 +163,11 @@ fn main() {
 | `[T; N]` | `TypeDef::Array(Box::new(T), N)` | `T[]` |
 | `(T1, T2, ...)` | `TypeDef::Tuple(vec![...])` | `[T1, T2, ...]` |
 | `HashMap<K, V>` | `TypeDef::HashMap(...)` | `Map<K, V>` |
+| `BTreeMap<K, V>` | `TypeDef::BTreeMap(...)` | `Map<K, V>` |
+| `Rc<T>` | `TypeDef::Rc(Box::new(T))` | `T` |
+| `Arc<T>` | `TypeDef::Arc(Box::new(T))` | `T` |
+| `Weak<T>` (rc) | `TypeDef::RcWeak(Box::new(T))` | `T \| null` |
+| `Weak<T>` (sync) | `TypeDef::ArcWeak(Box::new(T))` | `T \| null` |
 
 ### Built-in Crate Types
 
@@ -181,6 +186,7 @@ The codegen recognizes types from [external crates that rkyv supports](https://d
 | `smallvec::SmallVec<[T; N]>` | same as `Vec<T>` | `T[]` |
 | `tinyvec::TinyVec<[T; N]>` | same as `Vec<T>` | `T[]` |
 | `triomphe::Arc<T>` | same as `Box<T>` | `T` |
+| `hashbrown::HashMap<K, V>` | same as `HashMap<K, V>` | `Map<K, V>` |
 
 Example usage:
 
@@ -195,6 +201,19 @@ const ArchivedRecord = r.struct({
   data: bytes,
   tags: indexSet(r.string),
   settings: indexMap(r.string, r.u32),
+});
+
+// Shared pointer types
+const ArchivedGraph = r.struct({
+  root: r.rc(r.string),           // Rc<String>
+  shared: r.arc(r.u32),           // Arc<u32>
+  weakRef: r.rcWeak(r.string),    // rc::Weak<String> -> T | null
+  syncWeakRef: r.arcWeak(r.u32),  // sync::Weak<u32> -> T | null
+});
+
+// BTreeMap (ordered map using B-tree structure)
+const ArchivedConfig = r.struct({
+  orderedSettings: r.btreeMap(r.string, r.u32),  // BTreeMap<String, u32>
 });
 ```
 
@@ -212,8 +231,7 @@ If your Rust code uses different `rkyv` features (`big_endian`, `unaligned`, `po
 
 ## Limitations
 
-- No validation: Unlike rkyv's `bytecheck`, `rkyv-js` does not validate data integrity
-- HashMap layout: Simplified sequential storage (not hashbrown's actual layout)
+- Unlike rkyv's `bytecheck`, `rkyv-js` does not validate data integrity
 - Trait objects (`rkyv_dyn`) are not supported
 
 ## TODOs

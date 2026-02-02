@@ -30,6 +30,13 @@ export const ArchivedArrayVecBuffer = r.struct({
 
 export type ArrayVecBuffer = r.infer<typeof ArchivedArrayVecBuffer>;
 
+export const ArchivedBTreeMapConfig = r.struct({
+  settings: r.btreeMap(r.string, r.u32),
+  version: r.u32,
+});
+
+export type BTreeMapConfig = r.infer<typeof ArchivedBTreeMapConfig>;
+
 export const ArchivedBytesMessage = r.struct({
   payload: bytes,
   checksum: r.u32,
