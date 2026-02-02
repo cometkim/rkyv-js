@@ -3,8 +3,8 @@
 //! This module provides functionality to scan Rust source files and automatically
 //! extract type definitions for TypeScript binding generation.
 
-use crate::types::{EnumVariant, LibTypeDef, TypeDef};
 use crate::CodeGenerator;
+use crate::types::{EnumVariant, LibTypeDef, TypeDef};
 use std::fs;
 use std::path::Path;
 use syn::{
@@ -22,16 +22,16 @@ use walkdir::WalkDir;
 /// - Custom aliases via `add_marker("Rkyv")`
 fn has_marker_derive(attrs: &[Attribute], markers: &[String]) -> bool {
     for attr in attrs {
-        if attr.path().is_ident("derive") {
-            if let Ok(nested) = attr.parse_args_with(
+        if attr.path().is_ident("derive")
+            && let Ok(nested) = attr.parse_args_with(
                 syn::punctuated::Punctuated::<syn::Path, syn::Token![,]>::parse_terminated,
-            ) {
-                for path in nested {
-                    if let Some(last_segment) = path.segments.last() {
-                        let ident = last_segment.ident.to_string();
-                        if markers.iter().any(|m| m == &ident) {
-                            return true;
-                        }
+            )
+        {
+            for path in nested {
+                if let Some(last_segment) = path.segments.last() {
+                    let ident = last_segment.ident.to_string();
+                    if markers.iter().any(|m| m == &ident) {
+                        return true;
                     }
                 }
             }
@@ -193,10 +193,10 @@ fn type_to_typedef(ty: &Type) -> Option<TypeDef> {
         }
         Type::Reference(reference) => {
             // For &str, treat as String
-            if let Type::Path(TypePath { path, .. }) = &*reference.elem {
-                if path.is_ident("str") {
-                    return Some(TypeDef::String);
-                }
+            if let Type::Path(TypePath { path, .. }) = &*reference.elem
+                && path.is_ident("str")
+            {
+                return Some(TypeDef::String);
             }
             // Otherwise, follow the reference
             type_to_typedef(&reference.elem)

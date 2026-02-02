@@ -363,13 +363,13 @@ impl CodeGenerator {
         // Collect all lib imports needed
         let mut lib_imports: HashSet<LibImport> = HashSet::new();
 
-        for (_, fields) in &self.structs {
+        for fields in self.structs.values() {
             for (_, ty) in fields {
                 ty.collect_lib_imports(&mut lib_imports);
             }
         }
 
-        for (_, variants) in &self.enums {
+        for variants in self.enums.values() {
             for variant in variants {
                 match variant {
                     EnumVariant::Unit(_) => {}
@@ -387,13 +387,13 @@ impl CodeGenerator {
             }
         }
 
-        for (_, variants) in &self.unions {
+        for variants in self.unions.values() {
             for variant in variants {
                 variant.ty.collect_lib_imports(&mut lib_imports);
             }
         }
 
-        for (_, ty) in &self.aliases {
+        for ty in self.aliases.values() {
             ty.collect_lib_imports(&mut lib_imports);
         }
 
