@@ -164,6 +164,42 @@ fn main() {
 | `(T1, T2, ...)` | `TypeDef::Tuple(vec![...])` | `[T1, T2, ...]` |
 | `HashMap<K, V>` | `TypeDef::HashMap(...)` | `Map<K, V>` |
 
+### Built-in Crate Types
+
+The codegen recognizes types from [external crates that rkyv supports](https://docs.rs/rkyv/latest/rkyv/#crates). Many of these archive to the same format as built-in types:
+
+
+| Rust Type | Archive Format | TypeScript Type |
+|-----------|----------------|-----------------|
+| `uuid::Uuid` | unique | `string` |
+| `bytes::Bytes` | unique | `Uint8Array` |
+| `indexmap::IndexMap<K, V>` | unique (Swiss Table) | `Map<K, V>` |
+| `indexmap::IndexSet<T>` | unique (Swiss Table) | `Set<T>` |
+| `smol_str::SmolStr` | same as `String` | `string` |
+| `thin_vec::ThinVec<T>` | same as `Vec<T>` | `T[]` |
+| `arrayvec::ArrayVec<T, N>` | same as `Vec<T>` | `T[]` |
+| `smallvec::SmallVec<[T; N]>` | same as `Vec<T>` | `T[]` |
+| `tinyvec::TinyVec<[T; N]>` | same as `Vec<T>` | `T[]` |
+| `triomphe::Arc<T>` | same as `Box<T>` | `T` |
+
+Example usage:
+
+```typescript
+import { r } from 'rkyv-js';
+import { uuid as ArchivedUuid } from 'rkyv-js/lib/uuid';
+import { bytes as ArchivedBytes } from 'rkyv-js/lib/bytes';
+import {
+  indexSet as ArchivedIndexSet,
+  indexMap as ArchivedIndexMap,
+} from 'rkyv-js/lib/indexmap';
+
+const ArchivedRecord = r.struct({
+  id: ArchivedUuid,
+  data: ArchivedBytes,
+  tags: ArchivedIndexSet(r.string),
+  settings: ArchivedIndexMap(r.string, r.u32),
+});
+```
 
 ## rkyv Format Notes
 
@@ -187,10 +223,9 @@ If your Rust code uses different `rkyv` features (`big_endian`, `unaligned`, `po
 
 This library does not support all rkyv features, but these are planned to support in the future:
 
-- [ ] Built-in crates supports (`arrayvec`, `bytes`, `uuid`, etc)
 - [ ] Non-default formats
   - Big-endian
-  - Unalined primitives
+  - Unaligned primitives
   - 16-bit and 64-bit pointer width
 - [ ] Rename with `archived = ...` attr
 - [ ] Remote types

@@ -44,6 +44,39 @@ async function loadFixture<T = unknown>(name: string): Promise<{
   };
 }
 
+/**
+ * Normalize values for comparison.
+ * - Converts Uint8Array to regular arrays for comparison with JSON arrays
+ * - Converts Map to array of [key, value] tuples for comparison with JSON
+ * - Converts Set to array for comparison with JSON
+ * - Recursively processes nested objects
+ */
+function normalizeForComparison(value: unknown): unknown {
+  if (value instanceof Uint8Array) {
+    return Array.from(value);
+  }
+  if (value instanceof Map) {
+    return Array.from(value.entries()).map(([k, v]) => [
+      normalizeForComparison(k),
+      normalizeForComparison(v),
+    ]);
+  }
+  if (value instanceof Set) {
+    return Array.from(value).map(normalizeForComparison);
+  }
+  if (Array.isArray(value)) {
+    return value.map(normalizeForComparison);
+  }
+  if (value !== null && typeof value === 'object') {
+    const result: Record<string, unknown> = {};
+    for (const [key, val] of Object.entries(value)) {
+      result[key] = normalizeForComparison(val);
+    }
+    return result;
+  }
+  return value;
+}
+
 describe('Round-trip tests with Rust rkyv', async () => {
   const fixtures = await discoverFixtures();
 
@@ -53,7 +86,8 @@ describe('Round-trip tests with Rust rkyv', async () => {
 
       // Decode and validate against JSON
       const decoded = r.decode(codec, bytes);
-      assert.deepStrictEqual(decoded, expected);
+      const normalizedDecoded = normalizeForComparison(decoded);
+      assert.deepStrictEqual(normalizedDecoded, expected);
 
       // Re-encode and verify bytes match original
       const reencoded = r.encode(codec, decoded);
@@ -61,7 +95,8 @@ describe('Round-trip tests with Rust rkyv', async () => {
 
       // Verify roundtrip
       const decoded2 = r.decode(codec, reencoded);
-      assert.deepStrictEqual(decoded2, expected);
+      const normalizedDecoded2 = normalizeForComparison(decoded2);
+      assert.deepStrictEqual(normalizedDecoded2, expected);
     });
   }
 });

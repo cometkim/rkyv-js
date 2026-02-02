@@ -1,3 +1,7 @@
+export interface RkyvReaderOptions {
+  textDecoder?: TextDecoder,
+};
+
 /**
  * RkyvReader provides low-level binary buffer reading operations
  * for decoding rkyv-serialized data.
@@ -6,10 +10,13 @@
  * This reader assumes little-endian format.
  */
 export class RkyvReader {
-  private readonly view: DataView;
-  private readonly buffer: Uint8Array;
+  readonly view: DataView;
+  readonly buffer: Uint8Array;
+  readonly textDecoder: TextDecoder;
 
-  constructor(buffer: ArrayBuffer | Uint8Array) {
+  constructor(buffer: ArrayBuffer | Uint8Array, options: RkyvReaderOptions = {}) {
+    this.textDecoder = options.textDecoder || new TextDecoder();
+
     if (buffer instanceof Uint8Array) {
       this.buffer = buffer;
       this.view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
@@ -86,6 +93,13 @@ export class RkyvReader {
   }
 
   /**
+   */
+  readText(offset: number, length: number): string {
+    const bytes = this.readBytes(offset, length);
+    return this.textDecoder.decode(bytes);
+  }
+
+  /**
    * Read a relative pointer (32-bit signed offset by default in rkyv).
    * Returns the absolute position the pointer points to.
    *
@@ -113,33 +127,3 @@ export class RkyvReader {
     return BigInt(offset) + relativeOffset;
   }
 }
-
-/**
- * Configuration for the rkyv format.
- * These should match the Rust compilation features used.
- */
-export interface RkyvConfig {
-  /**
-   * Endianness of the serialized data.
-   * Default in rkyv is 'little'.
-   */
-  endianness: 'little' | 'big';
-
-  /**
-   * Pointer width for relative pointers (isize/usize serialization).
-   * Default in rkyv is 32.
-   */
-  pointerWidth: 16 | 32 | 64;
-
-  /**
-   * Whether primitives are aligned.
-   * Default in rkyv is true (aligned).
-   */
-  aligned: boolean;
-}
-
-export const DEFAULT_CONFIG: RkyvConfig = {
-  endianness: 'little',
-  pointerWidth: 32,
-  aligned: true,
-};

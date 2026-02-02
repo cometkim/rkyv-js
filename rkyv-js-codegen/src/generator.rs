@@ -1,6 +1,6 @@
 //! TypeScript code generator for rkyv types.
 
-use crate::types::{EnumVariant, TypeDef, UnionVariant};
+use crate::types::{EnumVariant, LibImport, TypeDef, UnionVariant};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::io::{self, Write};
@@ -360,8 +360,61 @@ impl CodeGenerator {
     }
 
     fn generate_imports(&self) -> String {
-        // With the unified codec API, we only need to import `r`
-        "import { r } from 'rkyv-js';".to_string()
+        // Collect all lib imports needed
+        let mut lib_imports: HashSet<LibImport> = HashSet::new();
+
+        for (_, fields) in &self.structs {
+            for (_, ty) in fields {
+                ty.collect_lib_imports(&mut lib_imports);
+            }
+        }
+
+        for (_, variants) in &self.enums {
+            for variant in variants {
+                match variant {
+                    EnumVariant::Unit(_) => {}
+                    EnumVariant::Tuple(_, types) => {
+                        for ty in types {
+                            ty.collect_lib_imports(&mut lib_imports);
+                        }
+                    }
+                    EnumVariant::Struct(_, fields) => {
+                        for (_, ty) in fields {
+                            ty.collect_lib_imports(&mut lib_imports);
+                        }
+                    }
+                }
+            }
+        }
+
+        for (_, variants) in &self.unions {
+            for variant in variants {
+                variant.ty.collect_lib_imports(&mut lib_imports);
+            }
+        }
+
+        for (_, ty) in &self.aliases {
+            ty.collect_lib_imports(&mut lib_imports);
+        }
+
+        // Generate imports
+        let mut output = String::new();
+
+        // Always import r from rkyv-js
+        output.push_str("import { r } from 'rkyv-js';\n");
+
+        // Add lib imports
+        if lib_imports.contains(&LibImport::Uuid) {
+            output.push_str("import { uuid } from 'rkyv-js/lib/uuid';\n");
+        }
+        if lib_imports.contains(&LibImport::Bytes) {
+            output.push_str("import { bytes } from 'rkyv-js/lib/bytes';\n");
+        }
+        if lib_imports.contains(&LibImport::IndexMap) {
+            output.push_str("import { indexMap, indexSet } from 'rkyv-js/lib/indexmap';\n");
+        }
+
+        output.trim_end().to_string()
     }
 
     fn generate_alias(&self, name: &str, target: &TypeDef) -> String {
@@ -498,7 +551,7 @@ mod tests {
         codegen.add_struct("Point", &[("x", TypeDef::F64), ("y", TypeDef::F64)]);
 
         let code = codegen.generate();
-        assert!(code.contains("import { r } from 'rkyv-js';"));
+        assert!(code.contains("import { r } from 'rkyv-js';\n"));
         assert!(code.contains("export const ArchivedPoint = r.struct({"));
         assert!(code.contains("x: r.f64"));
         assert!(code.contains("y: r.f64"));

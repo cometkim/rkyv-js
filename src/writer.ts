@@ -1,3 +1,8 @@
+export interface RkyvWriterOptions {
+  initialCapacity?: number;
+  textEncoder?: TextEncoder;
+}
+
 /**
  * RkyvWriter provides binary buffer writing operations for encoding
  * data in rkyv's serialization format.
@@ -9,13 +14,15 @@
  * 3. The root object ends up at the end of the buffer
  */
 export class RkyvWriter {
-  private buffer: Uint8Array;
-  private view: DataView;
-  private position: number;
-  private capacity: number;
+  buffer: Uint8Array;
+  view: DataView;
+  position: number;
+  capacity: number;
+  textEncoder: TextEncoder;
 
-  constructor(initialCapacity: number = 1024) {
-    this.capacity = initialCapacity;
+  constructor(options: RkyvWriterOptions = {}) {
+    this.capacity = options.initialCapacity || 1024;
+    this.textEncoder = options.textEncoder || new TextEncoder();
     this.buffer = new Uint8Array(this.capacity);
     this.view = new DataView(this.buffer.buffer);
     this.position = 0;
@@ -212,29 +219,11 @@ export class RkyvWriter {
   reset(): void {
     this.position = 0;
   }
-}
 
-/**
- * Resolver holds the position of archived data written during serialization.
- * This is used to compute relative pointers when the containing struct is written.
- */
-export interface Resolver {
   /**
-   * The position where the archived data was written.
+   * Encode a string to UTF-8 bytes.
    */
-  pos: number;
-}
-
-/**
- * String resolver containing the position of string bytes.
- */
-export interface StringResolver extends Resolver {
-  len: number;
-}
-
-/**
- * Vec resolver containing the position of array elements.
- */
-export interface VecResolver extends Resolver {
-  len: number;
+  encodeText(text: string): Uint8Array {
+    return this.textEncoder.encode(text);
+  }
 }

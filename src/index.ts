@@ -1,53 +1,36 @@
-export { r } from './codec.ts';
-export type { RkyvCodec, Infer } from './codec.ts';
+import * as intrinsics from './intrinsics.ts';
+import { access, decode, encode } from './codec.ts';
 
-// Re-export codec primitives and combinators at top level for convenience
-export {
-  // Primitives
-  u8,
-  i8,
-  u16,
-  i16,
-  u32,
-  i32,
-  u64,
-  i64,
-  f32,
-  f64,
-  bool,
-  unit,
-  char,
-  string,
+export type { RkyvCodec, Infer, Resolver } from './codec.ts';
+export { RkyvReader } from './reader.ts';
+export { RkyvWriter } from './writer.ts';
 
-  // Containers
-  vec,
-  optional,
-  box,
-  array,
-  tuple,
-
-  // Structs & Enums
-  struct,
-  taggedEnum,
-  union,
-
-  // Utilities
-  transform,
-  newtype,
-  lazy,
-  hashMap,
-
-  // Top-level functions
+/**
+ * The `r` namespace provides rkyv-js' core APIs.
+ *
+ * @example
+ * ```typescript
+ * import { r } from 'rkyv-js';
+ *
+ * const Person = r.struct({
+ *   name: r.string,
+ *   age: r.u32,
+ * });
+ *
+ * type Person = r.infer<typeof Person>;
+ *
+ * const bytes = r.encode(Person, { name: 'Alice', age: 30 });
+ * const person = r.decode(Person, bytes);
+ * ```
+ */
+export const r = {
+  ...intrinsics,
   access,
   decode,
   encode,
+};
 
-  // Helper
-  alignOffset,
-} from './codec.ts';
-
-export { RkyvReader, DEFAULT_CONFIG } from './reader.ts';
-export type { RkyvConfig } from './reader.ts';
-
-export { RkyvWriter } from './writer.ts';
-export type { Resolver, StringResolver, VecResolver } from './writer.ts';
+export declare namespace r {
+  /** Infer the TypeScript type from a codec */
+  export type infer<C> = import('./codec.ts').Infer<C>;
+}

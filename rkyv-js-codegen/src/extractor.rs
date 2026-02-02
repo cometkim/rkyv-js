@@ -3,8 +3,8 @@
 //! This module provides functionality to scan Rust source files and automatically
 //! extract type definitions for TypeScript binding generation.
 
+use crate::types::{EnumVariant, LibTypeDef, TypeDef};
 use crate::CodeGenerator;
-use crate::types::{EnumVariant, TypeDef};
 use std::fs;
 use std::path::Path;
 use syn::{
@@ -92,6 +92,66 @@ fn type_to_typedef(ty: &Type) -> Option<TypeDef> {
                     Some(TypeDef::BTreeMap(Box::new(key_def), Box::new(value_def)))
                 }
 
+                // Built-in crate types (r.lib.*)
+                "Uuid" => Some(TypeDef::Lib(LibTypeDef::Uuid)),
+                "Bytes" => Some(TypeDef::Lib(LibTypeDef::Bytes)),
+                "SmolStr" => Some(TypeDef::Lib(LibTypeDef::SmolStr)),
+                "ThinVec" => {
+                    let inner = get_single_generic_arg(segment)?;
+                    let inner_def = type_to_typedef(inner)?;
+                    Some(TypeDef::Lib(LibTypeDef::ThinVec(Box::new(inner_def))))
+                }
+                "ArrayVec" => {
+                    // ArrayVec<T, CAP> - two generic args: type and const capacity
+                    let (inner, cap) = get_type_and_const_generic_args(segment)?;
+                    let inner_def = type_to_typedef(inner)?;
+                    Some(TypeDef::Lib(LibTypeDef::ArrayVec(Box::new(inner_def), cap)))
+                }
+                "SmallVec" => {
+                    // SmallVec<[T; N]> - single generic arg that is an array type
+                    let inner_array = get_single_generic_arg(segment)?;
+                    if let Type::Array(TypeArray { elem, len, .. }) = inner_array {
+                        let inner_def = type_to_typedef(elem)?;
+                        let cap = extract_array_len(len)?;
+                        Some(TypeDef::Lib(LibTypeDef::SmallVec(Box::new(inner_def), cap)))
+                    } else {
+                        None
+                    }
+                }
+                "TinyVec" => {
+                    // TinyVec<[T; N]> - single generic arg that is an array type
+                    let inner_array = get_single_generic_arg(segment)?;
+                    if let Type::Array(TypeArray { elem, len, .. }) = inner_array {
+                        let inner_def = type_to_typedef(elem)?;
+                        let cap = extract_array_len(len)?;
+                        Some(TypeDef::Lib(LibTypeDef::TinyVec(Box::new(inner_def), cap)))
+                    } else {
+                        None
+                    }
+                }
+                "IndexMap" => {
+                    let (key, value) = get_two_generic_args(segment)?;
+                    let key_def = type_to_typedef(key)?;
+                    let value_def = type_to_typedef(value)?;
+                    Some(TypeDef::Lib(LibTypeDef::IndexMap(
+                        Box::new(key_def),
+                        Box::new(value_def),
+                    )))
+                }
+                "IndexSet" => {
+                    let inner = get_single_generic_arg(segment)?;
+                    let inner_def = type_to_typedef(inner)?;
+                    Some(TypeDef::Lib(LibTypeDef::IndexSet(Box::new(inner_def))))
+                }
+                "Arc" => {
+                    // triomphe::Arc<T> - check if it's from triomphe
+                    // For now, we assume any Arc is triomphe::Arc when used in rkyv context
+                    // In practice, std::sync::Arc is not supported by rkyv without Arc wrapper
+                    let inner = get_single_generic_arg(segment)?;
+                    let inner_def = type_to_typedef(inner)?;
+                    Some(TypeDef::Lib(LibTypeDef::Arc(Box::new(inner_def))))
+                }
+
                 // Named type (custom struct/enum)
                 _ => Some(TypeDef::Named(ident_str)),
             }
@@ -164,6 +224,46 @@ fn get_two_generic_args(segment: &syn::PathSegment) -> Option<(&Type, &Type)> {
             Some((key, value))
         }
         _ => None,
+    }
+}
+
+/// Extract a type and a const generic argument (for ArrayVec<T, CAP>)
+fn get_type_and_const_generic_args(segment: &syn::PathSegment) -> Option<(&Type, usize)> {
+    match &segment.arguments {
+        PathArguments::AngleBracketed(args) => {
+            let mut iter = args.args.iter();
+            let first = iter.next()?;
+            let second = iter.next()?;
+
+            let ty = match first {
+                GenericArgument::Type(ty) => ty,
+                _ => return None,
+            };
+
+            let cap = match second {
+                GenericArgument::Const(syn::Expr::Lit(syn::ExprLit {
+                    lit: syn::Lit::Int(lit_int),
+                    ..
+                })) => lit_int.base10_parse().ok()?,
+                _ => return None,
+            };
+
+            Some((ty, cap))
+        }
+        _ => None,
+    }
+}
+
+/// Extract array length from an expression (for SmallVec<[T; N]> and TinyVec<[T; N]>)
+fn extract_array_len(expr: &syn::Expr) -> Option<usize> {
+    if let syn::Expr::Lit(syn::ExprLit {
+        lit: syn::Lit::Int(lit_int),
+        ..
+    }) = expr
+    {
+        lit_int.base10_parse().ok()
+    } else {
+        None
     }
 }
 
@@ -552,5 +652,198 @@ mod tests {
         assert!(code.contains("export const ArchivedOuter = r.struct({"));
         assert!(code.contains("inner: ArchivedInner"));
         assert!(code.contains("items: r.vec(ArchivedInner)"));
+    }
+
+    #[test]
+    fn test_extract_lib_uuid() {
+        let source = r#"
+            use uuid::Uuid;
+
+            #[derive(Archive)]
+            struct Record {
+                id: Uuid,
+                name: String,
+            }
+        "#;
+
+        let mut codegen = CodeGenerator::new();
+        codegen.add_source_str(source);
+
+        let code = codegen.generate();
+        assert!(code.contains("import { uuid } from 'rkyv-js/lib/uuid';"));
+        assert!(code.contains("export const ArchivedRecord = r.struct({"));
+        assert!(code.contains("id: uuid"));
+        assert!(code.contains("name: r.string"));
+    }
+
+    #[test]
+    fn test_extract_lib_bytes() {
+        let source = r#"
+            use bytes::Bytes;
+
+            #[derive(Archive)]
+            struct Message {
+                payload: Bytes,
+            }
+        "#;
+
+        let mut codegen = CodeGenerator::new();
+        codegen.add_source_str(source);
+
+        let code = codegen.generate();
+        assert!(code.contains("import { bytes } from 'rkyv-js/lib/bytes';"));
+        assert!(code.contains("payload: bytes"));
+    }
+
+    #[test]
+    fn test_extract_lib_smol_str() {
+        let source = r#"
+            use smol_str::SmolStr;
+
+            #[derive(Archive)]
+            struct Config {
+                key: SmolStr,
+            }
+        "#;
+
+        let mut codegen = CodeGenerator::new();
+        codegen.add_source_str(source);
+
+        let code = codegen.generate();
+        // SmolStr archives to the same format as String
+        assert!(code.contains("key: r.string"));
+    }
+
+    #[test]
+    fn test_extract_lib_thin_vec() {
+        let source = r#"
+            use thin_vec::ThinVec;
+
+            #[derive(Archive)]
+            struct Data {
+                items: ThinVec<u32>,
+            }
+        "#;
+
+        let mut codegen = CodeGenerator::new();
+        codegen.add_source_str(source);
+
+        let code = codegen.generate();
+        // ThinVec archives to the same format as Vec
+        assert!(code.contains("items: r.vec(r.u32)"));
+    }
+
+    #[test]
+    fn test_extract_lib_arrayvec() {
+        let source = r#"
+            use arrayvec::ArrayVec;
+
+            #[derive(Archive)]
+            struct Buffer {
+                data: ArrayVec<u8, 64>,
+            }
+        "#;
+
+        let mut codegen = CodeGenerator::new();
+        codegen.add_source_str(source);
+
+        let code = codegen.generate();
+        // ArrayVec archives to the same format as Vec
+        assert!(code.contains("data: r.vec(r.u8)"));
+    }
+
+    #[test]
+    fn test_extract_lib_smallvec() {
+        let source = r#"
+            use smallvec::SmallVec;
+
+            #[derive(Archive)]
+            struct Items {
+                values: SmallVec<[u32; 4]>,
+            }
+        "#;
+
+        let mut codegen = CodeGenerator::new();
+        codegen.add_source_str(source);
+
+        let code = codegen.generate();
+        // SmallVec archives to the same format as Vec
+        assert!(code.contains("values: r.vec(r.u32)"));
+    }
+
+    #[test]
+    fn test_extract_lib_tinyvec() {
+        let source = r#"
+            use tinyvec::TinyVec;
+
+            #[derive(Archive)]
+            struct Stack {
+                elements: TinyVec<[String; 8]>,
+            }
+        "#;
+
+        let mut codegen = CodeGenerator::new();
+        codegen.add_source_str(source);
+
+        let code = codegen.generate();
+        // TinyVec archives to the same format as Vec
+        assert!(code.contains("elements: r.vec(r.string)"));
+    }
+
+    #[test]
+    fn test_extract_lib_indexmap() {
+        let source = r#"
+            use indexmap::IndexMap;
+
+            #[derive(Archive)]
+            struct Config {
+                settings: IndexMap<String, u32>,
+            }
+        "#;
+
+        let mut codegen = CodeGenerator::new();
+        codegen.add_source_str(source);
+
+        let code = codegen.generate();
+        assert!(code.contains("import { indexMap, indexSet } from 'rkyv-js/lib/indexmap';"));
+        assert!(code.contains("settings: indexMap(r.string, r.u32)"));
+    }
+
+    #[test]
+    fn test_extract_lib_indexset() {
+        let source = r#"
+            use indexmap::IndexSet;
+
+            #[derive(Archive)]
+            struct Tags {
+                items: IndexSet<String>,
+            }
+        "#;
+
+        let mut codegen = CodeGenerator::new();
+        codegen.add_source_str(source);
+
+        let code = codegen.generate();
+        assert!(code.contains("import { indexMap, indexSet } from 'rkyv-js/lib/indexmap';"));
+        assert!(code.contains("items: indexSet(r.string)"));
+    }
+
+    #[test]
+    fn test_extract_lib_arc() {
+        let source = r#"
+            use triomphe::Arc;
+
+            #[derive(Archive)]
+            struct Shared {
+                config: Arc<String>,
+            }
+        "#;
+
+        let mut codegen = CodeGenerator::new();
+        codegen.add_source_str(source);
+
+        let code = codegen.generate();
+        // Arc archives to the same format as Box
+        assert!(code.contains("config: r.box(r.string)"));
     }
 }

@@ -32,29 +32,23 @@
     ".": "./src/index.ts",
     "./codec": "./src/codec.ts",
     "./reader": "./src/reader.ts",
-    "./writer": "./src/writer.ts"
+    "./writer": "./src/writer.ts",
+    "./lib/uuid": "./src/lib/uuid.ts",
+    "./lib/bytes": "./src/lib/bytes.ts",
+    "./lib/indexmap": "./src/lib/indexmap.ts"
   },
   "publishConfig": {
     "access": "public",
     "main": "./dist/index.js",
     "types": "./dist/index.d.ts",
     "exports": {
-      ".": {
-        "types": "./dist/index.d.ts",
-        "import": "./dist/index.js"
-      },
-      "./codec": {
-        "types": "./dist/codec.d.ts",
-        "import": "./dist/codec.js"
-      },
-      "./reader": {
-        "types": "./dist/reader.d.ts",
-        "import": "./dist/reader.js"
-      },
-      "./writer": {
-        "types": "./dist/writer.d.ts",
-        "import": "./dist/writer.js"
-      },
+      ".": "./dist/index.js",
+      "./codec": "./dist/codec.js",
+      "./reader": "./dist/reader.js",
+      "./writer": "./dist/writer.js",
+      "./lib/uuid": "./dist/lib/uuid.js",
+      "./lib/bytes": "./dist/lib/bytes.js",
+      "./lib/indexmap": "./dist/lib/indexmap.js",
       "./package.json": "./package.json"
     }
   },
@@ -63,9 +57,9 @@
     "dist"
   ],
   "scripts": {
-    "fixtures": "cargo run --bin generate-fixtures",
     "test": "node --test",
-    "benchmark": "node benchmarks/index.ts"
+    "fixtures": "cargo run --bin generate-fixtures",
+    "benchmark:comparison": "node --expose-gc benchmarks/comparison.ts"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

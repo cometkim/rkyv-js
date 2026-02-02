@@ -36,6 +36,50 @@ pub enum TypeDef {
 
     // Reference to a named type (struct or enum)
     Named(String),
+
+    // Built-in crate types (r.lib.*)
+    Lib(LibTypeDef),
+}
+
+/// Types from external crates supported by rkyv's built-in integrations.
+///
+/// These map to `r.lib.*` codecs in TypeScript.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LibTypeDef {
+    /// uuid::Uuid - 128-bit UUID (uuid-1 feature)
+    Uuid,
+
+    /// bytes::Bytes - Byte buffer (bytes-1 feature)
+    Bytes,
+
+    /// smol_str::SmolStr - Small-string optimized type (smol_str-0_2/0_3 feature)
+    SmolStr,
+
+    /// thin_vec::ThinVec<T> - Stack-efficient Vec (thin-vec-0_2 feature)
+    ThinVec(Box<TypeDef>),
+
+    /// arrayvec::ArrayVec<T, CAP> - Fixed capacity inline vector (arrayvec-0_7 feature)
+    /// The capacity is compile-time only and not used in the archived format.
+    ArrayVec(Box<TypeDef>, usize),
+
+    /// smallvec::SmallVec<[T; N]> - Small-vector optimization (smallvec-1 feature)
+    /// The inline capacity is compile-time only and not used in the archived format.
+    SmallVec(Box<TypeDef>, usize),
+
+    /// tinyvec::TinyVec<[T; N]> - Enum of inline array or heap Vec (tinyvec-1 feature)
+    TinyVec(Box<TypeDef>, usize),
+
+    /// tinyvec::ArrayVec<[T; N]> - Fixed capacity inline array (tinyvec-1 feature)
+    TinyArrayVec(Box<TypeDef>, usize),
+
+    /// indexmap::IndexMap<K, V> - Insertion-order preserving hash map (indexmap-2 feature)
+    IndexMap(Box<TypeDef>, Box<TypeDef>),
+
+    /// indexmap::IndexSet<T> - Insertion-order preserving hash set (indexmap-2 feature)
+    IndexSet(Box<TypeDef>),
+
+    /// triomphe::Arc<T> - Thread-safe reference-counted pointer (triomphe-0_1 feature)
+    Arc(Box<TypeDef>),
 }
 
 impl TypeDef {
@@ -76,6 +120,8 @@ impl TypeDef {
             }
 
             TypeDef::Named(name) => format!("Archived{}", name),
+
+            TypeDef::Lib(lib_type) => lib_type.to_codec_expr(),
         }
     }
 
@@ -126,6 +172,145 @@ impl TypeDef {
             }
 
             TypeDef::Named(name) => name.clone(),
+
+            TypeDef::Lib(lib_type) => lib_type.to_ts_type(),
+        }
+    }
+
+    /// Collect all lib imports required by this type (recursively).
+    pub fn collect_lib_imports(&self, imports: &mut std::collections::HashSet<LibImport>) {
+        match self {
+            TypeDef::Vec(inner)
+            | TypeDef::Option(inner)
+            | TypeDef::Box(inner)
+            | TypeDef::Array(inner, _) => {
+                inner.collect_lib_imports(imports);
+            }
+            TypeDef::Tuple(elements) => {
+                for elem in elements {
+                    elem.collect_lib_imports(imports);
+                }
+            }
+            TypeDef::HashMap(k, v) | TypeDef::BTreeMap(k, v) => {
+                k.collect_lib_imports(imports);
+                v.collect_lib_imports(imports);
+            }
+            TypeDef::Lib(lib_type) => {
+                if let Some(import) = lib_type.required_import() {
+                    imports.insert(import);
+                }
+                // Also recurse into inner types
+                match lib_type {
+                    LibTypeDef::ThinVec(inner)
+                    | LibTypeDef::ArrayVec(inner, _)
+                    | LibTypeDef::SmallVec(inner, _)
+                    | LibTypeDef::TinyVec(inner, _)
+                    | LibTypeDef::TinyArrayVec(inner, _)
+                    | LibTypeDef::IndexSet(inner)
+                    | LibTypeDef::Arc(inner) => {
+                        inner.collect_lib_imports(imports);
+                    }
+                    LibTypeDef::IndexMap(k, v) => {
+                        k.collect_lib_imports(imports);
+                        v.collect_lib_imports(imports);
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Represents which lib module needs to be imported
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum LibImport {
+    Uuid,
+    Bytes,
+    IndexMap,
+}
+
+impl LibTypeDef {
+    /// Generate the codec expression for built-in crate types.
+    ///
+    /// Many external crate types archive to the same format as built-in types:
+    /// - SmolStr -> r.string
+    /// - ThinVec<T>, ArrayVec<T, N>, SmallVec<[T; N]>, TinyVec<[T; N]>, TinyArrayVec<[T; N]> -> r.vec(T)
+    /// - Arc<T> -> r.box(T)
+    ///
+    /// Only types with unique archive formats need dedicated imports:
+    /// - Uuid -> uuid (from rkyv-js/lib/uuid)
+    /// - Bytes -> bytes (from rkyv-js/lib/bytes)
+    /// - IndexMap<K, V> -> indexMap(K, V) (from rkyv-js/lib/indexmap)
+    /// - IndexSet<T> -> indexSet(T) (from rkyv-js/lib/indexmap)
+    pub fn to_codec_expr(&self) -> String {
+        match self {
+            // Unique archive formats - use dedicated imports
+            LibTypeDef::Uuid => "uuid".to_string(),
+            LibTypeDef::Bytes => "bytes".to_string(),
+            LibTypeDef::IndexMap(key, value) => {
+                format!(
+                    "indexMap({}, {})",
+                    key.to_codec_expr(),
+                    value.to_codec_expr()
+                )
+            }
+            LibTypeDef::IndexSet(inner) => {
+                format!("indexSet({})", inner.to_codec_expr())
+            }
+
+            // Same archive format as r.string
+            LibTypeDef::SmolStr => "r.string".to_string(),
+
+            // Same archive format as r.vec(T)
+            LibTypeDef::ThinVec(inner)
+            | LibTypeDef::ArrayVec(inner, _)
+            | LibTypeDef::SmallVec(inner, _)
+            | LibTypeDef::TinyVec(inner, _)
+            | LibTypeDef::TinyArrayVec(inner, _) => {
+                format!("r.vec({})", inner.to_codec_expr())
+            }
+
+            // Same archive format as r.box(T)
+            LibTypeDef::Arc(inner) => {
+                format!("r.box({})", inner.to_codec_expr())
+            }
+        }
+    }
+
+    /// Get the lib import required for this type, if any.
+    pub fn required_import(&self) -> Option<LibImport> {
+        match self {
+            LibTypeDef::Uuid => Some(LibImport::Uuid),
+            LibTypeDef::Bytes => Some(LibImport::Bytes),
+            LibTypeDef::IndexMap(_, _) | LibTypeDef::IndexSet(_) => Some(LibImport::IndexMap),
+            // These map to intrinsics, no lib import needed
+            LibTypeDef::SmolStr
+            | LibTypeDef::ThinVec(_)
+            | LibTypeDef::ArrayVec(_, _)
+            | LibTypeDef::SmallVec(_, _)
+            | LibTypeDef::TinyVec(_, _)
+            | LibTypeDef::TinyArrayVec(_, _)
+            | LibTypeDef::Arc(_) => None,
+        }
+    }
+
+    /// Generate the TypeScript type for built-in crate types.
+    pub fn to_ts_type(&self) -> String {
+        match self {
+            LibTypeDef::Uuid => "string".to_string(),
+            LibTypeDef::Bytes => "Uint8Array".to_string(),
+            LibTypeDef::SmolStr => "string".to_string(),
+            LibTypeDef::ThinVec(inner) => format!("{}[]", inner.to_ts_type()),
+            LibTypeDef::ArrayVec(inner, _) => format!("{}[]", inner.to_ts_type()),
+            LibTypeDef::SmallVec(inner, _) => format!("{}[]", inner.to_ts_type()),
+            LibTypeDef::TinyVec(inner, _) => format!("{}[]", inner.to_ts_type()),
+            LibTypeDef::TinyArrayVec(inner, _) => format!("{}[]", inner.to_ts_type()),
+            LibTypeDef::IndexMap(key, value) => {
+                format!("Map<{}, {}>", key.to_ts_type(), value.to_ts_type())
+            }
+            LibTypeDef::IndexSet(inner) => format!("Set<{}>", inner.to_ts_type()),
+            LibTypeDef::Arc(inner) => inner.to_ts_type(),
         }
     }
 }
@@ -232,5 +417,94 @@ mod tests {
     fn test_hashmap_codec_expr() {
         let map = TypeDef::HashMap(Box::new(TypeDef::String), Box::new(TypeDef::U32));
         assert_eq!(map.to_codec_expr(), "r.hashMap(r.string, r.u32)");
+    }
+
+    #[test]
+    fn test_lib_uuid_codec_expr() {
+        let uuid = TypeDef::Lib(LibTypeDef::Uuid);
+        assert_eq!(uuid.to_codec_expr(), "uuid");
+        assert_eq!(uuid.to_ts_type(), "string");
+    }
+
+    #[test]
+    fn test_lib_bytes_codec_expr() {
+        let bytes = TypeDef::Lib(LibTypeDef::Bytes);
+        assert_eq!(bytes.to_codec_expr(), "bytes");
+        assert_eq!(bytes.to_ts_type(), "Uint8Array");
+    }
+
+    #[test]
+    fn test_lib_smol_str_codec_expr() {
+        // SmolStr archives to the same format as String
+        let smol_str = TypeDef::Lib(LibTypeDef::SmolStr);
+        assert_eq!(smol_str.to_codec_expr(), "r.string");
+        assert_eq!(smol_str.to_ts_type(), "string");
+    }
+
+    #[test]
+    fn test_lib_thin_vec_codec_expr() {
+        // ThinVec archives to the same format as Vec
+        let thin_vec = TypeDef::Lib(LibTypeDef::ThinVec(Box::new(TypeDef::U32)));
+        assert_eq!(thin_vec.to_codec_expr(), "r.vec(r.u32)");
+        assert_eq!(thin_vec.to_ts_type(), "number[]");
+    }
+
+    #[test]
+    fn test_lib_arrayvec_codec_expr() {
+        // ArrayVec archives to the same format as Vec
+        let arrayvec = TypeDef::Lib(LibTypeDef::ArrayVec(Box::new(TypeDef::U32), 8));
+        assert_eq!(arrayvec.to_codec_expr(), "r.vec(r.u32)");
+        assert_eq!(arrayvec.to_ts_type(), "number[]");
+    }
+
+    #[test]
+    fn test_lib_smallvec_codec_expr() {
+        // SmallVec archives to the same format as Vec
+        let smallvec = TypeDef::Lib(LibTypeDef::SmallVec(Box::new(TypeDef::U32), 4));
+        assert_eq!(smallvec.to_codec_expr(), "r.vec(r.u32)");
+        assert_eq!(smallvec.to_ts_type(), "number[]");
+    }
+
+    #[test]
+    fn test_lib_tinyvec_codec_expr() {
+        // TinyVec archives to the same format as Vec
+        let tinyvec = TypeDef::Lib(LibTypeDef::TinyVec(Box::new(TypeDef::String), 4));
+        assert_eq!(tinyvec.to_codec_expr(), "r.vec(r.string)");
+        assert_eq!(tinyvec.to_ts_type(), "string[]");
+    }
+
+    #[test]
+    fn test_lib_tiny_arrayvec_codec_expr() {
+        // TinyArrayVec archives to the same format as Vec
+        let tiny_arrayvec = TypeDef::Lib(LibTypeDef::TinyArrayVec(Box::new(TypeDef::U8), 16));
+        assert_eq!(tiny_arrayvec.to_codec_expr(), "r.vec(r.u8)");
+        assert_eq!(tiny_arrayvec.to_ts_type(), "number[]");
+    }
+
+    #[test]
+    fn test_lib_indexmap_codec_expr() {
+        let indexmap = TypeDef::Lib(LibTypeDef::IndexMap(
+            Box::new(TypeDef::String),
+            Box::new(TypeDef::U32),
+        ));
+        assert_eq!(indexmap.to_codec_expr(), "indexMap(r.string, r.u32)");
+        assert_eq!(indexmap.to_ts_type(), "Map<string, number>");
+    }
+
+    #[test]
+    fn test_lib_indexset_codec_expr() {
+        let indexset = TypeDef::Lib(LibTypeDef::IndexSet(Box::new(TypeDef::String)));
+        assert_eq!(indexset.to_codec_expr(), "indexSet(r.string)");
+        assert_eq!(indexset.to_ts_type(), "Set<string>");
+    }
+
+    #[test]
+    fn test_lib_arc_codec_expr() {
+        // Arc archives to the same format as Box
+        let arc = TypeDef::Lib(LibTypeDef::Arc(Box::new(TypeDef::Named(
+            "Config".to_string(),
+        ))));
+        assert_eq!(arc.to_codec_expr(), "r.box(ArchivedConfig)");
+        assert_eq!(arc.to_ts_type(), "Config");
     }
 }

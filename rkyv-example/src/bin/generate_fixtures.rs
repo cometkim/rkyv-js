@@ -7,7 +7,11 @@
 
 use rkyv::rancor::Error;
 use rkyv_js_codegen::CodeGenerator;
-use rkyv_js_example::{GameState, Message, Person, Point};
+use rkyv_js_example::{
+    Arc, ArcShared, ArrayVec, ArrayVecBuffer, Bytes, BytesMessage, GameState, IndexMap,
+    IndexMapConfig, IndexSet, IndexSetTags, Message, Person, Point, SmallVec, SmallVecData,
+    SmolStr, SmolStrConfig, ThinVec, ThinVecData, TinyVec, TinyVecData, Uuid, UuidRecord,
+};
 use serde::Serialize;
 use std::env;
 use std::fs;
@@ -92,6 +96,120 @@ fn main() {
             health: 100,
             inventory: vec![],
             current_message: None,
+        },
+    );
+
+    // Built-in crate type fixtures
+    println!("Generating built-in crate type fixtures...");
+
+    // UUID fixture
+    write_fixture::<UuidRecord>(
+        &out_dir,
+        "uuid_record",
+        &UuidRecord {
+            id: Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap(),
+            name: "Test Record".to_string(),
+            active: true,
+        },
+    );
+
+    // Bytes fixture
+    write_fixture::<BytesMessage>(
+        &out_dir,
+        "bytes_message",
+        &BytesMessage {
+            payload: Bytes::from_static(&[0xde, 0xad, 0xbe, 0xef, 0xca, 0xfe]),
+            checksum: 12345,
+        },
+    );
+
+    // SmolStr fixture
+    write_fixture::<SmolStrConfig>(
+        &out_dir,
+        "smol_str_config",
+        &SmolStrConfig {
+            key: SmolStr::new("api_key"),
+            value: SmolStr::new("secret-value-12345"),
+            priority: 100,
+        },
+    );
+
+    // ThinVec fixture
+    write_fixture::<ThinVecData>(
+        &out_dir,
+        "thin_vec_data",
+        &ThinVecData {
+            items: ThinVec::from(vec![1, 2, 3, 4, 5]),
+            labels: ThinVec::from(vec![
+                "first".to_string(),
+                "second".to_string(),
+                "third".to_string(),
+            ]),
+        },
+    );
+
+    // ArrayVec fixture
+    let mut arrayvec_data: ArrayVec<u32, 8> = ArrayVec::new();
+    arrayvec_data.push(10);
+    arrayvec_data.push(20);
+    arrayvec_data.push(30);
+    write_fixture::<ArrayVecBuffer>(
+        &out_dir,
+        "arrayvec_buffer",
+        &ArrayVecBuffer {
+            data: arrayvec_data,
+            name: "test-buffer".to_string(),
+        },
+    );
+
+    // SmallVec fixture
+    write_fixture::<SmallVecData>(
+        &out_dir,
+        "smallvec_data",
+        &SmallVecData {
+            items: SmallVec::from_vec(vec![1, 2, 3, 4, 5, 6]),
+            tags: SmallVec::from_vec(vec!["tag1".to_string(), "tag2".to_string()]),
+        },
+    );
+
+    // TinyVec fixture
+    write_fixture::<TinyVecData>(
+        &out_dir,
+        "tinyvec_data",
+        &TinyVecData {
+            values: TinyVec::from([1, 2, 3, 0]),
+            enabled: true,
+        },
+    );
+
+    // IndexMap fixture
+    let mut settings: IndexMap<String, u32> = IndexMap::new();
+    settings.insert("timeout".to_string(), 30);
+    settings.insert("retries".to_string(), 3);
+    settings.insert("max_connections".to_string(), 100);
+    write_fixture::<IndexMapConfig>(
+        &out_dir,
+        "indexmap_config",
+        &IndexMapConfig {
+            settings,
+            version: 1,
+        },
+    );
+
+    // IndexSet fixture
+    let mut tags: IndexSet<String> = IndexSet::new();
+    tags.insert("important".to_string());
+    tags.insert("urgent".to_string());
+    tags.insert("reviewed".to_string());
+    write_fixture::<IndexSetTags>(&out_dir, "indexset_tags", &IndexSetTags { tags, count: 3 });
+
+    // Arc (triomphe) fixture
+    write_fixture::<ArcShared>(
+        &out_dir,
+        "arc_shared",
+        &ArcShared {
+            shared_data: Arc::new("shared-value".to_string()),
+            local_data: 42,
         },
     );
 
@@ -186,6 +304,190 @@ impl GenerateCodec for GameState {
                 health: u32,
                 inventory: Vec<String>,
                 current_message: Option<Message>,
+            }
+            "#,
+        );
+    }
+}
+
+// Built-in crate type implementations
+
+impl GenerateCodec for UuidRecord {
+    const CODEC_NAME: &'static str = "ArchivedUuidRecord";
+
+    fn generate_codec(codegen: &mut CodeGenerator) {
+        codegen.add_source_str(
+            r#"
+            use uuid::Uuid;
+
+            #[derive(Archive)]
+            struct UuidRecord {
+                id: Uuid,
+                name: String,
+                active: bool,
+            }
+            "#,
+        );
+    }
+}
+
+impl GenerateCodec for BytesMessage {
+    const CODEC_NAME: &'static str = "ArchivedBytesMessage";
+
+    fn generate_codec(codegen: &mut CodeGenerator) {
+        codegen.add_source_str(
+            r#"
+            use bytes::Bytes;
+
+            #[derive(Archive)]
+            struct BytesMessage {
+                payload: Bytes,
+                checksum: u32,
+            }
+            "#,
+        );
+    }
+}
+
+impl GenerateCodec for SmolStrConfig {
+    const CODEC_NAME: &'static str = "ArchivedSmolStrConfig";
+
+    fn generate_codec(codegen: &mut CodeGenerator) {
+        codegen.add_source_str(
+            r#"
+            use smol_str::SmolStr;
+
+            #[derive(Archive)]
+            struct SmolStrConfig {
+                key: SmolStr,
+                value: SmolStr,
+                priority: u32,
+            }
+            "#,
+        );
+    }
+}
+
+impl GenerateCodec for ThinVecData {
+    const CODEC_NAME: &'static str = "ArchivedThinVecData";
+
+    fn generate_codec(codegen: &mut CodeGenerator) {
+        codegen.add_source_str(
+            r#"
+            use thin_vec::ThinVec;
+
+            #[derive(Archive)]
+            struct ThinVecData {
+                items: ThinVec<u32>,
+                labels: ThinVec<String>,
+            }
+            "#,
+        );
+    }
+}
+
+impl GenerateCodec for ArrayVecBuffer {
+    const CODEC_NAME: &'static str = "ArchivedArrayVecBuffer";
+
+    fn generate_codec(codegen: &mut CodeGenerator) {
+        codegen.add_source_str(
+            r#"
+            use arrayvec::ArrayVec;
+
+            #[derive(Archive)]
+            struct ArrayVecBuffer {
+                data: ArrayVec<u32, 8>,
+                name: String,
+            }
+            "#,
+        );
+    }
+}
+
+impl GenerateCodec for SmallVecData {
+    const CODEC_NAME: &'static str = "ArchivedSmallVecData";
+
+    fn generate_codec(codegen: &mut CodeGenerator) {
+        codegen.add_source_str(
+            r#"
+            use smallvec::SmallVec;
+
+            #[derive(Archive)]
+            struct SmallVecData {
+                items: SmallVec<[u32; 4]>,
+                tags: SmallVec<[String; 2]>,
+            }
+            "#,
+        );
+    }
+}
+
+impl GenerateCodec for TinyVecData {
+    const CODEC_NAME: &'static str = "ArchivedTinyVecData";
+
+    fn generate_codec(codegen: &mut CodeGenerator) {
+        codegen.add_source_str(
+            r#"
+            use tinyvec::TinyVec;
+
+            #[derive(Archive)]
+            struct TinyVecData {
+                values: TinyVec<[u32; 4]>,
+                enabled: bool,
+            }
+            "#,
+        );
+    }
+}
+
+impl GenerateCodec for IndexMapConfig {
+    const CODEC_NAME: &'static str = "ArchivedIndexMapConfig";
+
+    fn generate_codec(codegen: &mut CodeGenerator) {
+        codegen.add_source_str(
+            r#"
+            use indexmap::IndexMap;
+
+            #[derive(Archive)]
+            struct IndexMapConfig {
+                settings: IndexMap<String, u32>,
+                version: u32,
+            }
+            "#,
+        );
+    }
+}
+
+impl GenerateCodec for IndexSetTags {
+    const CODEC_NAME: &'static str = "ArchivedIndexSetTags";
+
+    fn generate_codec(codegen: &mut CodeGenerator) {
+        codegen.add_source_str(
+            r#"
+            use indexmap::IndexSet;
+
+            #[derive(Archive)]
+            struct IndexSetTags {
+                tags: IndexSet<String>,
+                count: u32,
+            }
+            "#,
+        );
+    }
+}
+
+impl GenerateCodec for ArcShared {
+    const CODEC_NAME: &'static str = "ArchivedArcShared";
+
+    fn generate_codec(codegen: &mut CodeGenerator) {
+        codegen.add_source_str(
+            r#"
+            use triomphe::Arc;
+
+            #[derive(Archive)]
+            struct ArcShared {
+                shared_data: Arc<String>,
+                local_data: u32,
             }
             "#,
         );

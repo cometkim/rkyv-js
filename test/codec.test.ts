@@ -1,8 +1,11 @@
 import * as assert from 'node:assert';
 import { describe, it } from 'node:test';
 import { r, type RkyvCodec } from 'rkyv-js';
+import { uuid as uuidCodec } from 'rkyv-js/lib/uuid';
+import { bytes as bytesCodec } from 'rkyv-js/lib/bytes';
+import { indexMap, indexSet } from 'rkyv-js/lib/indexmap';
 
-describe('Unified Codec API', () => {
+describe('Codec API', () => {
   describe('primitives', () => {
     it('should encode and decode u32', () => {
       const bytes = r.encode(r.u32, 42);
@@ -240,7 +243,7 @@ describe('Unified Codec API', () => {
     });
   });
 
-  describe('r.access (zero-copy lazy access)', () => {
+  describe('r.access (lazy access)', () => {
     it('should lazily access object fields', () => {
       const Person = r.struct({
         name: r.string,
@@ -435,6 +438,161 @@ describe('Unified Codec API', () => {
       assert.strictEqual(proxy.items[0].data[0], 1);
       assert.strictEqual(proxy.items[1].data[2], 6);
       assert.strictEqual(proxy.items[2].data[1], 8);
+    });
+  });
+
+  describe('built-in crates', () => {
+    describe('uuid', () => {
+      it('should encode and decode UUID', () => {
+        const uuid = '550e8400-e29b-41d4-a716-446655440000';
+        const bytes = r.encode(uuidCodec, uuid);
+        const decoded = r.decode(uuidCodec, bytes);
+        assert.strictEqual(decoded, uuid);
+      });
+
+      it('should encode UUID to 16 bytes', () => {
+        const uuid = '00000000-0000-0000-0000-000000000000';
+        const bytes = r.encode(uuidCodec, uuid);
+        assert.strictEqual(bytes.length, 16);
+      });
+
+      it('should work in struct', () => {
+        const Record = r.struct({
+          id: uuidCodec,
+          name: r.string,
+        });
+        const record = {
+          id: '123e4567-e89b-12d3-a456-426614174000',
+          name: 'Test',
+        };
+        const bytes = r.encode(Record, record);
+        const decoded = r.decode(Record, bytes);
+        assert.deepStrictEqual(decoded, record);
+      });
+    });
+
+    describe('bytes', () => {
+      it('should encode and decode Uint8Array', () => {
+        const data = new Uint8Array([1, 2, 3, 4, 5]);
+        const bytes = r.encode(bytesCodec, data);
+        const decoded = r.decode(bytesCodec, bytes);
+        assert.deepStrictEqual(decoded, data);
+      });
+
+      it('should handle empty bytes', () => {
+        const data = new Uint8Array([]);
+        const bytes = r.encode(bytesCodec, data);
+        const decoded = r.decode(bytesCodec, bytes);
+        assert.deepStrictEqual(decoded, data);
+      });
+
+      it('should work in struct', () => {
+        const Message = r.struct({
+          payload: bytesCodec,
+          checksum: r.u32,
+        });
+        const msg = {
+          payload: new Uint8Array([0xde, 0xad, 0xbe, 0xef]),
+          checksum: 12345,
+        };
+        const bytes = r.encode(Message, msg);
+        const decoded = r.decode(Message, bytes);
+        assert.deepStrictEqual(decoded.payload, msg.payload);
+        assert.strictEqual(decoded.checksum, msg.checksum);
+      });
+    });
+
+    describe('indexMap', () => {
+      it('should encode and decode Map', () => {
+        const codec = indexMap(r.string, r.u32);
+        const map = new Map([
+          ['a', 1],
+          ['b', 2],
+          ['c', 3],
+        ]);
+        const bytes = r.encode(codec, map);
+        const decoded = r.decode(codec, bytes);
+        assert.deepStrictEqual(decoded, map);
+      });
+
+      it('should preserve insertion order', () => {
+        const codec = indexMap(r.string, r.u32);
+        const map = new Map<string, number>();
+        map.set('z', 1);
+        map.set('a', 2);
+        map.set('m', 3);
+        const bytes = r.encode(codec, map);
+        const decoded = r.decode(codec, bytes);
+
+        // Check that keys are in same order
+        const originalKeys = [...map.keys()];
+        const decodedKeys = [...decoded.keys()];
+        assert.deepStrictEqual(decodedKeys, originalKeys);
+      });
+
+      it('should handle empty Map', () => {
+        const codec = indexMap(r.string, r.u32);
+        const map = new Map<string, number>();
+        const bytes = r.encode(codec, map);
+        const decoded = r.decode(codec, bytes);
+        assert.strictEqual(decoded.size, 0);
+      });
+
+      it('should work in struct', () => {
+        const Config = r.struct({
+          settings: indexMap(r.string, r.u32),
+        });
+        const config = {
+          settings: new Map([
+            ['timeout', 30],
+            ['retries', 3],
+          ]),
+        };
+        const bytes = r.encode(Config, config);
+        const decoded = r.decode(Config, bytes);
+        assert.deepStrictEqual(decoded.settings, config.settings);
+      });
+    });
+
+    describe('indexSet', () => {
+      it('should encode and decode Set', () => {
+        const codec = indexSet(r.string);
+        const set = new Set(['a', 'b', 'c']);
+        const bytes = r.encode(codec, set);
+        const decoded = r.decode(codec, bytes);
+        assert.deepStrictEqual(decoded, set);
+      });
+
+      it('should preserve insertion order', () => {
+        const codec = indexSet(r.string);
+        const set = new Set<string>();
+        set.add('z');
+        set.add('a');
+        set.add('m');
+        const bytes = r.encode(codec, set);
+        const decoded = r.decode(codec, bytes);
+
+        // Check that values are in same order
+        const originalValues = [...set];
+        const decodedValues = [...decoded];
+        assert.deepStrictEqual(decodedValues, originalValues);
+      });
+
+      it('should handle empty Set', () => {
+        const codec = indexSet(r.u32);
+        const set = new Set<number>();
+        const bytes = r.encode(codec, set);
+        const decoded = r.decode(codec, bytes);
+        assert.strictEqual(decoded.size, 0);
+      });
+
+      it('should work with numeric values', () => {
+        const codec = indexSet(r.u32);
+        const set = new Set([1, 2, 3, 4, 5]);
+        const bytes = r.encode(codec, set);
+        const decoded = r.decode(codec, bytes);
+        assert.deepStrictEqual(decoded, set);
+      });
     });
   });
 });
