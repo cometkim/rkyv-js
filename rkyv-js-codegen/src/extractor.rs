@@ -144,12 +144,25 @@ fn type_to_typedef(ty: &Type) -> Option<TypeDef> {
                     Some(TypeDef::Lib(LibTypeDef::IndexSet(Box::new(inner_def))))
                 }
                 "Arc" => {
-                    // triomphe::Arc<T> - check if it's from triomphe
-                    // For now, we assume any Arc is triomphe::Arc when used in rkyv context
-                    // In practice, std::sync::Arc is not supported by rkyv without Arc wrapper
+                    // triomphe::Arc<T> or std::sync::Arc<T>
+                    // Both archive to the same format (relative pointer)
                     let inner = get_single_generic_arg(segment)?;
                     let inner_def = type_to_typedef(inner)?;
                     Some(TypeDef::Lib(LibTypeDef::Arc(Box::new(inner_def))))
+                }
+                "Rc" => {
+                    // std::rc::Rc<T>
+                    let inner = get_single_generic_arg(segment)?;
+                    let inner_def = type_to_typedef(inner)?;
+                    Some(TypeDef::Lib(LibTypeDef::Rc(Box::new(inner_def))))
+                }
+                "Weak" => {
+                    // Could be std::rc::Weak<T> or std::sync::Weak<T>
+                    // Both archive to the same format (nullable relative pointer)
+                    // We map to RcWeak by default since we can't distinguish at parse time
+                    let inner = get_single_generic_arg(segment)?;
+                    let inner_def = type_to_typedef(inner)?;
+                    Some(TypeDef::Lib(LibTypeDef::RcWeak(Box::new(inner_def))))
                 }
 
                 // Named type (custom struct/enum)
@@ -843,7 +856,43 @@ mod tests {
         codegen.add_source_str(source);
 
         let code = codegen.generate();
-        // Arc archives to the same format as Box
-        assert!(code.contains("config: r.box(r.string)"));
+        // Arc uses dedicated intrinsic
+        assert!(code.contains("config: r.arc(r.string)"));
+    }
+
+    #[test]
+    fn test_extract_lib_rc() {
+        let source = r#"
+            use std::rc::Rc;
+
+            #[derive(Archive)]
+            struct Shared {
+                data: Rc<String>,
+            }
+        "#;
+
+        let mut codegen = CodeGenerator::new();
+        codegen.add_source_str(source);
+
+        let code = codegen.generate();
+        assert!(code.contains("data: r.rc(r.string)"));
+    }
+
+    #[test]
+    fn test_extract_lib_weak() {
+        let source = r#"
+            use std::rc::Weak;
+
+            #[derive(Archive)]
+            struct MaybeShared {
+                weak_ref: Weak<u32>,
+            }
+        "#;
+
+        let mut codegen = CodeGenerator::new();
+        codegen.add_source_str(source);
+
+        let code = codegen.generate();
+        assert!(code.contains("weak_ref: r.rcWeak(r.u32)"));
     }
 }

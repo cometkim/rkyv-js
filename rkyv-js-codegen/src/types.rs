@@ -80,6 +80,15 @@ pub enum LibTypeDef {
 
     /// triomphe::Arc<T> - Thread-safe reference-counted pointer (triomphe-0_1 feature)
     Arc(Box<TypeDef>),
+
+    /// std::rc::Rc<T> - Reference-counted pointer (alloc feature)
+    Rc(Box<TypeDef>),
+
+    /// std::rc::Weak<T> - Weak reference to Rc data (alloc feature)
+    RcWeak(Box<TypeDef>),
+
+    /// std::sync::Weak<T> - Weak reference to Arc data (alloc feature)
+    ArcWeak(Box<TypeDef>),
 }
 
 impl TypeDef {
@@ -207,7 +216,10 @@ impl TypeDef {
                     | LibTypeDef::TinyVec(inner, _)
                     | LibTypeDef::TinyArrayVec(inner, _)
                     | LibTypeDef::IndexSet(inner)
-                    | LibTypeDef::Arc(inner) => {
+                    | LibTypeDef::Arc(inner)
+                    | LibTypeDef::Rc(inner)
+                    | LibTypeDef::RcWeak(inner)
+                    | LibTypeDef::ArcWeak(inner) => {
                         inner.collect_lib_imports(imports);
                     }
                     LibTypeDef::IndexMap(k, v) => {
@@ -271,9 +283,18 @@ impl LibTypeDef {
                 format!("r.vec({})", inner.to_codec_expr())
             }
 
-            // Same archive format as r.box(T)
+            // Shared pointers - aliases for r.box / r.weak with same binary format
             LibTypeDef::Arc(inner) => {
-                format!("r.box({})", inner.to_codec_expr())
+                format!("r.arc({})", inner.to_codec_expr())
+            }
+            LibTypeDef::Rc(inner) => {
+                format!("r.rc({})", inner.to_codec_expr())
+            }
+            LibTypeDef::RcWeak(inner) => {
+                format!("r.rcWeak({})", inner.to_codec_expr())
+            }
+            LibTypeDef::ArcWeak(inner) => {
+                format!("r.arcWeak({})", inner.to_codec_expr())
             }
         }
     }
@@ -291,7 +312,10 @@ impl LibTypeDef {
             | LibTypeDef::SmallVec(_, _)
             | LibTypeDef::TinyVec(_, _)
             | LibTypeDef::TinyArrayVec(_, _)
-            | LibTypeDef::Arc(_) => None,
+            | LibTypeDef::Arc(_)
+            | LibTypeDef::Rc(_)
+            | LibTypeDef::RcWeak(_)
+            | LibTypeDef::ArcWeak(_) => None,
         }
     }
 
@@ -311,6 +335,9 @@ impl LibTypeDef {
             }
             LibTypeDef::IndexSet(inner) => format!("Set<{}>", inner.to_ts_type()),
             LibTypeDef::Arc(inner) => inner.to_ts_type(),
+            LibTypeDef::Rc(inner) => inner.to_ts_type(),
+            LibTypeDef::RcWeak(inner) => format!("{} | null", inner.to_ts_type()),
+            LibTypeDef::ArcWeak(inner) => format!("{} | null", inner.to_ts_type()),
         }
     }
 }
@@ -500,11 +527,31 @@ mod tests {
 
     #[test]
     fn test_lib_arc_codec_expr() {
-        // Arc archives to the same format as Box
+        // Arc uses r.arc alias (same binary format as r.box)
         let arc = TypeDef::Lib(LibTypeDef::Arc(Box::new(TypeDef::Named(
             "Config".to_string(),
         ))));
-        assert_eq!(arc.to_codec_expr(), "r.box(ArchivedConfig)");
+        assert_eq!(arc.to_codec_expr(), "r.arc(ArchivedConfig)");
         assert_eq!(arc.to_ts_type(), "Config");
+    }
+
+    #[test]
+    fn test_lib_rc_codec_expr() {
+        // Rc uses r.rc alias (same binary format as r.box)
+        let rc = TypeDef::Lib(LibTypeDef::Rc(Box::new(TypeDef::String)));
+        assert_eq!(rc.to_codec_expr(), "r.rc(r.string)");
+        assert_eq!(rc.to_ts_type(), "string");
+    }
+
+    #[test]
+    fn test_lib_weak_codec_expr() {
+        // RcWeak uses r.rcWeak alias, ArcWeak uses r.arcWeak alias
+        let rc_weak = TypeDef::Lib(LibTypeDef::RcWeak(Box::new(TypeDef::U32)));
+        assert_eq!(rc_weak.to_codec_expr(), "r.rcWeak(r.u32)");
+        assert_eq!(rc_weak.to_ts_type(), "number | null");
+
+        let arc_weak = TypeDef::Lib(LibTypeDef::ArcWeak(Box::new(TypeDef::String)));
+        assert_eq!(arc_weak.to_codec_expr(), "r.arcWeak(r.string)");
+        assert_eq!(arc_weak.to_ts_type(), "string | null");
     }
 }

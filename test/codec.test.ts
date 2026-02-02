@@ -441,6 +441,75 @@ describe('Codec API', () => {
     });
   });
 
+  describe('shared pointers (r.rc, r.arc)', () => {
+    it('r.rc and r.arc are aliases for r.box', () => {
+      // They all have the same binary format
+      assert.strictEqual(r.rc, r.box);
+      assert.strictEqual(r.arc, r.box);
+    });
+
+    it('should work in struct with Arc', () => {
+      const ArcShared = r.struct({
+        shared_data: r.arc(r.string),
+        local_data: r.u32,
+      });
+      const value = {
+        shared_data: 'shared-value',
+        local_data: 42,
+      };
+      const bytes = r.encode(ArcShared, value);
+      const decoded = r.decode(ArcShared, bytes);
+      assert.deepStrictEqual(decoded, value);
+    });
+  });
+
+  describe('r.weak (weak reference)', () => {
+    it('should encode and decode non-null Weak<T>', () => {
+      const codec = r.weak(r.u32);
+      const bytes = r.encode(codec, 42);
+      const decoded = r.decode(codec, bytes);
+      assert.strictEqual(decoded, 42);
+    });
+
+    it('should encode and decode null Weak<T>', () => {
+      const codec = r.weak(r.u32);
+      const bytes = r.encode(codec, null);
+      const decoded = r.decode(codec, bytes);
+      assert.strictEqual(decoded, null);
+    });
+
+    it('should encode and decode Weak<string>', () => {
+      const codec = r.weak(r.string);
+      const bytes = r.encode(codec, 'weak-ref');
+      const decoded = r.decode(codec, bytes);
+      assert.strictEqual(decoded, 'weak-ref');
+    });
+
+    it('should work in struct', () => {
+      const WithWeak = r.struct({
+        data: r.weak(r.u32),
+        id: r.u32,
+      });
+
+      // Non-null case
+      const value1 = { data: 100, id: 1 };
+      const bytes1 = r.encode(WithWeak, value1);
+      const decoded1 = r.decode(WithWeak, bytes1);
+      assert.deepStrictEqual(decoded1, value1);
+
+      // Null case
+      const value2 = { data: null, id: 2 };
+      const bytes2 = r.encode(WithWeak, value2);
+      const decoded2 = r.decode(WithWeak, bytes2);
+      assert.deepStrictEqual(decoded2, value2);
+    });
+
+    it('r.rcWeak and r.arcWeak are aliases for r.weak', () => {
+      assert.strictEqual(r.rcWeak, r.weak);
+      assert.strictEqual(r.arcWeak, r.weak);
+    });
+  });
+
   describe('built-in crates', () => {
     describe('uuid', () => {
       it('should encode and decode UUID', () => {

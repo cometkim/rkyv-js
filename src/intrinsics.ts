@@ -910,6 +910,110 @@ export function lazy<T>(getCodec: () => RkyvCodec<T>): RkyvCodec<T> {
   };
 }
 
+// ============================================================================
+// Shared Pointer Codecs
+// ============================================================================
+
+/**
+ * Rc<T> / Arc<T> - Reference-counted pointers
+ *
+ * In rkyv, Rc<T> and Arc<T> archive to the same format as Box<T> - a relative
+ * pointer to the inner data. The only difference is a "flavor" marker used
+ * during validation in Rust, but the binary format is identical.
+ *
+ * In JavaScript, we don't have reference counting semantics, so these are
+ * just aliases for box().
+ *
+ * @alias box
+ */
+export const rc = box;
+
+/**
+ * Arc<T> - Atomically reference-counted pointer
+ *
+ * Same archive format as Rc<T> and Box<T>.
+ *
+ * @alias box
+ */
+export const arc = box;
+
+/**
+ * Weak<T> - Weak reference (rc::Weak or sync::Weak)
+ *
+ * In rkyv, Weak pointers serialize as nullable relative pointers:
+ * - If the weak pointer can be upgraded, it points to the data
+ * - If it can't (data was dropped), it serializes as a null pointer (offset = 0)
+ *
+ * In JavaScript, we represent this as T | null.
+ */
+export function weak<T>(inner: RkyvCodec<T>): RkyvCodec<T | null> {
+  return {
+    size: 4,
+    align: 4,
+
+    access(reader, offset) {
+      // Check if the relative pointer is null (offset = 0)
+      const relOffset = reader.readI32(offset);
+      if (relOffset === 0) {
+        return null;
+      }
+      const dataOffset = offset + relOffset;
+      return inner.access(reader, dataOffset);
+    },
+
+    decode(reader, offset) {
+      const relOffset = reader.readI32(offset);
+      if (relOffset === 0) {
+        return null;
+      }
+      const dataOffset = offset + relOffset;
+      return inner.decode(reader, dataOffset);
+    },
+
+    _archive(writer, value) {
+      if (value === null) {
+        return { pos: 0, isNull: true };
+      }
+      const resolver = inner._archive(writer, value);
+      writer.align(inner.align);
+      inner._resolve(writer, value, resolver);
+      return { pos: writer.pos - inner.size, isNull: false };
+    },
+
+    _resolve(writer, value, resolver) {
+      writer.align(4);
+      const pos = writer.pos;
+      const r = resolver as { pos: number; isNull: boolean };
+
+      if (r.isNull) {
+        // Write a null relative pointer (0)
+        writer.writeI32(0);
+      } else {
+        const ptrPos = writer.reserveRelPtr32();
+        writer.writeRelPtr32At(ptrPos, r.pos);
+      }
+      return pos;
+    },
+
+    encode(writer, value) {
+      const resolver = this._archive(writer, value);
+      return this._resolve(writer, value, resolver);
+    },
+  };
+}
+
+/**
+ * rc::Weak<T> - Weak reference to Rc data
+ * @alias weak
+ */
+export const rcWeak = weak;
+
+/**
+ * sync::Weak<T> - Weak reference to Arc data
+ * @alias weak
+ */
+export const arcWeak = weak;
+
 /**
  * HashMap<K, V> - rkyv's hashbrown-based hash map
  */

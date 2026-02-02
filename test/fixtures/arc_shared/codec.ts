@@ -6,7 +6,7 @@
 import { r } from 'rkyv-js';
 
 export const ArchivedArcShared = r.struct({
-  shared_data: r.box(r.string),
+  shared_data: r.arc(r.string),
   local_data: r.u32,
 });
 
