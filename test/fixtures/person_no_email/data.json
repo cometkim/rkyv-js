@@ -1,0 +1,7 @@
+{
+  "name": "Bob",
+  "age": 25,
+  "email": null,
+  "scores": [],
+  "active": false
+}

@@ -14,11 +14,13 @@ fn main() {
     );
 
     // Automatically extract all types annotated with #[derive(TypeScript)]
-    codegen.add_source_file(manifest_dir.join("src/lib.rs"))
+    codegen
+        .add_source_file(manifest_dir.join("src/lib.rs"))
         .expect("Failed to parse source file");
 
     // Write to OUT_DIR (standard cargo location)
-    codegen.write_to_file(out_dir.join("bindings.ts"))
+    codegen
+        .write_to_file(out_dir.join("bindings.ts"))
         .expect("Failed to write bindings");
 
     // Also write to a more accessible location during development

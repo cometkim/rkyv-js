@@ -8,9 +8,10 @@
 //! using `CodeGenerator`.
 
 use rkyv::{Archive, Deserialize, Serialize};
+use serde::ser::{SerializeStruct, Serializer};
 
 /// A simple 2D point.
-#[derive(Debug, Clone, Archive, Deserialize, Serialize)]
+#[derive(Debug, Clone, Archive, Deserialize, Serialize, serde::Serialize)]
 #[rkyv(compare(PartialEq), derive(Debug))]
 pub struct Point {
     pub x: f64,
@@ -18,7 +19,7 @@ pub struct Point {
 }
 
 /// A person with various field types.
-#[derive(Debug, Clone, Archive, Deserialize, Serialize)]
+#[derive(Debug, Clone, Archive, Deserialize, Serialize, serde::Serialize)]
 #[rkyv(compare(PartialEq), derive(Debug))]
 pub struct Person {
     pub name: String,
@@ -42,34 +43,69 @@ pub enum Message {
     ChangeColor(u8, u8, u8),
 }
 
+// Custom serializer for Message to match the rkyv-js representation
+impl serde::Serialize for Message {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            Message::Quit => {
+                let mut s = serializer.serialize_struct("Message", 2)?;
+                s.serialize_field("tag", "Quit")?;
+                s.serialize_field("value", &None::<()>)?;
+                s.end()
+            }
+            Message::Move { x, y } => {
+                #[derive(serde::Serialize)]
+                struct MoveValue {
+                    x: i32,
+                    y: i32,
+                }
+                let mut s = serializer.serialize_struct("Message", 2)?;
+                s.serialize_field("tag", "Move")?;
+                s.serialize_field("value", &MoveValue { x: *x, y: *y })?;
+                s.end()
+            }
+            Message::Write(text) => {
+                #[derive(serde::Serialize)]
+                struct WriteValue<'a> {
+                    _0: &'a str,
+                }
+                let mut s = serializer.serialize_struct("Message", 2)?;
+                s.serialize_field("tag", "Write")?;
+                s.serialize_field("value", &WriteValue { _0: text })?;
+                s.end()
+            }
+            Message::ChangeColor(r, g, b) => {
+                #[derive(serde::Serialize)]
+                struct ChangeColorValue {
+                    _0: u8,
+                    _1: u8,
+                    _2: u8,
+                }
+                let mut s = serializer.serialize_struct("Message", 2)?;
+                s.serialize_field("tag", "ChangeColor")?;
+                s.serialize_field(
+                    "value",
+                    &ChangeColorValue {
+                        _0: *r,
+                        _1: *g,
+                        _2: *b,
+                    },
+                )?;
+                s.end()
+            }
+        }
+    }
+}
+
 /// Game state containing nested structures.
-#[derive(Debug, Clone, Archive, Deserialize, Serialize)]
+#[derive(Debug, Clone, Archive, Deserialize, Serialize, serde::Serialize)]
 #[rkyv(compare(PartialEq), derive(Debug))]
 pub struct GameState {
     pub player_position: Point,
     pub health: u32,
     pub inventory: Vec<String>,
     pub current_message: Option<Message>,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use rkyv::rancor::Error;
-
-    #[test]
-    fn test_roundtrip() {
-        let state = GameState {
-            player_position: Point { x: 10.5, y: 20.3 },
-            health: 100,
-            inventory: vec!["sword".to_string(), "shield".to_string()],
-            current_message: Some(Message::Write("Hello!".to_string())),
-        };
-
-        let bytes = rkyv::to_bytes::<Error>(&state).unwrap();
-        let archived = rkyv::access::<ArchivedGameState, Error>(&bytes).unwrap();
-
-        assert_eq!(archived.health, 100);
-        assert_eq!(archived.player_position.x, 10.5);
-    }
 }

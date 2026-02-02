@@ -3,8 +3,8 @@
 //! This module provides functionality to scan Rust source files and automatically
 //! extract type definitions for TypeScript binding generation.
 
-use crate::types::{EnumVariant, TypeDef};
 use crate::CodeGenerator;
+use crate::types::{EnumVariant, TypeDef};
 use std::fs;
 use std::path::Path;
 use syn::{

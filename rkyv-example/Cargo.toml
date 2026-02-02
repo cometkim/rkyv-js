@@ -6,6 +6,9 @@ publish = false
 
 [dependencies]
 rkyv = { version = "0.8", features = ["bytecheck"] }
+rkyv-js-codegen = { path = "../rkyv-js-codegen" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 [build-dependencies]
 rkyv-js-codegen = { path = "../rkyv-js-codegen" }
@@ -13,7 +16,3 @@ rkyv-js-codegen = { path = "../rkyv-js-codegen" }
 [[bin]]
 name = "generate-fixtures"
 path = "src/bin/generate_fixtures.rs"
-
-[[bin]]
-name = "validate-roundtrip"
-path = "src/bin/validate_roundtrip.rs"

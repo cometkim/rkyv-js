@@ -63,6 +63,7 @@
     "dist"
   ],
   "scripts": {
+    "fixtures": "cargo run --bin generate-fixtures",
     "test": "node --test",
     "benchmark": "node benchmarks/index.ts"
   },

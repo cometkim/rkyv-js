@@ -399,7 +399,10 @@ impl CodeGenerator {
         let mut output = String::new();
 
         // Unified codec using r.taggedEnum()
-        output.push_str(&format!("export const Archived{} = r.taggedEnum({{\n", name));
+        output.push_str(&format!(
+            "export const Archived{} = r.taggedEnum({{\n",
+            name
+        ));
         for variant in variants {
             match variant {
                 EnumVariant::Unit(vname) => {
