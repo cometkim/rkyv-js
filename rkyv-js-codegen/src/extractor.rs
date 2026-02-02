@@ -507,7 +507,7 @@ mod tests {
         assert!(code.contains("export const ArchivedPerson = r.struct({"));
         assert!(code.contains("name: r.string"));
         assert!(code.contains("scores: r.vec(r.u32)"));
-        assert!(code.contains("email: r.optional(r.string)"));
+        assert!(code.contains("email: r.option(r.string)"));
     }
 
     #[test]

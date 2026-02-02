@@ -99,7 +99,7 @@ import { r } from 'rkyv-js';
 const ArchivedPerson = r.struct({
   name: r.string,
   age: r.u32,
-  email: r.optional(r.string),
+  email: r.option(r.string),
   scores: r.vec(r.u32),
 });
 
@@ -186,18 +186,15 @@ Example usage:
 
 ```typescript
 import { r } from 'rkyv-js';
-import { uuid as ArchivedUuid } from 'rkyv-js/lib/uuid';
-import { bytes as ArchivedBytes } from 'rkyv-js/lib/bytes';
-import {
-  indexSet as ArchivedIndexSet,
-  indexMap as ArchivedIndexMap,
-} from 'rkyv-js/lib/indexmap';
+import { uuid } from 'rkyv-js/lib/uuid';
+import { bytes } from 'rkyv-js/lib/bytes';
+import { indexSet, indexMap } from 'rkyv-js/lib/indexmap';
 
 const ArchivedRecord = r.struct({
-  id: ArchivedUuid,
-  data: ArchivedBytes,
-  tags: ArchivedIndexSet(r.string),
-  settings: ArchivedIndexMap(r.string, r.u32),
+  id: uuid,
+  data: bytes,
+  tags: indexSet(r.string),
+  settings: indexMap(r.string, r.u32),
 });
 ```
 
