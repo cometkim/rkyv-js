@@ -25,7 +25,7 @@ export const ArchivedGameState = r.struct({
   player_position: ArchivedPoint,
   health: r.u32,
   inventory: r.vec(r.string),
-  current_message: r.optional(ArchivedMessage),
+  current_message: r.option(ArchivedMessage),
 });
 
 export type GameState = r.infer<typeof ArchivedGameState>;

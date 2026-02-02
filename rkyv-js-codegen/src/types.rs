@@ -111,7 +111,7 @@ impl TypeDef {
             TypeDef::String => "r.string".to_string(),
 
             TypeDef::Vec(inner) => format!("r.vec({})", inner.to_codec_expr()),
-            TypeDef::Option(inner) => format!("r.optional({})", inner.to_codec_expr()),
+            TypeDef::Option(inner) => format!("r.option({})", inner.to_codec_expr()),
             TypeDef::Box(inner) => format!("r.box({})", inner.to_codec_expr()),
             TypeDef::Array(inner, len) => format!("r.array({}, {})", inner.to_codec_expr(), len),
 
@@ -403,13 +403,13 @@ mod tests {
         assert_eq!(vec_u32.to_codec_expr(), "r.vec(r.u32)");
 
         let option_string = TypeDef::Option(Box::new(TypeDef::String));
-        assert_eq!(option_string.to_codec_expr(), "r.optional(r.string)");
+        assert_eq!(option_string.to_codec_expr(), "r.option(r.string)");
     }
 
     #[test]
     fn test_nested_codec_expr() {
         let nested = TypeDef::Vec(Box::new(TypeDef::Option(Box::new(TypeDef::U32))));
-        assert_eq!(nested.to_codec_expr(), "r.vec(r.optional(r.u32))");
+        assert_eq!(nested.to_codec_expr(), "r.vec(r.option(r.u32))");
     }
 
     #[test]

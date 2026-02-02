@@ -63,7 +63,7 @@ export type Message = r.infer<typeof ArchivedMessage>;
 export const ArchivedPerson = r.struct({
   name: r.string,
   age: r.u32,
-  email: r.optional(r.string),
+  email: r.option(r.string),
   scores: r.vec(r.u32),
   active: r.bool,
 });
@@ -81,7 +81,7 @@ export const ArchivedGameState = r.struct({
   player_position: ArchivedPoint,
   health: r.u32,
   inventory: r.vec(r.string),
-  current_message: r.optional(ArchivedMessage),
+  current_message: r.option(ArchivedMessage),
 });
 
 export type GameState = r.infer<typeof ArchivedGameState>;

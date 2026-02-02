@@ -8,7 +8,7 @@ import { r } from 'rkyv-js';
 export const ArchivedPerson = r.struct({
   name: r.string,
   age: r.u32,
-  email: r.optional(r.string),
+  email: r.option(r.string),
   scores: r.vec(r.u32),
   active: r.bool,
 });

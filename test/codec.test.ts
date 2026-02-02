@@ -64,16 +64,16 @@ describe('Codec API', () => {
     });
   });
 
-  describe('r.optional', () => {
+  describe('r.option', () => {
     it('should encode and decode Some value', () => {
-      const codec = r.optional(r.u32);
+      const codec = r.option(r.u32);
       const bytes = r.encode(codec, 42);
       const value = r.decode(codec, bytes);
       assert.strictEqual(value, 42);
     });
 
     it('should encode and decode None', () => {
-      const codec = r.optional(r.u32);
+      const codec = r.option(r.u32);
       const bytes = r.encode(codec, null);
       const value = r.decode(codec, bytes);
       assert.strictEqual(value, null);
@@ -109,7 +109,7 @@ describe('Codec API', () => {
       const Person = r.struct({
         name: r.string,
         age: r.u32,
-        email: r.optional(r.string),
+        email: r.option(r.string),
         scores: r.vec(r.u32),
         active: r.bool,
       });
@@ -248,7 +248,7 @@ describe('Codec API', () => {
       const Person = r.struct({
         name: r.string,
         age: r.u32,
-        email: r.optional(r.string),
+        email: r.option(r.string),
       });
 
       const person = { name: 'Alice', age: 30, email: 'alice@example.com' };

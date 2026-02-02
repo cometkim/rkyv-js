@@ -51,7 +51,7 @@
 //! export const ArchivedPerson = r.object({
 //!   name: r.string,
 //!   age: r.u32,
-//!   email: r.optional(r.string),
+//!   email: r.option(r.string),
 //! });
 //! export type Person = r.infer<typeof ArchivedPerson>;
 //!
@@ -100,7 +100,7 @@
 //! | `()` | `TypeDef::Unit` | `r.unit` | `null` |
 //! | `String` | `TypeDef::String` | `r.string` | `string` |
 //! | `Vec<T>` | `TypeDef::Vec(Box::new(T))` | `r.vec(T)` | `T[]` |
-//! | `Option<T>` | `TypeDef::Option(Box::new(T))` | `r.optional(T)` | `T \| null` |
+//! | `Option<T>` | `TypeDef::Option(Box::new(T))` | `r.option(T)` | `T \| null` |
 //! | `Box<T>` | `TypeDef::Box(Box::new(T))` | `r.box(T)` | `T` |
 //! | `[T; N]` | `TypeDef::Array(Box::new(T), N)` | `r.array(T, N)` | `T[]` |
 //! | `(T1, T2)` | `TypeDef::Tuple(vec![...])` | `r.tuple(T1, T2)` | `[T1, T2]` |

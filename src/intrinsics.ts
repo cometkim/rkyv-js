@@ -3,7 +3,7 @@
  *
  * This module provides all built-in codecs:
  * - Primitives: u8, i8, u16, i16, u32, i32, u64, i64, f32, f64, bool, unit, char, string
- * - Containers: vec, optional, box, array, tuple
+ * - Containers: vec, option, box, array, tuple
  * - Structs & Enums: struct, taggedEnum, union
  * - Utilities: transform, newtype, lazy, hashMap
  * - Top-level functions: access, decode, encode
@@ -271,7 +271,7 @@ export function vec<T>(element: RkyvCodec<T>): RkyvCodec<T[]> {
 /**
  * Option<T> - Optional value
  */
-export function optional<T>(inner: RkyvCodec<T>): RkyvCodec<T | null> {
+export function option<T>(inner: RkyvCodec<T>): RkyvCodec<T | null> {
   const tagSize = 1;
   const paddingToInner = alignOffset(tagSize, inner.align) - tagSize;
   const totalSize = tagSize + paddingToInner + inner.size;
