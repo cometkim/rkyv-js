@@ -4,9 +4,9 @@
  */
 
 import * as r from 'rkyv-js';
-import { uuid } from 'rkyv-js/lib/uuid';
 import { bytes } from 'rkyv-js/lib/bytes';
 import { indexMap, indexSet } from 'rkyv-js/lib/indexmap';
+import { uuid } from 'rkyv-js/lib/uuid';
 
 export const ArchivedUuidRecord = r.struct({
   id: uuid,

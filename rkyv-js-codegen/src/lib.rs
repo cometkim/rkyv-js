@@ -111,4 +111,4 @@ mod generator;
 mod types;
 
 pub use generator::CodeGenerator;
-pub use types::{EnumVariant, LibTypeDef, TypeDef, UnionVariant};
+pub use types::{generate_lib_imports, EnumVariant, LibImport, LibTypeDef, TypeDef, UnionVariant};

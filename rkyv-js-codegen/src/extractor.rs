@@ -818,7 +818,8 @@ mod tests {
         codegen.add_source_str(source);
 
         let code = codegen.generate();
-        assert!(code.contains("import { indexMap, indexSet } from 'rkyv-js/lib/indexmap';"));
+        assert!(code.contains("import { indexMap } from 'rkyv-js/lib/indexmap';"));
+        assert!(!code.contains("indexSet"));
         assert!(code.contains("settings: indexMap(r.string, r.u32)"));
     }
 
@@ -837,7 +838,8 @@ mod tests {
         codegen.add_source_str(source);
 
         let code = codegen.generate();
-        assert!(code.contains("import { indexMap, indexSet } from 'rkyv-js/lib/indexmap';"));
+        assert!(code.contains("import { indexSet } from 'rkyv-js/lib/indexmap';"));
+        assert!(!code.contains("indexMap"));
         assert!(code.contains("items: indexSet(r.string)"));
     }
 

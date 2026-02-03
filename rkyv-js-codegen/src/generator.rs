@@ -1,6 +1,6 @@
 //! TypeScript code generator for rkyv types.
 
-use crate::types::{EnumVariant, LibImport, TypeDef, UnionVariant};
+use crate::types::{generate_lib_imports, EnumVariant, LibImport, TypeDef, UnionVariant};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::io::{self, Write};
@@ -404,15 +404,7 @@ impl CodeGenerator {
         output.push_str("import * as r from 'rkyv-js';\n");
 
         // Add lib imports
-        if lib_imports.contains(&LibImport::Uuid) {
-            output.push_str("import { uuid } from 'rkyv-js/lib/uuid';\n");
-        }
-        if lib_imports.contains(&LibImport::Bytes) {
-            output.push_str("import { bytes } from 'rkyv-js/lib/bytes';\n");
-        }
-        if lib_imports.contains(&LibImport::IndexMap) {
-            output.push_str("import { indexMap, indexSet } from 'rkyv-js/lib/indexmap';\n");
-        }
+        output.push_str(&generate_lib_imports(&lib_imports));
 
         output.trim_end().to_string()
     }

@@ -241,12 +241,105 @@ impl TypeDef {
     }
 }
 
-/// Represents which lib module needs to be imported
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum LibImport {
-    Uuid,
-    Bytes,
-    IndexMap,
+/// Represents a specific export that needs to be imported from a lib module.
+///
+/// This is a data structure that can be used for both built-in and external modules.
+///
+/// # Example
+///
+/// ```
+/// use rkyv_js_codegen::LibImport;
+///
+/// // Built-in imports
+/// let uuid_import = LibImport::uuid();
+/// let index_map_import = LibImport::index_map();
+///
+/// // Custom imports
+/// let custom_import = LibImport::new("my-package/codecs", "myCodec");
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct LibImport {
+    /// The module path to import from (e.g., "rkyv-js/lib/uuid", "my-package/codecs")
+    pub module_path: String,
+    /// The export name to import (e.g., "uuid", "indexMap")
+    pub export_name: String,
+}
+
+impl LibImport {
+    /// Create a new lib import.
+    ///
+    /// # Arguments
+    ///
+    /// * `module_path` - The module path to import from (e.g., "rkyv-js/lib/uuid")
+    /// * `export_name` - The export name to import (e.g., "uuid")
+    pub fn new(module_path: impl Into<String>, export_name: impl Into<String>) -> Self {
+        Self {
+            module_path: module_path.into(),
+            export_name: export_name.into(),
+        }
+    }
+
+    // Built-in imports for convenience
+    pub fn uuid() -> Self {
+        Self::new("rkyv-js/lib/uuid", "uuid")
+    }
+
+    pub fn bytes() -> Self {
+        Self::new("rkyv-js/lib/bytes", "bytes")
+    }
+
+    pub fn index_map() -> Self {
+        Self::new("rkyv-js/lib/indexmap", "indexMap")
+    }
+
+    pub fn index_set() -> Self {
+        Self::new("rkyv-js/lib/indexmap", "indexSet")
+    }
+}
+
+/// Generate import statements for the given set of lib imports.
+///
+/// Imports are grouped by module path, and multiple exports from the same module
+/// are combined into a single import statement.
+///
+/// # Example
+///
+/// ```
+/// use std::collections::HashSet;
+/// use rkyv_js_codegen::LibImport;
+///
+/// let mut imports = HashSet::new();
+/// imports.insert(LibImport::index_map());
+/// imports.insert(LibImport::index_set());
+///
+/// let result = rkyv_js_codegen::generate_lib_imports(&imports);
+/// assert_eq!(result, "import { indexMap, indexSet } from 'rkyv-js/lib/indexmap';\n");
+/// ```
+pub fn generate_lib_imports(imports: &std::collections::HashSet<LibImport>) -> String {
+    use std::collections::BTreeMap;
+
+    // Group imports by module path
+    let mut by_module: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    for import in imports {
+        by_module
+            .entry(&import.module_path)
+            .or_default()
+            .push(&import.export_name);
+    }
+
+    // Generate import statements
+    let mut output = String::new();
+    for (module_path, mut exports) in by_module {
+        exports.sort(); // Deterministic ordering
+        exports.dedup(); // Remove duplicates
+        let exports_str = exports.join(", ");
+        output.push_str(&format!(
+            "import {{ {} }} from '{}';\n",
+            exports_str, module_path
+        ));
+    }
+
+    output
 }
 
 impl LibTypeDef {
@@ -309,9 +402,10 @@ impl LibTypeDef {
     /// Get the lib import required for this type, if any.
     pub fn required_import(&self) -> Option<LibImport> {
         match self {
-            LibTypeDef::Uuid => Some(LibImport::Uuid),
-            LibTypeDef::Bytes => Some(LibImport::Bytes),
-            LibTypeDef::IndexMap(_, _) | LibTypeDef::IndexSet(_) => Some(LibImport::IndexMap),
+            LibTypeDef::Uuid => Some(LibImport::uuid()),
+            LibTypeDef::Bytes => Some(LibImport::bytes()),
+            LibTypeDef::IndexMap(_, _) => Some(LibImport::index_map()),
+            LibTypeDef::IndexSet(_) => Some(LibImport::index_set()),
             // These map to intrinsics, no lib import needed
             LibTypeDef::SmolStr
             | LibTypeDef::ThinVec(_)
@@ -560,5 +654,60 @@ mod tests {
         let arc_weak = TypeDef::Lib(LibTypeDef::ArcWeak(Box::new(TypeDef::String)));
         assert_eq!(arc_weak.to_codec_expr(), "r.arcWeak(r.string)");
         assert_eq!(arc_weak.to_ts_type(), "string | null");
+    }
+
+    #[test]
+    fn test_generate_lib_imports_single_export() {
+        use std::collections::HashSet;
+
+        let mut imports = HashSet::new();
+        imports.insert(LibImport::uuid());
+
+        let result = generate_lib_imports(&imports);
+        assert_eq!(result, "import { uuid } from 'rkyv-js/lib/uuid';\n");
+    }
+
+    #[test]
+    fn test_generate_lib_imports_multiple_exports_same_module() {
+        use std::collections::HashSet;
+
+        let mut imports = HashSet::new();
+        imports.insert(LibImport::index_map());
+        imports.insert(LibImport::index_set());
+
+        let result = generate_lib_imports(&imports);
+        assert_eq!(
+            result,
+            "import { indexMap, indexSet } from 'rkyv-js/lib/indexmap';\n"
+        );
+    }
+
+    #[test]
+    fn test_generate_lib_imports_multiple_modules() {
+        use std::collections::HashSet;
+
+        let mut imports = HashSet::new();
+        imports.insert(LibImport::uuid());
+        imports.insert(LibImport::bytes());
+        imports.insert(LibImport::index_map());
+
+        let result = generate_lib_imports(&imports);
+        // Modules are sorted alphabetically by module path
+        assert!(result.contains("import { bytes } from 'rkyv-js/lib/bytes';"));
+        assert!(result.contains("import { indexMap } from 'rkyv-js/lib/indexmap';"));
+        assert!(result.contains("import { uuid } from 'rkyv-js/lib/uuid';"));
+    }
+
+    #[test]
+    fn test_generate_lib_imports_custom_module() {
+        use std::collections::HashSet;
+
+        // Custom imports can be created for any module path
+        let mut imports = HashSet::new();
+        imports.insert(LibImport::new("my-package/custom", "foo"));
+        imports.insert(LibImport::new("my-package/custom", "bar"));
+
+        let result = generate_lib_imports(&imports);
+        assert_eq!(result, "import { bar, foo } from 'my-package/custom';\n");
     }
 }
