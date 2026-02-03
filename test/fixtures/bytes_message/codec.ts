@@ -3,7 +3,7 @@
  * DO NOT EDIT MANUALLY
  */
 
-import { r } from 'rkyv-js';
+import * as r from 'rkyv-js';
 import { bytes } from 'rkyv-js/lib/bytes';
 
 export const ArchivedBytesMessage = r.struct({
@@ -11,6 +11,6 @@ export const ArchivedBytesMessage = r.struct({
   checksum: r.u32,
 });
 
-export type BytesMessage = r.infer<typeof ArchivedBytesMessage>;
+export type BytesMessage = r.Infer<typeof ArchivedBytesMessage>;
 
 export default ArchivedBytesMessage;

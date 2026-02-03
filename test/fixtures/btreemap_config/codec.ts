@@ -3,13 +3,13 @@
  * DO NOT EDIT MANUALLY
  */
 
-import { r } from 'rkyv-js';
+import * as r from 'rkyv-js';
 
 export const ArchivedBTreeMapConfig = r.struct({
   settings: r.btreeMap(r.string, r.u32),
   version: r.u32,
 });
 
-export type BTreeMapConfig = r.infer<typeof ArchivedBTreeMapConfig>;
+export type BTreeMapConfig = r.Infer<typeof ArchivedBTreeMapConfig>;
 
 export default ArchivedBTreeMapConfig;

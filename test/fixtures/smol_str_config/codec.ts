@@ -3,7 +3,7 @@
  * DO NOT EDIT MANUALLY
  */
 
-import { r } from 'rkyv-js';
+import * as r from 'rkyv-js';
 
 export const ArchivedSmolStrConfig = r.struct({
   key: r.string,
@@ -11,6 +11,6 @@ export const ArchivedSmolStrConfig = r.struct({
   priority: r.u32,
 });
 
-export type SmolStrConfig = r.infer<typeof ArchivedSmolStrConfig>;
+export type SmolStrConfig = r.Infer<typeof ArchivedSmolStrConfig>;
 
 export default ArchivedSmolStrConfig;

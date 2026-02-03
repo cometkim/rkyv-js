@@ -3,7 +3,7 @@
  * These types match the Rust structs in src/lib.rs
  */
 
-import { r } from 'rkyv-js';
+import * as r from 'rkyv-js';
 import { uuid } from 'rkyv-js/lib/uuid';
 import { bytes } from 'rkyv-js/lib/bytes';
 import { indexMap, indexSet } from 'rkyv-js/lib/indexmap';
@@ -14,49 +14,49 @@ export const ArchivedUuidRecord = r.struct({
   active: r.bool,
 });
 
-export type UuidRecord = r.infer<typeof ArchivedUuidRecord>;
+export type UuidRecord = r.Infer<typeof ArchivedUuidRecord>;
 
 export const ArchivedArcShared = r.struct({
   shared_data: r.arc(r.string),
   local_data: r.u32,
 });
 
-export type ArcShared = r.infer<typeof ArchivedArcShared>;
+export type ArcShared = r.Infer<typeof ArchivedArcShared>;
 
 export const ArchivedArrayVecBuffer = r.struct({
   data: r.vec(r.u32),
   name: r.string,
 });
 
-export type ArrayVecBuffer = r.infer<typeof ArchivedArrayVecBuffer>;
+export type ArrayVecBuffer = r.Infer<typeof ArchivedArrayVecBuffer>;
 
 export const ArchivedBTreeMapConfig = r.struct({
   settings: r.btreeMap(r.string, r.u32),
   version: r.u32,
 });
 
-export type BTreeMapConfig = r.infer<typeof ArchivedBTreeMapConfig>;
+export type BTreeMapConfig = r.Infer<typeof ArchivedBTreeMapConfig>;
 
 export const ArchivedBytesMessage = r.struct({
   payload: bytes,
   checksum: r.u32,
 });
 
-export type BytesMessage = r.infer<typeof ArchivedBytesMessage>;
+export type BytesMessage = r.Infer<typeof ArchivedBytesMessage>;
 
 export const ArchivedIndexMapConfig = r.struct({
   settings: indexMap(r.string, r.u32),
   version: r.u32,
 });
 
-export type IndexMapConfig = r.infer<typeof ArchivedIndexMapConfig>;
+export type IndexMapConfig = r.Infer<typeof ArchivedIndexMapConfig>;
 
 export const ArchivedIndexSetTags = r.struct({
   tags: indexSet(r.string),
   count: r.u32,
 });
 
-export type IndexSetTags = r.infer<typeof ArchivedIndexSetTags>;
+export type IndexSetTags = r.Infer<typeof ArchivedIndexSetTags>;
 
 export const ArchivedMessage = r.taggedEnum({
   Quit: r.unit,
@@ -65,7 +65,7 @@ export const ArchivedMessage = r.taggedEnum({
   ChangeColor: r.struct({ _0: r.u8, _1: r.u8, _2: r.u8 }),
 });
 
-export type Message = r.infer<typeof ArchivedMessage>;
+export type Message = r.Infer<typeof ArchivedMessage>;
 
 export const ArchivedPerson = r.struct({
   name: r.string,
@@ -75,14 +75,14 @@ export const ArchivedPerson = r.struct({
   active: r.bool,
 });
 
-export type Person = r.infer<typeof ArchivedPerson>;
+export type Person = r.Infer<typeof ArchivedPerson>;
 
 export const ArchivedPoint = r.struct({
   x: r.f64,
   y: r.f64,
 });
 
-export type Point = r.infer<typeof ArchivedPoint>;
+export type Point = r.Infer<typeof ArchivedPoint>;
 
 export const ArchivedGameState = r.struct({
   player_position: ArchivedPoint,
@@ -91,14 +91,14 @@ export const ArchivedGameState = r.struct({
   current_message: r.option(ArchivedMessage),
 });
 
-export type GameState = r.infer<typeof ArchivedGameState>;
+export type GameState = r.Infer<typeof ArchivedGameState>;
 
 export const ArchivedSmallVecData = r.struct({
   items: r.vec(r.u32),
   tags: r.vec(r.string),
 });
 
-export type SmallVecData = r.infer<typeof ArchivedSmallVecData>;
+export type SmallVecData = r.Infer<typeof ArchivedSmallVecData>;
 
 export const ArchivedSmolStrConfig = r.struct({
   key: r.string,
@@ -106,18 +106,18 @@ export const ArchivedSmolStrConfig = r.struct({
   priority: r.u32,
 });
 
-export type SmolStrConfig = r.infer<typeof ArchivedSmolStrConfig>;
+export type SmolStrConfig = r.Infer<typeof ArchivedSmolStrConfig>;
 
 export const ArchivedThinVecData = r.struct({
   items: r.vec(r.u32),
   labels: r.vec(r.string),
 });
 
-export type ThinVecData = r.infer<typeof ArchivedThinVecData>;
+export type ThinVecData = r.Infer<typeof ArchivedThinVecData>;
 
 export const ArchivedTinyVecData = r.struct({
   values: r.vec(r.u32),
   enabled: r.bool,
 });
 
-export type TinyVecData = r.infer<typeof ArchivedTinyVecData>;
+export type TinyVecData = r.Infer<typeof ArchivedTinyVecData>;

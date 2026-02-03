@@ -3,7 +3,7 @@
  * DO NOT EDIT MANUALLY
  */
 
-import { r } from 'rkyv-js';
+import * as r from 'rkyv-js';
 import { indexMap, indexSet } from 'rkyv-js/lib/indexmap';
 
 export const ArchivedIndexMapConfig = r.struct({
@@ -11,6 +11,6 @@ export const ArchivedIndexMapConfig = r.struct({
   version: r.u32,
 });
 
-export type IndexMapConfig = r.infer<typeof ArchivedIndexMapConfig>;
+export type IndexMapConfig = r.Infer<typeof ArchivedIndexMapConfig>;
 
 export default ArchivedIndexMapConfig;

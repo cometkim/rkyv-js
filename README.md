@@ -85,7 +85,7 @@ fn main() {
 You can also use `rkyv-js` as a standalone library without Rust code generation:
 
 ```typescript
-import { r } from 'rkyv-js';
+import * as r from 'rkyv-js';
 
 // Define a codec matching your Rust struct:
 //
@@ -104,7 +104,7 @@ const ArchivedPerson = r.struct({
 });
 
 // Infer TypeScript type from the codec
-type Person = r.infer<typeof ArchivedPerson>;
+type Person = r.Infer<typeof ArchivedPerson>;
 
 // Encode to rkyv bytes
 const data = r.encode(ArchivedPerson, { 
@@ -191,7 +191,7 @@ The codegen recognizes types from [external crates that rkyv supports](https://d
 Example usage:
 
 ```typescript
-import { r } from 'rkyv-js';
+import * as r from 'rkyv-js';
 import { uuid } from 'rkyv-js/lib/uuid';
 import { bytes } from 'rkyv-js/lib/bytes';
 import { indexSet, indexMap } from 'rkyv-js/lib/indexmap';

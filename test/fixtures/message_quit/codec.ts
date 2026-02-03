@@ -3,7 +3,7 @@
  * DO NOT EDIT MANUALLY
  */
 
-import { r } from 'rkyv-js';
+import * as r from 'rkyv-js';
 
 export const ArchivedMessage = r.taggedEnum({
   Quit: r.unit,
@@ -12,6 +12,6 @@ export const ArchivedMessage = r.taggedEnum({
   ChangeColor: r.struct({ _0: r.u8, _1: r.u8, _2: r.u8 }),
 });
 
-export type Message = r.infer<typeof ArchivedMessage>;
+export type Message = r.Infer<typeof ArchivedMessage>;
 
 export default ArchivedMessage;

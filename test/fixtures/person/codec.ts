@@ -3,7 +3,7 @@
  * DO NOT EDIT MANUALLY
  */
 
-import { r } from 'rkyv-js';
+import * as r from 'rkyv-js';
 
 export const ArchivedPerson = r.struct({
   name: r.string,
@@ -13,6 +13,6 @@ export const ArchivedPerson = r.struct({
   active: r.bool,
 });
 
-export type Person = r.infer<typeof ArchivedPerson>;
+export type Person = r.Infer<typeof ArchivedPerson>;
 
 export default ArchivedPerson;

@@ -3,7 +3,7 @@
  * DO NOT EDIT MANUALLY
  */
 
-import { r } from 'rkyv-js';
+import * as r from 'rkyv-js';
 import { uuid } from 'rkyv-js/lib/uuid';
 
 export const ArchivedUuidRecord = r.struct({
@@ -12,6 +12,6 @@ export const ArchivedUuidRecord = r.struct({
   active: r.bool,
 });
 
-export type UuidRecord = r.infer<typeof ArchivedUuidRecord>;
+export type UuidRecord = r.Infer<typeof ArchivedUuidRecord>;
 
 export default ArchivedUuidRecord;

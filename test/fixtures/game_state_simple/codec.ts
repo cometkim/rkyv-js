@@ -3,14 +3,14 @@
  * DO NOT EDIT MANUALLY
  */
 
-import { r } from 'rkyv-js';
+import * as r from 'rkyv-js';
 
 export const ArchivedPoint = r.struct({
   x: r.f64,
   y: r.f64,
 });
 
-export type Point = r.infer<typeof ArchivedPoint>;
+export type Point = r.Infer<typeof ArchivedPoint>;
 
 export const ArchivedMessage = r.taggedEnum({
   Quit: r.unit,
@@ -19,7 +19,7 @@ export const ArchivedMessage = r.taggedEnum({
   ChangeColor: r.struct({ _0: r.u8, _1: r.u8, _2: r.u8 }),
 });
 
-export type Message = r.infer<typeof ArchivedMessage>;
+export type Message = r.Infer<typeof ArchivedMessage>;
 
 export const ArchivedGameState = r.struct({
   player_position: ArchivedPoint,
@@ -28,6 +28,6 @@ export const ArchivedGameState = r.struct({
   current_message: r.option(ArchivedMessage),
 });
 
-export type GameState = r.infer<typeof ArchivedGameState>;
+export type GameState = r.Infer<typeof ArchivedGameState>;
 
 export default ArchivedGameState;

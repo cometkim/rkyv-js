@@ -15,7 +15,7 @@ import { describe, it } from 'node:test';
 import { readFile, readdir } from 'node:fs/promises';
 import * as path from 'node:path';
 
-import { r, type RkyvCodec } from 'rkyv-js';
+import * as r from 'rkyv-js';
 
 const FIXTURES_DIR = path.join(import.meta.dirname, 'fixtures');
 
@@ -25,7 +25,7 @@ async function discoverFixtures(): Promise<string[]> {
 }
 
 async function loadFixture<T = unknown>(name: string): Promise<{
-  codec: RkyvCodec<T>;
+  codec: r.RkyvCodec<T>;
   bytes: Uint8Array;
   json: T;
 }> {

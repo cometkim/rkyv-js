@@ -401,7 +401,7 @@ impl CodeGenerator {
         let mut output = String::new();
 
         // Always import r from rkyv-js
-        output.push_str("import { r } from 'rkyv-js';\n");
+        output.push_str("import * as r from 'rkyv-js';\n");
 
         // Add lib imports
         if lib_imports.contains(&LibImport::Uuid) {
@@ -441,7 +441,7 @@ impl CodeGenerator {
 
         // TypeScript type inference
         output.push_str(&format!(
-            "export type {} = r.infer<typeof Archived{}>;",
+            "export type {} = r.Infer<typeof Archived{}>;",
             name, name
         ));
 
@@ -491,7 +491,7 @@ impl CodeGenerator {
 
         // TypeScript type inference
         output.push_str(&format!(
-            "export type {} = r.infer<typeof Archived{}>;",
+            "export type {} = r.Infer<typeof Archived{}>;",
             name, name
         ));
 
@@ -533,7 +533,7 @@ impl CodeGenerator {
 
         // TypeScript type inference
         output.push_str(&format!(
-            "export type {} = r.infer<typeof Archived{}>;",
+            "export type {} = r.Infer<typeof Archived{}>;",
             name, name
         ));
 
@@ -551,11 +551,11 @@ mod tests {
         codegen.add_struct("Point", &[("x", TypeDef::F64), ("y", TypeDef::F64)]);
 
         let code = codegen.generate();
-        assert!(code.contains("import { r } from 'rkyv-js';\n"));
+        assert!(code.contains("import * as r from 'rkyv-js';\n"));
         assert!(code.contains("export const ArchivedPoint = r.struct({"));
         assert!(code.contains("x: r.f64"));
         assert!(code.contains("y: r.f64"));
-        assert!(code.contains("export type Point = r.infer<typeof ArchivedPoint>;"));
+        assert!(code.contains("export type Point = r.Infer<typeof ArchivedPoint>;"));
     }
 
     #[test]
@@ -573,7 +573,7 @@ mod tests {
         assert!(code.contains("export const ArchivedStatus = r.taggedEnum({"));
         assert!(code.contains("Pending: r.unit"));
         assert!(code.contains("Active: r.unit"));
-        assert!(code.contains("export type Status = r.infer<typeof ArchivedStatus>;"));
+        assert!(code.contains("export type Status = r.Infer<typeof ArchivedStatus>;"));
     }
 
     #[test]

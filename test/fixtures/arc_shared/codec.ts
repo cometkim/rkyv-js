@@ -3,13 +3,13 @@
  * DO NOT EDIT MANUALLY
  */
 
-import { r } from 'rkyv-js';
+import * as r from 'rkyv-js';
 
 export const ArchivedArcShared = r.struct({
   shared_data: r.arc(r.string),
   local_data: r.u32,
 });
 
-export type ArcShared = r.infer<typeof ArchivedArcShared>;
+export type ArcShared = r.Infer<typeof ArchivedArcShared>;
 
 export default ArchivedArcShared;

@@ -3,13 +3,13 @@
  * DO NOT EDIT MANUALLY
  */
 
-import { r } from 'rkyv-js';
+import * as r from 'rkyv-js';
 
 export const ArchivedTinyVecData = r.struct({
   values: r.vec(r.u32),
   enabled: r.bool,
 });
 
-export type TinyVecData = r.infer<typeof ArchivedTinyVecData>;
+export type TinyVecData = r.Infer<typeof ArchivedTinyVecData>;
 
 export default ArchivedTinyVecData;

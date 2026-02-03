@@ -1,6 +1,7 @@
 import * as assert from 'node:assert';
 import { describe, it } from 'node:test';
-import { r, type RkyvCodec } from 'rkyv-js';
+
+import * as r from 'rkyv-js';
 import { uuid as uuidCodec } from 'rkyv-js/lib/uuid';
 import { bytes as bytesCodec } from 'rkyv-js/lib/bytes';
 import { indexMap, indexSet } from 'rkyv-js/lib/indexmap';
@@ -157,7 +158,7 @@ describe('Codec API', () => {
   describe('r.tuple', () => {
     it('should encode and decode tuple', () => {
       const codec = r.tuple(r.u32, r.string, r.bool);
-      const value: r.infer<typeof codec> = [42, 'hello', true];
+      const value: r.Infer<typeof codec> = [42, 'hello', true];
       const bytes = r.encode(codec, value);
       const decoded = r.decode(codec, bytes);
       assert.deepStrictEqual(decoded, value);
@@ -182,7 +183,7 @@ describe('Codec API', () => {
         scores: r.vec(r.u32),
       });
 
-      type Person = r.infer<typeof Person>;
+      type Person = r.Infer<typeof Person>;
 
       // This is a compile-time check - if types are wrong, TS will error
       const person: Person = {
@@ -222,7 +223,7 @@ describe('Codec API', () => {
         children: TreeNode[];
       }
 
-      const TreeNode: RkyvCodec<TreeNode> = r.lazy(() =>
+      const TreeNode: r.RkyvCodec<TreeNode> = r.lazy(() =>
         r.struct({
           value: r.u32,
           children: r.vec(TreeNode),
@@ -384,7 +385,7 @@ describe('Codec API', () => {
 
     it('should handle access on tuple', () => {
       const Pair = r.tuple(r.string, r.u32);
-      const pair: r.infer<typeof Pair> = ['hello', 42];
+      const pair: r.Infer<typeof Pair> = ['hello', 42];
       const bytes = r.encode(Pair, pair);
       const proxy = r.access(Pair, bytes);
 

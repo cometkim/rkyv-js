@@ -3,13 +3,13 @@
  * DO NOT EDIT MANUALLY
  */
 
-import { r } from 'rkyv-js';
+import * as r from 'rkyv-js';
 
 export const ArchivedPoint = r.struct({
   x: r.f64,
   y: r.f64,
 });
 
-export type Point = r.infer<typeof ArchivedPoint>;
+export type Point = r.Infer<typeof ArchivedPoint>;
 
 export default ArchivedPoint;

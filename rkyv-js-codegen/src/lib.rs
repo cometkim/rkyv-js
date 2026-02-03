@@ -46,21 +46,21 @@
 //! The above generates:
 //!
 //! ```typescript
-//! import { r } from 'rkyv-js';
+//! import * as r from 'rkyv-js';
 //!
 //! export const ArchivedPerson = r.object({
 //!   name: r.string,
 //!   age: r.u32,
 //!   email: r.option(r.string),
 //! });
-//! export type Person = r.infer<typeof ArchivedPerson>;
+//! export type Person = r.Infer<typeof ArchivedPerson>;
 //!
 //! export const ArchivedStatus = r.taggedEnum({
 //!   Pending: r.unit,
 //!   Active: r.unit,
 //!   Error: r.object({ message: r.string }),
 //! });
-//! export type Status = r.infer<typeof ArchivedStatus>;
+//! export type Status = r.Infer<typeof ArchivedStatus>;
 //! ```
 //!
 //! ### Using `#[derive(Archive)]` macro

@@ -3,7 +3,7 @@
  * DO NOT EDIT MANUALLY
  */
 
-import { r } from 'rkyv-js';
+import * as r from 'rkyv-js';
 import { indexMap, indexSet } from 'rkyv-js/lib/indexmap';
 
 export const ArchivedIndexSetTags = r.struct({
@@ -11,6 +11,6 @@ export const ArchivedIndexSetTags = r.struct({
   count: r.u32,
 });
 
-export type IndexSetTags = r.infer<typeof ArchivedIndexSetTags>;
+export type IndexSetTags = r.Infer<typeof ArchivedIndexSetTags>;
 
 export default ArchivedIndexSetTags;

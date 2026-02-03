@@ -485,7 +485,7 @@ mod tests {
         assert!(code.contains("export const ArchivedPoint = r.struct({"));
         assert!(code.contains("x: r.f64"));
         assert!(code.contains("y: r.f64"));
-        assert!(code.contains("export type Point = r.infer<typeof ArchivedPoint>;"));
+        assert!(code.contains("export type Point = r.Infer<typeof ArchivedPoint>;"));
     }
 
     #[test]
@@ -526,7 +526,7 @@ mod tests {
 
         let code = codegen.generate();
         assert!(code.contains("export const ArchivedMessage = r.taggedEnum({"));
-        assert!(code.contains("export type Message = r.infer<typeof ArchivedMessage>;"));
+        assert!(code.contains("export type Message = r.Infer<typeof ArchivedMessage>;"));
         assert!(code.contains("Quit: r.unit"));
         assert!(code.contains("Move: r.struct({"));
         assert!(code.contains("Write: r.struct({"));

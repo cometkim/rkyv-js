@@ -3,13 +3,13 @@
  * DO NOT EDIT MANUALLY
  */
 
-import { r } from 'rkyv-js';
+import * as r from 'rkyv-js';
 
 export const ArchivedArrayVecBuffer = r.struct({
   data: r.vec(r.u32),
   name: r.string,
 });
 
-export type ArrayVecBuffer = r.infer<typeof ArchivedArrayVecBuffer>;
+export type ArrayVecBuffer = r.Infer<typeof ArchivedArrayVecBuffer>;
 
 export default ArchivedArrayVecBuffer;
