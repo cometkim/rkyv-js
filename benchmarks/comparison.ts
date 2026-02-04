@@ -2,7 +2,7 @@ import { run, bench, group, summary } from 'mitata';
 import * as capnp from 'capnp-es';
 import { encode as cborEncode, decode as cborDecode } from 'cbor-x';
 
-import { r } from 'rkyv-js';
+import * as r from 'rkyv-js';
 
 import { Point as CapnpPoint, Person as CapnpPerson } from './capnp/schema.ts';
 import { Point as ProtoPoint, Person as ProtoPerson } from './protobuf/schema.ts';
@@ -12,17 +12,17 @@ const ArchivedPoint = r.struct({
   y: r.f64,
 });
 
-type Point = r.infer<typeof ArchivedPoint>;
+type Point = r.Infer<typeof ArchivedPoint>;
 
 const ArchivedPerson = r.struct({
   name: r.string,
   age: r.u32,
-  email: r.optional(r.string),
+  email: r.option(r.string),
   scores: r.vec(r.u32),
   active: r.bool,
 });
 
-type Person = r.infer<typeof ArchivedPerson>;
+type Person = r.Infer<typeof ArchivedPerson>;
 
 const testPoint: Point = {
   x: 42.5,

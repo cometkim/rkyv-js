@@ -1,15 +1,15 @@
 import { run, bench, group, summary } from 'mitata';
-import { r } from 'rkyv-js';
+import * as r from 'rkyv-js';
 
 const ArchivedPerson = r.struct({
   name: r.string,
   age: r.u32,
-  email: r.optional(r.string),
+  email: r.option(r.string),
   scores: r.vec(r.u32),
   active: r.bool,
 });
 
-type Person = r.infer<typeof ArchivedPerson>;
+type Person = r.Infer<typeof ArchivedPerson>;
 
 const testPersonLarge: Person = {
   name: 'Bob Johnson with a very long name that exceeds inline storage',
