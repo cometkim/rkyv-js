@@ -13,11 +13,11 @@ jobs:
       fail-fast: true
       matrix:
         test-file:
-          - benchmarks/codspeed-primitives-encode.ts
-          - benchmarks/codspeed-primitives-decode.ts
-          - benchmarks/codspeed-complex-encode.ts
-          - benchmarks/codspeed-complex-decode.ts
-    name: Run
+          - codspeed-primitives-encode
+          - codspeed-primitives-decode
+          - codspeed-complex-encode
+          - codspeed-complex-decode
+    name: Benchmark
     runs-on: ubuntu-latest
     permissions:
       contents: read # required for actions/checkout
@@ -37,4 +37,4 @@ jobs:
         uses: CodSpeedHQ/action@v4
         with:
           mode: simulation
-          run: node ${{ matrix.test-file }}
+          run: node benchmarks/${{ matrix.test-file }}.ts
