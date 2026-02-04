@@ -13,8 +13,8 @@ jobs:
       fail-fast: true
       matrix:
         test-file:
-          - benchmarks/codspeed-primitive-encode.ts
-          - benchmarks/codspeed-primitive-decode.ts
+          - benchmarks/codspeed-primitives-encode.ts
+          - benchmarks/codspeed-primitives-decode.ts
           - benchmarks/codspeed-complex-encode.ts
           - benchmarks/codspeed-complex-decode.ts
     name: Run CodSpeed benchmarks
