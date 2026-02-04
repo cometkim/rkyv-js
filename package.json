@@ -33,6 +33,8 @@
     "./codec": "./src/codec.ts",
     "./reader": "./src/reader.ts",
     "./writer": "./src/writer.ts",
+    "./lib/std-btree-map": "./src/lib/std-btree-map.ts",
+    "./lib/std-hash-map": "./src/lib/std-hash-map.ts",
     "./lib/uuid": "./src/lib/uuid.ts",
     "./lib/bytes": "./src/lib/bytes.ts",
     "./lib/indexmap": "./src/lib/indexmap.ts"
@@ -46,6 +48,8 @@
       "./codec": "./dist/codec.js",
       "./reader": "./dist/reader.js",
       "./writer": "./dist/writer.js",
+      "./lib/std-btree-map": "./src/lib/std-btree-map.js",
+      "./lib/std-hash-map": "./src/lib/std-hash-map.js",
       "./lib/uuid": "./dist/lib/uuid.js",
       "./lib/bytes": "./dist/lib/bytes.js",
       "./lib/indexmap": "./dist/lib/indexmap.js",

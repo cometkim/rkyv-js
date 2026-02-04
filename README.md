@@ -192,6 +192,7 @@ Example usage:
 
 ```typescript
 import * as r from 'rkyv-js';
+import { btreeMap } from 'rkyv-js/lib/std-btree-map';
 import { uuid } from 'rkyv-js/lib/uuid';
 import { bytes } from 'rkyv-js/lib/bytes';
 import { indexSet, indexMap } from 'rkyv-js/lib/indexmap';
@@ -213,7 +214,7 @@ const ArchivedGraph = r.struct({
 
 // BTreeMap (ordered map using B-tree structure)
 const ArchivedConfig = r.struct({
-  orderedSettings: r.btreeMap(r.string, r.u32),  // BTreeMap<String, u32>
+  orderedSettings: btreeMap(r.string, r.u32),  // BTreeMap<String, u32>
 });
 ```
 

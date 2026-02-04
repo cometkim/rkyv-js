@@ -30,10 +30,6 @@ pub enum TypeDef {
     // Tuple (up to 12 elements like Rust)
     Tuple(Vec<TypeDef>),
 
-    // Map types
-    HashMap(Box<TypeDef>, Box<TypeDef>),
-    BTreeMap(Box<TypeDef>, Box<TypeDef>),
-
     // Reference to a named type (struct or enum)
     Named(String),
 
@@ -46,6 +42,12 @@ pub enum TypeDef {
 /// These map to `r.lib.*` codecs in TypeScript.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LibTypeDef {
+    /// std::collection::HashMap<K, V>
+    HashMap(Box<TypeDef>, Box<TypeDef>),
+
+    /// std::collection::BTreeMap<K, V>
+    BTreeMap(Box<TypeDef>, Box<TypeDef>),
+
     /// uuid::Uuid - 128-bit UUID (uuid-1 feature)
     Uuid,
 
@@ -120,21 +122,6 @@ impl TypeDef {
                 format!("r.tuple({})", exprs.join(", "))
             }
 
-            TypeDef::HashMap(key, value) => {
-                format!(
-                    "r.hashMap({}, {})",
-                    key.to_codec_expr(),
-                    value.to_codec_expr()
-                )
-            }
-            TypeDef::BTreeMap(key, value) => {
-                format!(
-                    "r.btreeMap({}, {})",
-                    key.to_codec_expr(),
-                    value.to_codec_expr()
-                )
-            }
-
             TypeDef::Named(name) => format!("Archived{}", name),
 
             TypeDef::Lib(lib_type) => lib_type.to_codec_expr(),
@@ -183,10 +170,6 @@ impl TypeDef {
                 format!("[{}]", types.join(", "))
             }
 
-            TypeDef::HashMap(key, value) | TypeDef::BTreeMap(key, value) => {
-                format!("Map<{}, {}>", key.to_ts_type(), value.to_ts_type())
-            }
-
             TypeDef::Named(name) => name.clone(),
 
             TypeDef::Lib(lib_type) => lib_type.to_ts_type(),
@@ -207,10 +190,6 @@ impl TypeDef {
                     elem.collect_lib_imports(imports);
                 }
             }
-            TypeDef::HashMap(k, v) | TypeDef::BTreeMap(k, v) => {
-                k.collect_lib_imports(imports);
-                v.collect_lib_imports(imports);
-            }
             TypeDef::Lib(lib_type) => {
                 if let Some(import) = lib_type.required_import() {
                     imports.insert(import);
@@ -229,7 +208,9 @@ impl TypeDef {
                     | LibTypeDef::ArcWeak(inner) => {
                         inner.collect_lib_imports(imports);
                     }
-                    LibTypeDef::IndexMap(k, v) => {
+                    LibTypeDef::HashMap(k, v)
+                    | LibTypeDef::BTreeMap(k, v)
+                    | LibTypeDef::IndexMap(k, v) => {
                         k.collect_lib_imports(imports);
                         v.collect_lib_imports(imports);
                     }
@@ -286,6 +267,14 @@ impl LibImport {
 
     pub fn bytes() -> Self {
         Self::new("rkyv-js/lib/bytes", "bytes")
+    }
+
+    pub fn btree_map() -> Self {
+        Self::new("rkyv-js/lib/std-btree-map", "btreeMap")
+    }
+
+    pub fn hash_map() -> Self {
+        Self::new("rkyv-js/lib/std-hash-map", "hashMap")
     }
 
     pub fn index_map() -> Self {
@@ -360,6 +349,12 @@ impl LibTypeDef {
             // Unique archive formats - use dedicated imports
             LibTypeDef::Uuid => "uuid".to_string(),
             LibTypeDef::Bytes => "bytes".to_string(),
+            LibTypeDef::HashMap(key, value) => {
+                format!("hashMap({}, {})", key.to_codec_expr(), value.to_codec_expr())
+            }
+            LibTypeDef::BTreeMap(key, value) => {
+                format!("btreeMap({}, {})", key.to_codec_expr(), value.to_codec_expr())
+            }
             LibTypeDef::IndexMap(key, value) => {
                 format!(
                     "indexMap({}, {})",
@@ -404,6 +399,8 @@ impl LibTypeDef {
         match self {
             LibTypeDef::Uuid => Some(LibImport::uuid()),
             LibTypeDef::Bytes => Some(LibImport::bytes()),
+            LibTypeDef::BTreeMap(_, _) => Some(LibImport::btree_map()),
+            LibTypeDef::HashMap(_, _) => Some(LibImport::hash_map()),
             LibTypeDef::IndexMap(_, _) => Some(LibImport::index_map()),
             LibTypeDef::IndexSet(_) => Some(LibImport::index_set()),
             // These map to intrinsics, no lib import needed
@@ -431,6 +428,12 @@ impl LibTypeDef {
             LibTypeDef::SmallVec(inner, _) => format!("{}[]", inner.to_ts_type()),
             LibTypeDef::TinyVec(inner, _) => format!("{}[]", inner.to_ts_type()),
             LibTypeDef::TinyArrayVec(inner, _) => format!("{}[]", inner.to_ts_type()),
+            LibTypeDef::HashMap(key, value) => {
+                format!("Map<{}, {}>", key.to_ts_type(), value.to_ts_type())
+            }
+            LibTypeDef::BTreeMap(key, value) => {
+                format!("Map<{}, {}>", key.to_ts_type(), value.to_ts_type())
+            }
             LibTypeDef::IndexMap(key, value) => {
                 format!("Map<{}, {}>", key.to_ts_type(), value.to_ts_type())
             }
@@ -539,12 +542,6 @@ mod tests {
     fn test_tuple_codec_expr() {
         let tuple = TypeDef::Tuple(vec![TypeDef::U32, TypeDef::String]);
         assert_eq!(tuple.to_codec_expr(), "r.tuple(r.u32, r.string)");
-    }
-
-    #[test]
-    fn test_hashmap_codec_expr() {
-        let map = TypeDef::HashMap(Box::new(TypeDef::String), Box::new(TypeDef::U32));
-        assert_eq!(map.to_codec_expr(), "r.hashMap(r.string, r.u32)");
     }
 
     #[test]

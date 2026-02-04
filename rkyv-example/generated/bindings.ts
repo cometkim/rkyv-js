@@ -6,6 +6,7 @@
 import * as r from 'rkyv-js';
 import { bytes } from 'rkyv-js/lib/bytes';
 import { indexMap, indexSet } from 'rkyv-js/lib/indexmap';
+import { btreeMap } from 'rkyv-js/lib/std-btree-map';
 import { uuid } from 'rkyv-js/lib/uuid';
 
 export const ArchivedUuidRecord = r.struct({
@@ -31,7 +32,7 @@ export const ArchivedArrayVecBuffer = r.struct({
 export type ArrayVecBuffer = r.Infer<typeof ArchivedArrayVecBuffer>;
 
 export const ArchivedBTreeMapConfig = r.struct({
-  settings: r.btreeMap(r.string, r.u32),
+  settings: btreeMap(r.string, r.u32),
   version: r.u32,
 });
 

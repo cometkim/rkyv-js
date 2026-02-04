@@ -4,9 +4,10 @@
  */
 
 import * as r from 'rkyv-js';
+import { btreeMap } from 'rkyv-js/lib/std-btree-map';
 
 export const ArchivedBTreeMapConfig = r.struct({
-  settings: r.btreeMap(r.string, r.u32),
+  settings: btreeMap(r.string, r.u32),
   version: r.u32,
 });
 

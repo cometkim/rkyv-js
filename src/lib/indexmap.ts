@@ -18,7 +18,7 @@ import {
   capacityFromLen,
   probeCap,
   controlCount,
-} from './swiss_table.ts';
+} from './internal/swiss-table.ts';
 
 /**
  * ArchivedIndexMap layout:

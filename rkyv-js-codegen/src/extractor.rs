@@ -79,18 +79,7 @@ fn type_to_typedef(ty: &Type) -> Option<TypeDef> {
                     let inner_def = type_to_typedef(inner)?;
                     Some(TypeDef::Box(Box::new(inner_def)))
                 }
-                "HashMap" => {
-                    let (key, value) = get_two_generic_args(segment)?;
-                    let key_def = type_to_typedef(key)?;
-                    let value_def = type_to_typedef(value)?;
-                    Some(TypeDef::HashMap(Box::new(key_def), Box::new(value_def)))
-                }
-                "BTreeMap" => {
-                    let (key, value) = get_two_generic_args(segment)?;
-                    let key_def = type_to_typedef(key)?;
-                    let value_def = type_to_typedef(value)?;
-                    Some(TypeDef::BTreeMap(Box::new(key_def), Box::new(value_def)))
-                }
+
 
                 // Built-in crate types (r.lib.*)
                 "Uuid" => Some(TypeDef::Lib(LibTypeDef::Uuid)),
@@ -128,6 +117,18 @@ fn type_to_typedef(ty: &Type) -> Option<TypeDef> {
                     } else {
                         None
                     }
+                }
+                "HashMap" => {
+                    let (key, value) = get_two_generic_args(segment)?;
+                    let key_def = type_to_typedef(key)?;
+                    let value_def = type_to_typedef(value)?;
+                    Some(TypeDef::Lib(LibTypeDef::HashMap(Box::new(key_def), Box::new(value_def))))
+                }
+                "BTreeMap" => {
+                    let (key, value) = get_two_generic_args(segment)?;
+                    let key_def = type_to_typedef(key)?;
+                    let value_def = type_to_typedef(value)?;
+                    Some(TypeDef::Lib(LibTypeDef::BTreeMap(Box::new(key_def), Box::new(value_def))))
                 }
                 "IndexMap" => {
                     let (key, value) = get_two_generic_args(segment)?;

@@ -339,10 +339,6 @@ impl CodeGenerator {
                     Self::collect_named_deps(elem, deps);
                 }
             }
-            TypeDef::HashMap(k, v) | TypeDef::BTreeMap(k, v) => {
-                Self::collect_named_deps(k, deps);
-                Self::collect_named_deps(v, deps);
-            }
             _ => {}
         }
     }

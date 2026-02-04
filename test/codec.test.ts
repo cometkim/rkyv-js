@@ -2,6 +2,7 @@ import * as assert from 'node:assert';
 import { describe, it } from 'node:test';
 
 import * as r from 'rkyv-js';
+import { btreeMap } from 'rkyv-js/lib/std-btree-map';
 import { uuid as uuidCodec } from 'rkyv-js/lib/uuid';
 import { bytes as bytesCodec } from 'rkyv-js/lib/bytes';
 import { indexMap, indexSet } from 'rkyv-js/lib/indexmap';
@@ -511,73 +512,73 @@ describe('Codec API', () => {
     });
   });
 
-  describe('r.btreeMap', () => {
-    it('should encode and decode BTreeMap', () => {
-      const codec = r.btreeMap(r.string, r.u32);
-      const map = new Map([
-        ['alpha', 1],
-        ['beta', 2],
-        ['gamma', 3],
-      ]);
-      const bytes = r.encode(codec, map);
-      const decoded = r.decode(codec, bytes);
-      assert.deepStrictEqual(decoded, map);
-    });
-
-    it('should handle empty BTreeMap', () => {
-      const codec = r.btreeMap(r.string, r.u32);
-      const map = new Map<string, number>();
-      const bytes = r.encode(codec, map);
-      const decoded = r.decode(codec, bytes);
-      assert.strictEqual(decoded.size, 0);
-    });
-
-    it('should work with numeric keys', () => {
-      const codec = r.btreeMap(r.u32, r.string);
-      const map = new Map([
-        [1, 'one'],
-        [2, 'two'],
-        [3, 'three'],
-      ]);
-      const bytes = r.encode(codec, map);
-      const decoded = r.decode(codec, bytes);
-      assert.deepStrictEqual(decoded, map);
-    });
-
-    it('should handle larger maps (more than E entries)', () => {
-      const codec = r.btreeMap(r.u32, r.u32);
-      const map = new Map<number, number>();
-      for (let i = 0; i < 20; i++) {
-        map.set(i, i * 10);
-      }
-      const bytes = r.encode(codec, map);
-      const decoded = r.decode(codec, bytes);
-      assert.strictEqual(decoded.size, 20);
-      for (let i = 0; i < 20; i++) {
-        assert.strictEqual(decoded.get(i), i * 10);
-      }
-    });
-
-    it('should work in struct', () => {
-      const Config = r.struct({
-        settings: r.btreeMap(r.string, r.u32),
-        version: r.u32,
-      });
-      const config = {
-        settings: new Map([
-          ['timeout', 30],
-          ['retries', 3],
-        ]),
-        version: 1,
-      };
-      const bytes = r.encode(Config, config);
-      const decoded = r.decode(Config, bytes);
-      assert.deepStrictEqual(decoded.settings, config.settings);
-      assert.strictEqual(decoded.version, config.version);
-    });
-  });
-
   describe('built-in crates', () => {
+    describe('std::collections::BTreeMap', () => {
+      it('should encode and decode BTreeMap', () => {
+        const codec = btreeMap(r.string, r.u32);
+        const map = new Map([
+          ['alpha', 1],
+          ['beta', 2],
+          ['gamma', 3],
+        ]);
+        const bytes = r.encode(codec, map);
+        const decoded = r.decode(codec, bytes);
+        assert.deepStrictEqual(decoded, map);
+      });
+
+      it('should handle empty BTreeMap', () => {
+        const codec = btreeMap(r.string, r.u32);
+        const map = new Map<string, number>();
+        const bytes = r.encode(codec, map);
+        const decoded = r.decode(codec, bytes);
+        assert.strictEqual(decoded.size, 0);
+      });
+
+      it('should work with numeric keys', () => {
+        const codec = btreeMap(r.u32, r.string);
+        const map = new Map([
+          [1, 'one'],
+          [2, 'two'],
+          [3, 'three'],
+        ]);
+        const bytes = r.encode(codec, map);
+        const decoded = r.decode(codec, bytes);
+        assert.deepStrictEqual(decoded, map);
+      });
+
+      it('should handle larger maps (more than E entries)', () => {
+        const codec = btreeMap(r.u32, r.u32);
+        const map = new Map<number, number>();
+        for (let i = 0; i < 20; i++) {
+          map.set(i, i * 10);
+        }
+        const bytes = r.encode(codec, map);
+        const decoded = r.decode(codec, bytes);
+        assert.strictEqual(decoded.size, 20);
+        for (let i = 0; i < 20; i++) {
+          assert.strictEqual(decoded.get(i), i * 10);
+        }
+      });
+
+      it('should work in struct', () => {
+        const Config = r.struct({
+          settings: btreeMap(r.string, r.u32),
+          version: r.u32,
+        });
+        const config = {
+          settings: new Map([
+            ['timeout', 30],
+            ['retries', 3],
+          ]),
+          version: 1,
+        };
+        const bytes = r.encode(Config, config);
+        const decoded = r.decode(Config, bytes);
+        assert.deepStrictEqual(decoded.settings, config.settings);
+        assert.strictEqual(decoded.version, config.version);
+      });
+    });
+
     describe('uuid', () => {
       it('should encode and decode UUID', () => {
         const uuid = '550e8400-e29b-41d4-a716-446655440000';
