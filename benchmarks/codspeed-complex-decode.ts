@@ -4,7 +4,10 @@ import * as r from 'rkyv-js';
 
 import { specs } from './_specs.ts';
 
-const bench = withCodSpeed(new Bench());
+const bench = withCodSpeed(new Bench({
+  warmup: true,
+  warmupIterations: 20,
+}));
 
 for (const spec of specs) {
   for (const [description, test] of spec.tests) {

@@ -2,7 +2,10 @@ import { Bench } from 'tinybench';
 import { withCodSpeed } from '@codspeed/tinybench-plugin';
 import * as r from 'rkyv-js';
 
-const bench = withCodSpeed(new Bench());
+const bench = withCodSpeed(new Bench({
+  warmup: true,
+  warmupIterations: 20,
+}));
 
 const testU8 = 255;
 const testI8 = -128;
