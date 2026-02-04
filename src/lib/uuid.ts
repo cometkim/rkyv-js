@@ -44,10 +44,11 @@ function uuidToBytes(uuid: string): Uint8Array {
  *
  * @example
  * ```typescript
- * import { r } from 'rkyv-js';
+ * import * as r from 'rkyv-js';
+ * import { uuid } from 'rkyv-js/lib/uuid';
  *
  * const UserCodec = r.struct({
- *   id: r.lib.uuid,
+ *   id: uuid,
  *   name: r.string,
  * });
  *

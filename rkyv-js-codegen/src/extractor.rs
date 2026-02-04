@@ -80,11 +80,15 @@ fn type_to_typedef(ty: &Type) -> Option<TypeDef> {
                     Some(TypeDef::Box(Box::new(inner_def)))
                 }
 
-
                 // Built-in crate types (r.lib.*)
                 "Uuid" => Some(TypeDef::Lib(LibTypeDef::Uuid)),
                 "Bytes" => Some(TypeDef::Lib(LibTypeDef::Bytes)),
                 "SmolStr" => Some(TypeDef::Lib(LibTypeDef::SmolStr)),
+                "VecDeque" => {
+                    let inner = get_single_generic_arg(segment)?;
+                    let inner_def = type_to_typedef(inner)?;
+                    Some(TypeDef::Lib(LibTypeDef::VecDeque(Box::new(inner_def))))
+                }
                 "ThinVec" => {
                     let inner = get_single_generic_arg(segment)?;
                     let inner_def = type_to_typedef(inner)?;
@@ -122,13 +126,29 @@ fn type_to_typedef(ty: &Type) -> Option<TypeDef> {
                     let (key, value) = get_two_generic_args(segment)?;
                     let key_def = type_to_typedef(key)?;
                     let value_def = type_to_typedef(value)?;
-                    Some(TypeDef::Lib(LibTypeDef::HashMap(Box::new(key_def), Box::new(value_def))))
+                    Some(TypeDef::Lib(LibTypeDef::HashMap(
+                        Box::new(key_def),
+                        Box::new(value_def),
+                    )))
+                }
+                "HashSet" => {
+                    let inner = get_single_generic_arg(segment)?;
+                    let inner_def = type_to_typedef(inner)?;
+                    Some(TypeDef::Lib(LibTypeDef::HashSet(Box::new(inner_def))))
                 }
                 "BTreeMap" => {
                     let (key, value) = get_two_generic_args(segment)?;
                     let key_def = type_to_typedef(key)?;
                     let value_def = type_to_typedef(value)?;
-                    Some(TypeDef::Lib(LibTypeDef::BTreeMap(Box::new(key_def), Box::new(value_def))))
+                    Some(TypeDef::Lib(LibTypeDef::BTreeMap(
+                        Box::new(key_def),
+                        Box::new(value_def),
+                    )))
+                }
+                "BTreeSet" => {
+                    let inner = get_single_generic_arg(segment)?;
+                    let inner_def = type_to_typedef(inner)?;
+                    Some(TypeDef::Lib(LibTypeDef::BTreeSet(Box::new(inner_def))))
                 }
                 "IndexMap" => {
                     let (key, value) = get_two_generic_args(segment)?;
@@ -842,6 +862,62 @@ mod tests {
         assert!(code.contains("import { indexSet } from 'rkyv-js/lib/indexmap';"));
         assert!(!code.contains("indexMap"));
         assert!(code.contains("items: indexSet(r.string)"));
+    }
+
+    #[test]
+    fn test_extract_lib_vec_deque() {
+        let source = r#"
+            use std::collections::VecDeque;
+
+            #[derive(Archive)]
+            struct Queue {
+                items: VecDeque<u32>,
+            }
+        "#;
+
+        let mut codegen = CodeGenerator::new();
+        codegen.add_source_str(source);
+
+        let code = codegen.generate();
+        assert!(code.contains("items: r.vec(r.u32)"));
+    }
+
+    #[test]
+    fn test_extract_lib_hash_set() {
+        let source = r#"
+            use std::collections::HashSet;
+
+            #[derive(Archive)]
+            struct UniqueItems {
+                ids: HashSet<String>,
+            }
+        "#;
+
+        let mut codegen = CodeGenerator::new();
+        codegen.add_source_str(source);
+
+        let code = codegen.generate();
+        assert!(code.contains("import { hashSet } from 'rkyv-js/lib/std-hash-set';"));
+        assert!(code.contains("ids: hashSet(r.string)"));
+    }
+
+    #[test]
+    fn test_extract_lib_btree_set() {
+        let source = r#"
+            use std::collections::BTreeSet;
+
+            #[derive(Archive)]
+            struct SortedItems {
+                values: BTreeSet<i64>,
+            }
+        "#;
+
+        let mut codegen = CodeGenerator::new();
+        codegen.add_source_str(source);
+
+        let code = codegen.generate();
+        assert!(code.contains("import { btreeSet } from 'rkyv-js/lib/std-btree-set';"));
+        assert!(code.contains("values: btreeSet(r.i64)"));
     }
 
     #[test]

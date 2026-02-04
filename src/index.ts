@@ -6,6 +6,6 @@ export {
 	type Resolver,
 	type RkyvCodec,
 } from './codec.ts';
-export * from './intrinsics.ts';
+export * from './primitives.ts';
 export { RkyvReader } from './reader.ts';
 export { RkyvWriter } from './writer.ts';

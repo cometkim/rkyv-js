@@ -7,15 +7,17 @@ import * as r from 'rkyv-js';
 import { bytes } from 'rkyv-js/lib/bytes';
 import { indexMap, indexSet } from 'rkyv-js/lib/indexmap';
 import { btreeMap } from 'rkyv-js/lib/std-btree-map';
+import { btreeSet } from 'rkyv-js/lib/std-btree-set';
+import { hashMap } from 'rkyv-js/lib/std-hash-map';
+import { hashSet } from 'rkyv-js/lib/std-hash-set';
 import { uuid } from 'rkyv-js/lib/uuid';
 
-export const ArchivedUuidRecord = r.struct({
-  id: uuid,
+export const ArchivedVecDequeData = r.struct({
+  items: r.vec(r.u32),
   name: r.string,
-  active: r.bool,
 });
 
-export type UuidRecord = r.Infer<typeof ArchivedUuidRecord>;
+export type VecDequeData = r.Infer<typeof ArchivedVecDequeData>;
 
 export const ArchivedArcShared = r.struct({
   shared_data: r.arc(r.string),
@@ -38,12 +40,33 @@ export const ArchivedBTreeMapConfig = r.struct({
 
 export type BTreeMapConfig = r.Infer<typeof ArchivedBTreeMapConfig>;
 
+export const ArchivedBTreeSetData = r.struct({
+  values: btreeSet(r.i64),
+  label: r.string,
+});
+
+export type BTreeSetData = r.Infer<typeof ArchivedBTreeSetData>;
+
 export const ArchivedBytesMessage = r.struct({
   payload: bytes,
   checksum: r.u32,
 });
 
 export type BytesMessage = r.Infer<typeof ArchivedBytesMessage>;
+
+export const ArchivedHashMapData = r.struct({
+  entries: hashMap(r.string, r.u32),
+  name: r.string,
+});
+
+export type HashMapData = r.Infer<typeof ArchivedHashMapData>;
+
+export const ArchivedHashSetData = r.struct({
+  ids: hashSet(r.string),
+  count: r.u32,
+});
+
+export type HashSetData = r.Infer<typeof ArchivedHashSetData>;
 
 export const ArchivedIndexMapConfig = r.struct({
   settings: indexMap(r.string, r.u32),
@@ -122,3 +145,11 @@ export const ArchivedTinyVecData = r.struct({
 });
 
 export type TinyVecData = r.Infer<typeof ArchivedTinyVecData>;
+
+export const ArchivedUuidRecord = r.struct({
+  id: uuid,
+  name: r.string,
+  active: r.bool,
+});
+
+export type UuidRecord = r.Infer<typeof ArchivedUuidRecord>;

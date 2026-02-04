@@ -42,11 +42,20 @@ pub enum TypeDef {
 /// These map to `r.lib.*` codecs in TypeScript.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LibTypeDef {
-    /// std::collection::HashMap<K, V>
+    /// std::collections::VecDeque<T>
+    VecDeque(Box<TypeDef>),
+
+    /// std::collections::HashMap<K, V>
     HashMap(Box<TypeDef>, Box<TypeDef>),
 
-    /// std::collection::BTreeMap<K, V>
+    /// std::collections::HashSet<T>
+    HashSet(Box<TypeDef>),
+
+    /// std::collections::BTreeMap<K, V>
     BTreeMap(Box<TypeDef>, Box<TypeDef>),
+
+    /// std::collections::BTreeSet<T>
+    BTreeSet(Box<TypeDef>),
 
     /// uuid::Uuid - 128-bit UUID (uuid-1 feature)
     Uuid,
@@ -196,7 +205,10 @@ impl TypeDef {
                 }
                 // Also recurse into inner types
                 match lib_type {
-                    LibTypeDef::ThinVec(inner)
+                    LibTypeDef::VecDeque(inner)
+                    | LibTypeDef::HashSet(inner)
+                    | LibTypeDef::BTreeSet(inner)
+                    | LibTypeDef::ThinVec(inner)
                     | LibTypeDef::ArrayVec(inner, _)
                     | LibTypeDef::SmallVec(inner, _)
                     | LibTypeDef::TinyVec(inner, _)
@@ -273,8 +285,16 @@ impl LibImport {
         Self::new("rkyv-js/lib/std-btree-map", "btreeMap")
     }
 
+    pub fn btree_set() -> Self {
+        Self::new("rkyv-js/lib/std-btree-set", "btreeSet")
+    }
+
     pub fn hash_map() -> Self {
         Self::new("rkyv-js/lib/std-hash-map", "hashMap")
+    }
+
+    pub fn hash_set() -> Self {
+        Self::new("rkyv-js/lib/std-hash-set", "hashSet")
     }
 
     pub fn index_map() -> Self {
@@ -350,10 +370,24 @@ impl LibTypeDef {
             LibTypeDef::Uuid => "uuid".to_string(),
             LibTypeDef::Bytes => "bytes".to_string(),
             LibTypeDef::HashMap(key, value) => {
-                format!("hashMap({}, {})", key.to_codec_expr(), value.to_codec_expr())
+                format!(
+                    "hashMap({}, {})",
+                    key.to_codec_expr(),
+                    value.to_codec_expr()
+                )
+            }
+            LibTypeDef::HashSet(inner) => {
+                format!("hashSet({})", inner.to_codec_expr())
             }
             LibTypeDef::BTreeMap(key, value) => {
-                format!("btreeMap({}, {})", key.to_codec_expr(), value.to_codec_expr())
+                format!(
+                    "btreeMap({}, {})",
+                    key.to_codec_expr(),
+                    value.to_codec_expr()
+                )
+            }
+            LibTypeDef::BTreeSet(inner) => {
+                format!("btreeSet({})", inner.to_codec_expr())
             }
             LibTypeDef::IndexMap(key, value) => {
                 format!(
@@ -370,7 +404,8 @@ impl LibTypeDef {
             LibTypeDef::SmolStr => "r.string".to_string(),
 
             // Same archive format as r.vec(T)
-            LibTypeDef::ThinVec(inner)
+            LibTypeDef::VecDeque(inner)
+            | LibTypeDef::ThinVec(inner)
             | LibTypeDef::ArrayVec(inner, _)
             | LibTypeDef::SmallVec(inner, _)
             | LibTypeDef::TinyVec(inner, _)
@@ -400,11 +435,14 @@ impl LibTypeDef {
             LibTypeDef::Uuid => Some(LibImport::uuid()),
             LibTypeDef::Bytes => Some(LibImport::bytes()),
             LibTypeDef::BTreeMap(_, _) => Some(LibImport::btree_map()),
+            LibTypeDef::BTreeSet(_) => Some(LibImport::btree_set()),
             LibTypeDef::HashMap(_, _) => Some(LibImport::hash_map()),
+            LibTypeDef::HashSet(_) => Some(LibImport::hash_set()),
             LibTypeDef::IndexMap(_, _) => Some(LibImport::index_map()),
             LibTypeDef::IndexSet(_) => Some(LibImport::index_set()),
             // These map to intrinsics, no lib import needed
             LibTypeDef::SmolStr
+            | LibTypeDef::VecDeque(_)
             | LibTypeDef::ThinVec(_)
             | LibTypeDef::ArrayVec(_, _)
             | LibTypeDef::SmallVec(_, _)
@@ -423,6 +461,7 @@ impl LibTypeDef {
             LibTypeDef::Uuid => "string".to_string(),
             LibTypeDef::Bytes => "Uint8Array".to_string(),
             LibTypeDef::SmolStr => "string".to_string(),
+            LibTypeDef::VecDeque(inner) => format!("{}[]", inner.to_ts_type()),
             LibTypeDef::ThinVec(inner) => format!("{}[]", inner.to_ts_type()),
             LibTypeDef::ArrayVec(inner, _) => format!("{}[]", inner.to_ts_type()),
             LibTypeDef::SmallVec(inner, _) => format!("{}[]", inner.to_ts_type()),
@@ -431,9 +470,11 @@ impl LibTypeDef {
             LibTypeDef::HashMap(key, value) => {
                 format!("Map<{}, {}>", key.to_ts_type(), value.to_ts_type())
             }
+            LibTypeDef::HashSet(inner) => format!("Set<{}>", inner.to_ts_type()),
             LibTypeDef::BTreeMap(key, value) => {
                 format!("Map<{}, {}>", key.to_ts_type(), value.to_ts_type())
             }
+            LibTypeDef::BTreeSet(inner) => format!("Set<{}>", inner.to_ts_type()),
             LibTypeDef::IndexMap(key, value) => {
                 format!("Map<{}, {}>", key.to_ts_type(), value.to_ts_type())
             }
@@ -604,6 +645,28 @@ mod tests {
         let tiny_arrayvec = TypeDef::Lib(LibTypeDef::TinyArrayVec(Box::new(TypeDef::U8), 16));
         assert_eq!(tiny_arrayvec.to_codec_expr(), "r.vec(r.u8)");
         assert_eq!(tiny_arrayvec.to_ts_type(), "number[]");
+    }
+
+    #[test]
+    fn test_lib_vec_deque_codec_expr() {
+        // VecDeque archives to the same format as Vec
+        let vec_deque = TypeDef::Lib(LibTypeDef::VecDeque(Box::new(TypeDef::U32)));
+        assert_eq!(vec_deque.to_codec_expr(), "r.vec(r.u32)");
+        assert_eq!(vec_deque.to_ts_type(), "number[]");
+    }
+
+    #[test]
+    fn test_lib_hash_set_codec_expr() {
+        let hash_set = TypeDef::Lib(LibTypeDef::HashSet(Box::new(TypeDef::String)));
+        assert_eq!(hash_set.to_codec_expr(), "hashSet(r.string)");
+        assert_eq!(hash_set.to_ts_type(), "Set<string>");
+    }
+
+    #[test]
+    fn test_lib_btree_set_codec_expr() {
+        let btree_set = TypeDef::Lib(LibTypeDef::BTreeSet(Box::new(TypeDef::U64)));
+        assert_eq!(btree_set.to_codec_expr(), "btreeSet(r.u64)");
+        assert_eq!(btree_set.to_ts_type(), "Set<bigint>");
     }
 
     #[test]

@@ -8,33 +8,35 @@
 use rkyv::rancor::Error;
 use rkyv_js_codegen::CodeGenerator;
 use rkyv_js_example::{
-    Arc, ArcShared, ArrayVec, ArrayVecBuffer, BTreeMapConfig, Bytes, BytesMessage, GameState,
-    IndexMap, IndexMapConfig, IndexSet, IndexSetTags, Message, Person, Point, SmallVec,
-    SmallVecData, SmolStr, SmolStrConfig, ThinVec, ThinVecData, TinyVec, TinyVecData, Uuid,
-    UuidRecord,
+    Arc, ArcShared, ArrayVec, ArrayVecBuffer, BTreeMapConfig, BTreeSet, BTreeSetData, Bytes,
+    BytesMessage, GameState, HashMap, HashMapData, HashSet, HashSetData, IndexMap, IndexMapConfig,
+    IndexSet, IndexSetTags, Message, Person, Point, SmallVec, SmallVecData, SmolStr, SmolStrConfig,
+    ThinVec, ThinVecData, TinyVec, TinyVecData, Uuid, UuidRecord, VecDeque, VecDequeData,
 };
-use serde::Serialize;
 use std::collections::BTreeMap;
-use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 fn main() {
-    let out_dir = env::args()
-        .nth(1)
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("test/fixtures"));
+    let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("Failed to get workspace root")
+        .to_path_buf();
 
-    fs::create_dir_all(&out_dir).expect("Failed to create fixtures directory");
+    let out_dir = workspace_root.join("test/fixtures");
+    let identical_dir = out_dir.join("identical");
+    let semantic_dir = out_dir.join("semantic");
+    fs::create_dir_all(&identical_dir).expect("Failed to create identical fixtures directory");
+    fs::create_dir_all(&semantic_dir).expect("Failed to create semantic fixtures directory");
 
     println!("Generating fixtures...");
 
     // Point fixtures
-    write_fixture::<Point>(&out_dir, "point", &Point { x: 42.5, y: -17.25 });
+    write_fixture::<Point>(&identical_dir, "point", &Point { x: 42.5, y: -17.25 });
 
     // Person fixtures
     write_fixture::<Person>(
-        &out_dir,
+        &identical_dir,
         "person",
         &Person {
             name: "Alice".to_string(),
@@ -46,7 +48,7 @@ fn main() {
     );
 
     write_fixture::<Person>(
-        &out_dir,
+        &identical_dir,
         "person_no_email",
         &Person {
             name: "Bob".to_string(),
@@ -58,25 +60,29 @@ fn main() {
     );
 
     // Message enum variants
-    write_fixture::<Message>(&out_dir, "message_quit", &Message::Quit);
-
-    write_fixture::<Message>(&out_dir, "message_move", &Message::Move { x: 10, y: -20 });
+    write_fixture::<Message>(&identical_dir, "message_quit", &Message::Quit);
 
     write_fixture::<Message>(
-        &out_dir,
+        &identical_dir,
+        "message_move",
+        &Message::Move { x: 10, y: -20 },
+    );
+
+    write_fixture::<Message>(
+        &identical_dir,
         "message_write",
         &Message::Write("Hello, World!".to_string()),
     );
 
     write_fixture::<Message>(
-        &out_dir,
+        &identical_dir,
         "message_color",
         &Message::ChangeColor(255, 128, 0),
     );
 
     // GameState fixtures
     write_fixture::<GameState>(
-        &out_dir,
+        &identical_dir,
         "game_state",
         &GameState {
             player_position: Point { x: 100.0, y: 200.0 },
@@ -91,7 +97,7 @@ fn main() {
     );
 
     write_fixture::<GameState>(
-        &out_dir,
+        &identical_dir,
         "game_state_simple",
         &GameState {
             player_position: Point { x: 0.0, y: 0.0 },
@@ -106,7 +112,7 @@ fn main() {
 
     // UUID fixture
     write_fixture::<UuidRecord>(
-        &out_dir,
+        &identical_dir,
         "uuid_record",
         &UuidRecord {
             id: Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap(),
@@ -117,7 +123,7 @@ fn main() {
 
     // Bytes fixture
     write_fixture::<BytesMessage>(
-        &out_dir,
+        &identical_dir,
         "bytes_message",
         &BytesMessage {
             payload: Bytes::from_static(&[0xde, 0xad, 0xbe, 0xef, 0xca, 0xfe]),
@@ -127,7 +133,7 @@ fn main() {
 
     // SmolStr fixture
     write_fixture::<SmolStrConfig>(
-        &out_dir,
+        &identical_dir,
         "smol_str_config",
         &SmolStrConfig {
             key: SmolStr::new("api_key"),
@@ -138,7 +144,7 @@ fn main() {
 
     // ThinVec fixture
     write_fixture::<ThinVecData>(
-        &out_dir,
+        &identical_dir,
         "thin_vec_data",
         &ThinVecData {
             items: ThinVec::from(vec![1, 2, 3, 4, 5]),
@@ -156,7 +162,7 @@ fn main() {
     arrayvec_data.push(20);
     arrayvec_data.push(30);
     write_fixture::<ArrayVecBuffer>(
-        &out_dir,
+        &identical_dir,
         "arrayvec_buffer",
         &ArrayVecBuffer {
             data: arrayvec_data,
@@ -166,7 +172,7 @@ fn main() {
 
     // SmallVec fixture
     write_fixture::<SmallVecData>(
-        &out_dir,
+        &identical_dir,
         "smallvec_data",
         &SmallVecData {
             items: SmallVec::from_vec(vec![1, 2, 3, 4, 5, 6]),
@@ -176,7 +182,7 @@ fn main() {
 
     // TinyVec fixture
     write_fixture::<TinyVecData>(
-        &out_dir,
+        &identical_dir,
         "tinyvec_data",
         &TinyVecData {
             values: TinyVec::from([1, 2, 3, 0]),
@@ -190,7 +196,7 @@ fn main() {
     settings.insert("retries".to_string(), 3);
     settings.insert("max_connections".to_string(), 100);
     write_fixture::<IndexMapConfig>(
-        &out_dir,
+        &identical_dir,
         "indexmap_config",
         &IndexMapConfig {
             settings,
@@ -203,11 +209,15 @@ fn main() {
     tags.insert("important".to_string());
     tags.insert("urgent".to_string());
     tags.insert("reviewed".to_string());
-    write_fixture::<IndexSetTags>(&out_dir, "indexset_tags", &IndexSetTags { tags, count: 3 });
+    write_fixture::<IndexSetTags>(
+        &identical_dir,
+        "indexset_tags",
+        &IndexSetTags { tags, count: 3 },
+    );
 
     // Arc (triomphe) fixture
     write_fixture::<ArcShared>(
-        &out_dir,
+        &identical_dir,
         "arc_shared",
         &ArcShared {
             shared_data: Arc::new("shared-value".to_string()),
@@ -221,7 +231,7 @@ fn main() {
     btree_settings.insert("beta".to_string(), 2);
     btree_settings.insert("gamma".to_string(), 3);
     write_fixture::<BTreeMapConfig>(
-        &out_dir,
+        &identical_dir,
         "btreemap_config",
         &BTreeMapConfig {
             settings: btree_settings,
@@ -229,18 +239,77 @@ fn main() {
         },
     );
 
+    // VecDeque fixture
+    let mut queue: VecDeque<u32> = VecDeque::new();
+    queue.push_back(10);
+    queue.push_back(20);
+    queue.push_back(30);
+    queue.push_back(40);
+    write_fixture::<VecDequeData>(
+        &identical_dir,
+        "vecdeque_data",
+        &VecDequeData {
+            items: queue,
+            name: "task-queue".to_string(),
+        },
+    );
+
+    // HashMap fixture - semantic equivalence only (different hash function)
+    let mut hash_entries: HashMap<String, u32> = HashMap::new();
+    hash_entries.insert("alpha".to_string(), 100);
+    hash_entries.insert("beta".to_string(), 200);
+    hash_entries.insert("gamma".to_string(), 300);
+    write_fixture::<HashMapData>(
+        &semantic_dir,
+        "hashmap_data",
+        &HashMapData {
+            entries: hash_entries,
+            name: "test-map".to_string(),
+        },
+    );
+
+    // HashSet fixture - semantic equivalence only (different hash function)
+    let mut hash_ids: HashSet<String> = HashSet::new();
+    hash_ids.insert("user-001".to_string());
+    hash_ids.insert("user-002".to_string());
+    hash_ids.insert("user-003".to_string());
+    write_fixture::<HashSetData>(
+        &semantic_dir,
+        "hashset_data",
+        &HashSetData {
+            ids: hash_ids,
+            count: 3,
+        },
+    );
+
+    // BTreeSet fixture
+    let mut btree_values: BTreeSet<i64> = BTreeSet::new();
+    btree_values.insert(100);
+    btree_values.insert(-50);
+    btree_values.insert(200);
+    btree_values.insert(0);
+    btree_values.insert(-100);
+    write_fixture::<BTreeSetData>(
+        &identical_dir,
+        "btreeset_data",
+        &BTreeSetData {
+            values: btree_values,
+            label: "sorted-values".to_string(),
+        },
+    );
+
     println!("Generated fixtures in: {}", out_dir.display());
 }
 
 /// Trait for types that can generate their own TypeScript codec.
-trait GenerateCodec {
+trait GenerateFixture {
     /// The name of the main codec export (e.g., "ArchivedPoint")
     const CODEC_NAME: &'static str;
 
     fn generate_codec(codegen: &mut CodeGenerator);
 }
 
-impl GenerateCodec for Point {
+impl GenerateFixture for Point {
     const CODEC_NAME: &'static str = "ArchivedPoint";
 
     fn generate_codec(codegen: &mut CodeGenerator) {
@@ -256,7 +325,7 @@ impl GenerateCodec for Point {
     }
 }
 
-impl GenerateCodec for Person {
+impl GenerateFixture for Person {
     const CODEC_NAME: &'static str = "ArchivedPerson";
 
     fn generate_codec(codegen: &mut CodeGenerator) {
@@ -275,7 +344,7 @@ impl GenerateCodec for Person {
     }
 }
 
-impl GenerateCodec for Message {
+impl GenerateFixture for Message {
     const CODEC_NAME: &'static str = "ArchivedMessage";
 
     fn generate_codec(codegen: &mut CodeGenerator) {
@@ -293,7 +362,7 @@ impl GenerateCodec for Message {
     }
 }
 
-impl GenerateCodec for GameState {
+impl GenerateFixture for GameState {
     const CODEC_NAME: &'static str = "ArchivedGameState";
 
     fn generate_codec(codegen: &mut CodeGenerator) {
@@ -328,7 +397,7 @@ impl GenerateCodec for GameState {
 
 // Built-in crate type implementations
 
-impl GenerateCodec for UuidRecord {
+impl GenerateFixture for UuidRecord {
     const CODEC_NAME: &'static str = "ArchivedUuidRecord";
 
     fn generate_codec(codegen: &mut CodeGenerator) {
@@ -347,7 +416,7 @@ impl GenerateCodec for UuidRecord {
     }
 }
 
-impl GenerateCodec for BytesMessage {
+impl GenerateFixture for BytesMessage {
     const CODEC_NAME: &'static str = "ArchivedBytesMessage";
 
     fn generate_codec(codegen: &mut CodeGenerator) {
@@ -365,7 +434,7 @@ impl GenerateCodec for BytesMessage {
     }
 }
 
-impl GenerateCodec for SmolStrConfig {
+impl GenerateFixture for SmolStrConfig {
     const CODEC_NAME: &'static str = "ArchivedSmolStrConfig";
 
     fn generate_codec(codegen: &mut CodeGenerator) {
@@ -384,7 +453,7 @@ impl GenerateCodec for SmolStrConfig {
     }
 }
 
-impl GenerateCodec for ThinVecData {
+impl GenerateFixture for ThinVecData {
     const CODEC_NAME: &'static str = "ArchivedThinVecData";
 
     fn generate_codec(codegen: &mut CodeGenerator) {
@@ -402,7 +471,7 @@ impl GenerateCodec for ThinVecData {
     }
 }
 
-impl GenerateCodec for ArrayVecBuffer {
+impl GenerateFixture for ArrayVecBuffer {
     const CODEC_NAME: &'static str = "ArchivedArrayVecBuffer";
 
     fn generate_codec(codegen: &mut CodeGenerator) {
@@ -420,7 +489,7 @@ impl GenerateCodec for ArrayVecBuffer {
     }
 }
 
-impl GenerateCodec for SmallVecData {
+impl GenerateFixture for SmallVecData {
     const CODEC_NAME: &'static str = "ArchivedSmallVecData";
 
     fn generate_codec(codegen: &mut CodeGenerator) {
@@ -438,7 +507,7 @@ impl GenerateCodec for SmallVecData {
     }
 }
 
-impl GenerateCodec for TinyVecData {
+impl GenerateFixture for TinyVecData {
     const CODEC_NAME: &'static str = "ArchivedTinyVecData";
 
     fn generate_codec(codegen: &mut CodeGenerator) {
@@ -456,7 +525,7 @@ impl GenerateCodec for TinyVecData {
     }
 }
 
-impl GenerateCodec for IndexMapConfig {
+impl GenerateFixture for IndexMapConfig {
     const CODEC_NAME: &'static str = "ArchivedIndexMapConfig";
 
     fn generate_codec(codegen: &mut CodeGenerator) {
@@ -474,7 +543,7 @@ impl GenerateCodec for IndexMapConfig {
     }
 }
 
-impl GenerateCodec for IndexSetTags {
+impl GenerateFixture for IndexSetTags {
     const CODEC_NAME: &'static str = "ArchivedIndexSetTags";
 
     fn generate_codec(codegen: &mut CodeGenerator) {
@@ -492,7 +561,7 @@ impl GenerateCodec for IndexSetTags {
     }
 }
 
-impl GenerateCodec for ArcShared {
+impl GenerateFixture for ArcShared {
     const CODEC_NAME: &'static str = "ArchivedArcShared";
 
     fn generate_codec(codegen: &mut CodeGenerator) {
@@ -510,7 +579,7 @@ impl GenerateCodec for ArcShared {
     }
 }
 
-impl GenerateCodec for BTreeMapConfig {
+impl GenerateFixture for BTreeMapConfig {
     const CODEC_NAME: &'static str = "ArchivedBTreeMapConfig";
 
     fn generate_codec(codegen: &mut CodeGenerator) {
@@ -522,6 +591,78 @@ impl GenerateCodec for BTreeMapConfig {
             struct BTreeMapConfig {
                 settings: BTreeMap<String, u32>,
                 version: u32,
+            }
+            "#,
+        );
+    }
+}
+
+impl GenerateFixture for VecDequeData {
+    const CODEC_NAME: &'static str = "ArchivedVecDequeData";
+
+    fn generate_codec(codegen: &mut CodeGenerator) {
+        codegen.add_source_str(
+            r#"
+            use std::collections::VecDeque;
+
+            #[derive(Archive)]
+            struct VecDequeData {
+                items: VecDeque<u32>,
+                name: String,
+            }
+            "#,
+        );
+    }
+}
+
+impl GenerateFixture for HashMapData {
+    const CODEC_NAME: &'static str = "ArchivedHashMapData";
+
+    fn generate_codec(codegen: &mut CodeGenerator) {
+        codegen.add_source_str(
+            r#"
+            use std::collections::HashMap;
+
+            #[derive(Archive)]
+            struct HashMapData {
+                entries: HashMap<String, u32>,
+                name: String,
+            }
+            "#,
+        );
+    }
+}
+
+impl GenerateFixture for HashSetData {
+    const CODEC_NAME: &'static str = "ArchivedHashSetData";
+
+    fn generate_codec(codegen: &mut CodeGenerator) {
+        codegen.add_source_str(
+            r#"
+            use std::collections::HashSet;
+
+            #[derive(Archive)]
+            struct HashSetData {
+                ids: HashSet<String>,
+                count: u32,
+            }
+            "#,
+        );
+    }
+}
+
+impl GenerateFixture for BTreeSetData {
+    const CODEC_NAME: &'static str = "ArchivedBTreeSetData";
+
+    fn generate_codec(codegen: &mut CodeGenerator) {
+        codegen.add_source_str(
+            r#"
+            use std::collections::BTreeSet;
+
+            #[derive(Archive)]
+            struct BTreeSetData {
+                values: BTreeSet<i64>,
+                label: String,
             }
             "#,
         );
@@ -540,8 +681,8 @@ where
                 >,
                 Error,
             >,
-        > + Serialize
-        + GenerateCodec,
+        > + GenerateFixture,
+    T::Archived: serde::Serialize,
 {
     // Create fixture directory
     let fixture_dir = dir.join(name);
@@ -552,8 +693,9 @@ where
     let bin_path = fixture_dir.join("data.bin");
     fs::write(&bin_path, bytes.as_slice()).expect("Failed to write binary file");
 
-    // Write JSON file
-    let json = serde_json::to_string_pretty(value).expect("Failed to serialize to JSON");
+    // Write JSON file from archived data
+    let archived = unsafe { rkyv::access_unchecked::<T::Archived>(&bytes) };
+    let json = serde_json::to_string_pretty(archived).expect("Failed to serialize to JSON");
     let json_path = fixture_dir.join("data.json");
     fs::write(&json_path, &json).expect("Failed to write JSON file");
 

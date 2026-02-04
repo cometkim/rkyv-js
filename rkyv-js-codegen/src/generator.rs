@@ -1,6 +1,6 @@
 //! TypeScript code generator for rkyv types.
 
-use crate::types::{generate_lib_imports, EnumVariant, LibImport, TypeDef, UnionVariant};
+use crate::types::{EnumVariant, LibImport, TypeDef, UnionVariant, generate_lib_imports};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::io::{self, Write};

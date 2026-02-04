@@ -12,6 +12,8 @@
 import { alignOffset, type RkyvCodec, type Resolver } from 'rkyv-js/codec';
 import type { RkyvReader } from 'rkyv-js/reader';
 import type { RkyvWriter } from 'rkyv-js/writer';
+import { unit } from 'rkyv-js/primitives';
+
 import {
   hashString,
   h2,
@@ -52,11 +54,12 @@ import {
  *
  * @example
  * ```typescript
- * import { r } from 'rkyv-js';
+ * import * as r from 'rkyv-js';
+ * import { indexMap } from 'rkyv-js/lib/indexmap';
  *
  * // IndexMap<String, u32> in Rust
  * const ConfigCodec = r.struct({
- *   settings: r.lib.indexMap(r.string, r.u32),
+ *   settings: indexMap(r.string, r.u32),
  * });
  * ```
  */
@@ -240,195 +243,58 @@ export function indexMap<K, V>(
 }
 
 /**
- * ArchivedIndexSet layout:
- *
- * struct ArchivedIndexSet<T> {
- *     table: ArchivedHashTable<ArchivedUsize>,  // 12 bytes
- *     entries: RelPtr<T>,                       // 4 bytes
- * }
- *
- * Total: 16 bytes, align: 4
- */
-
-/**
  * indexmap::IndexSet<T> - Insertion-order preserving hash set
  *
- * When archived, IndexSet stores elements in a separate array that preserves
- * insertion order. The Swiss Table is used only for O(1) membership lookups.
+ * Implemented as IndexMap<T, ()> since IndexSet is just a map with unit values.
+ * The unit type has size 0, so the entry layout is just the key.
  *
  * @example
  * ```typescript
- * import { r } from 'rkyv-js';
+ * import * as r from 'rkyv-js';
+ * import { indexSet } from 'rkyv-js/lib/indexmap';
  *
  * // IndexSet<String> in Rust
  * const TagsCodec = r.struct({
- *   tags: r.lib.indexSet(r.string),
+ *   tags: indexSet(r.string),
  * });
  * ```
  */
 export function indexSet<T>(element: RkyvCodec<T>): RkyvCodec<Set<T>> {
-  // Compute elementStride lazily to support recursive types via r.lazy
-  let _elementStride: number | null = null;
-  const getElementStride = () => {
-    if (_elementStride === null) {
-      _elementStride = alignOffset(element.size, element.align);
-    }
-    return _elementStride;
-  };
+  // Use IndexMap<T, ()> internally
+  const mapCodec = indexMap(element, unit);
 
   return {
-    // ArchivedIndexSet: table (12) + entries (4) = 16 bytes
-    size: 16,
-    align: 4,
+    size: mapCodec.size,
+    align: mapCodec.align,
 
-    // For IndexSet, access uses decode since Set doesn't benefit from lazy access
-    access(reader: RkyvReader, offset: number): Set<T> {
+    access(reader, offset) {
       return this.decode(reader, offset);
     },
 
-    decode(reader: RkyvReader, offset: number): Set<T> {
-      // Read len from table (at offset + 4)
-      const length = reader.readU32(offset + 4);
-
-      // Read entries pointer (at offset + 12)
-      const entriesOffset = reader.readRelPtr32(offset + 12);
-
-      const result = new Set<T>();
-      const elementStride = getElementStride();
-
-      let currentOffset = entriesOffset;
-      for (let i = 0; i < length; i++) {
-        currentOffset = alignOffset(currentOffset, element.align);
-        result.add(element.decode(reader, currentOffset));
-        currentOffset += elementStride;
-      }
-      return result;
+    decode(reader, offset) {
+      const map = mapCodec.decode(reader, offset);
+      return new Set(map.keys());
     },
 
-    _archive(writer: RkyvWriter, value: Set<T>) {
-      if (value.size === 0) {
-        return {
-          pos: 0,
-          entriesPos: 0,
-          controlBytesPos: 0,
-          len: 0,
-          capacity: 0,
-        };
+    _archive(writer, value) {
+      // Convert Set to Map with null values
+      const map = new Map<T, null>();
+      for (const item of value) {
+        map.set(item, null);
       }
-
-      const len = value.size;
-      const capacity = capacityFromLen(len);
-      const probeCapacity = probeCap(capacity);
-      const ctrlCount = controlCount(probeCapacity);
-
-      // Initialize control bytes to empty (0xFF)
-      const controlBytes = new Uint8Array(ctrlCount);
-      controlBytes.fill(0xff);
-
-      // Initialize bucket indices
-      const bucketIndices = new Uint32Array(capacity);
-
-      // First pass: collect elements and compute hash table layout
-      const elements: Array<{ value: T; hash: bigint }> = [];
-
-      let itemIndex = 0;
-      for (const v of value) {
-        // Compute hash for string elements
-        const hash = typeof v === 'string' ? hashString(writer, v) : 0n;
-        elements.push({ value: v, hash });
-
-        // Insert into Swiss Table using linear probing within capacity
-        const h2Hash = h2(hash);
-        const initialSlot = Number(hash % BigInt(capacity));
-
-        let slot = initialSlot;
-        for (let probe = 0; probe < capacity; probe++) {
-          if (controlBytes[slot] === 0xff) {
-            controlBytes[slot] = h2Hash;
-            // Mirror at end for wraparound reads
-            if (slot < ctrlCount - capacity) {
-              controlBytes[capacity + slot] = h2Hash;
-            }
-            bucketIndices[slot] = itemIndex;
-            break;
-          }
-          slot = (slot + 1) % capacity;
-        }
-
-        itemIndex++;
-      }
-
-      // Step 1: Write buckets (in reverse order, stored BEFORE control bytes)
-      writer.align(4);
-      for (let i = capacity - 1; i >= 0; i--) {
-        writer.writeU32(bucketIndices[i]);
-      }
-
-      // Step 2: Write control bytes
-      const controlBytesPos = writer.pos;
-      for (let i = 0; i < ctrlCount; i++) {
-        writer.writeU8(controlBytes[i]);
-      }
-
-      // Step 3: Archive element dependencies (writes string data for out-of-line strings)
-      const elementResolvers: Resolver[] = [];
-      for (const elem of elements) {
-        elementResolvers.push(element._archive(writer, elem.value));
-      }
-
-      // Step 4: Write entries array
-      writer.align(element.align);
-      const entriesStartPos = writer.pos;
-
-      for (let i = 0; i < elements.length; i++) {
-        writer.align(element.align);
-        element._resolve(writer, elements[i].value, elementResolvers[i]);
-      }
-
-      return {
-        pos: entriesStartPos,
-        entriesPos: entriesStartPos,
-        controlBytesPos,
-        len,
-        capacity,
-      };
+      return mapCodec._archive(writer, map);
     },
 
-    _resolve(writer: RkyvWriter, _value: Set<T>, resolver) {
-      writer.align(4);
-      const structPos = writer.pos;
-      const r = resolver as unknown as {
-        entriesPos: number;
-        controlBytesPos: number;
-        len: number;
-        capacity: number;
-      };
-
-      if (r.len > 0) {
-        // Write ArchivedHashTable: ptr (4) + len (4) + cap (4)
-        const tablePtrPos = writer.reserveRelPtr32();
-        writer.writeU32(r.len);
-        writer.writeU32(r.capacity);
-
-        // Write relative pointer to control bytes
-        writer.writeRelPtr32At(tablePtrPos, r.controlBytesPos);
-
-        // Write entries RelPtr
-        const entriesPtrPos = writer.reserveRelPtr32();
-        writer.writeRelPtr32At(entriesPtrPos, r.entriesPos);
-      } else {
-        writer.writeI32(0);
-        writer.writeU32(0);
-        writer.writeU32(0);
-        writer.writeI32(0);
-      }
-
-      return structPos;
+    _resolve(writer, _value, resolver) {
+      return mapCodec._resolve(writer, new Map(), resolver);
     },
 
-    encode(writer: RkyvWriter, value: Set<T>): number {
-      const resolver = this._archive(writer, value);
-      return this._resolve(writer, value, resolver);
+    encode(writer, value) {
+      const map = new Map<T, null>();
+      for (const item of value) {
+        map.set(item, null);
+      }
+      return mapCodec.encode(writer, map);
     },
   };
 }

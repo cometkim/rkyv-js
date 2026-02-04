@@ -882,7 +882,7 @@ export function transform<T, U>(
 /**
  * Newtype wrapper - same binary representation, different TS type
  */
-export function newtype<T, Brand extends string>(
+export function newtype<T, const Brand extends string>(
   inner: RkyvCodec<T>,
   _brand: Brand
 ): RkyvCodec<T & { readonly __brand: Brand }> {
