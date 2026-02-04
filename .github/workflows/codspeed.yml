@@ -17,7 +17,7 @@ jobs:
           - benchmarks/codspeed-primitives-decode.ts
           - benchmarks/codspeed-complex-encode.ts
           - benchmarks/codspeed-complex-decode.ts
-    name: CodSpeed
+    name: Run
     runs-on: ubuntu-latest
     permissions:
       contents: read # required for actions/checkout
