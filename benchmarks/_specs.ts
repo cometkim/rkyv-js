@@ -170,15 +170,15 @@ export const specs: Spec[] = [
       NotFound: r.unit,
     }),
     [
-      ['ApiResponse\::Success', {
+      ['ApiResponse->Success', {
         tag: 'Success',
         value: { data: '{"users": [1, 2, 3]}', timestamp: 1704067200000n },
       }],
-      ['ApiResponse\::Error', {
+      ['ApiResponse->Error', {
         tag: 'Error',
         value: { code: 404, message: 'Resource not found' },
       }],
-      ['ApiResponse\::Loading', {
+      ['ApiResponse->Loading', {
         tag: 'Loading',
         value: null,
       }],
@@ -194,9 +194,9 @@ export const specs: Spec[] = [
       Point: r.unit,
     }),
     [
-      ['Shape\::Circle', { tag: 'Circle', value: { radius: 5.0 } }],
-      ['Shape\::Rectangle', { tag: 'Rectangle', value: { width: 10.0, height: 20.0 } }],
-      ['Shape\::Point', { tag: 'Point', value: null }],
+      ['Shape->Circle', { tag: 'Circle', value: { radius: 5.0 } }],
+      ['Shape->Rectangle', { tag: 'Rectangle', value: { width: 10.0, height: 20.0 } }],
+      ['Shape->Point', { tag: 'Point', value: null }],
     ],
   ),
 
@@ -226,11 +226,11 @@ export const specs: Spec[] = [
       Deleted: r.unit,
     }),
     [
-      ['Message\::Text', {
+      ['Message->Text', {
         tag: 'Text',
         value: { content: 'Hello, world! How are you doing today?', edited: false },
       }],
-      ['Message\::Image', {
+      ['Message->Image', {
         tag: 'Image',
         value: {
           url: 'https://example.com/images/photo-12345.jpg',
@@ -239,7 +239,7 @@ export const specs: Spec[] = [
           caption: 'Beautiful sunset at the beach',
         },
       }],
-      ['Message\::File', {
+      ['Message->File', {
         tag: 'File',
         value: {
           url: 'https://example.com/files/document.pdf',
@@ -282,7 +282,7 @@ export const specs: Spec[] = [
       }),
     }),
     [
-      ['Event\::UserCreated', {
+      ['Event->UserCreated', {
         tag: 'UserCreated',
         value: {
           userId: 12345n,
@@ -290,7 +290,7 @@ export const specs: Spec[] = [
           email: 'newuser@example.com',
         },
       }],
-      ['Event\::OrderPlaced', {
+      ['Event->OrderPlaced', {
         tag: 'OrderPlaced',
         value: {
           orderId: 9001n,
