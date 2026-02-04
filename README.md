@@ -162,8 +162,6 @@ fn main() {
 | `Box<T>` | `TypeDef::Box(Box::new(T))` | `T` |
 | `[T; N]` | `TypeDef::Array(Box::new(T), N)` | `T[]` |
 | `(T1, T2, ...)` | `TypeDef::Tuple(vec![...])` | `[T1, T2, ...]` |
-| `HashMap<K, V>` | `TypeDef::HashMap(...)` | `Map<K, V>` |
-| `BTreeMap<K, V>` | `TypeDef::BTreeMap(...)` | `Map<K, V>` |
 | `Rc<T>` | `TypeDef::Rc(Box::new(T))` | `T` |
 | `Arc<T>` | `TypeDef::Arc(Box::new(T))` | `T` |
 | `Weak<T>` (rc) | `TypeDef::RcWeak(Box::new(T))` | `T \| null` |
@@ -178,8 +176,12 @@ The codegen recognizes types from [external crates that rkyv supports](https://d
 |-----------|----------------|-----------------|
 | `uuid::Uuid` | unique | `string` |
 | `bytes::Bytes` | unique | `Uint8Array` |
-| `indexmap::IndexMap<K, V>` | unique (Swiss Table) | `Map<K, V>` |
-| `indexmap::IndexSet<T>` | unique (Swiss Table) | `Set<T>` |
+| `std:collections::HashMap<K, V>` | unique (SwissTable) | `Map<K, V>` |
+| `std:collections::HashSet<T>` | same as `HashMap<T, ()>` | `Set<T>` |
+| `std:collections::BTreeMap<K, V>` | unique (B-Tree) | `Map<K, V>` |
+| `std:collections::BTreeSet<T>` | same as `BTreeMap<T, ()>` | `Set<T>` |
+| `indexmap::IndexMap<K, V>` | unique (SwissTable) | `Map<K, V>` |
+| `indexmap::IndexSet<T>` | same as `IndexMap<T, ()>` | `Set<T>` |
 | `smol_str::SmolStr` | same as `String` | `string` |
 | `thin_vec::ThinVec<T>` | same as `Vec<T>` | `T[]` |
 | `arrayvec::ArrayVec<T, N>` | same as `Vec<T>` | `T[]` |
