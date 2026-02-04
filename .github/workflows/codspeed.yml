@@ -17,7 +17,7 @@ jobs:
           - benchmarks/codspeed-primitives-decode.ts
           - benchmarks/codspeed-complex-encode.ts
           - benchmarks/codspeed-complex-decode.ts
-    name: Run CodSpeed benchmarks
+    name: CodSpeed
     runs-on: ubuntu-latest
     permissions:
       contents: read # required for actions/checkout
@@ -33,7 +33,7 @@ jobs:
       - name: Install Dependencies
         run: yarn install --immutable
 
-      - name: Run benchmarks
+      - name: Run benchmark
         uses: CodSpeedHQ/action@v4
         with:
           mode: simulation
