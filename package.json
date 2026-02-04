@@ -69,7 +69,9 @@
   "scripts": {
     "test": "node --test",
     "fixtures": "cargo run --bin generate-fixtures",
-    "benchmark:comparison": "node --expose-gc benchmarks/comparison.ts"
+    "bench:comparison": "node --expose-gc benchmarks/comparison.ts",
+    "bench:codec:primitives": "node --expose-gc benchmarks/codec-primitives.ts",
+    "bench:codec:complex": "node --expose-gc benchmarks/codec-complex.ts"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
