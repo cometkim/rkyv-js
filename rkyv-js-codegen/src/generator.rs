@@ -84,6 +84,14 @@ pub struct CodeGenerator {
     /// Custom header comment
     header: Option<String>,
 
+    /// Whether to emit TypeScript-specific syntax (`export type`, `export interface`).
+    ///
+    /// When `true` (default), the output includes type aliases and interface
+    /// declarations that require a `.ts` file extension.  When `false`, only
+    /// plain JavaScript (`export const`) is emitted, making the output
+    /// compatible with `.js` / `.mjs` files.
+    allow_typescript_syntax: bool,
+
     /// Base marker names to look for in derive attributes.
     ///
     /// Defaults to `["Archive"]`. Additional markers are auto-detected per-file
@@ -99,6 +107,7 @@ impl Default for CodeGenerator {
         Self {
             types: BTreeMap::new(),
             header: None,
+            allow_typescript_syntax: true,
             markers: vec!["Archive".to_string()],
             registry: TypeRegistry::with_builtins(),
         }
@@ -114,6 +123,17 @@ impl CodeGenerator {
     /// Set a custom header comment for the generated file.
     pub fn set_header(&mut self, header: impl Into<String>) -> &mut Self {
         self.header = Some(header.into());
+        self
+    }
+
+    /// Enable or disable TypeScript-specific syntax in the generated output.
+    ///
+    /// When `true` (the default), the output includes `export type` aliases
+    /// and `export interface` declarations.  When `false`, only plain
+    /// JavaScript (`export const`) is emitted, making the output compatible
+    /// with `.js` / `.mjs` files.
+    pub fn allow_typescript_syntax(&mut self, enabled: bool) -> &mut Self {
+        self.allow_typescript_syntax = enabled;
         self
     }
 
@@ -490,11 +510,15 @@ impl CodeGenerator {
     ) -> String {
         let name = &entry.name;
         let archived = entry.archived_name();
-        format!(
-            "// Type alias: {name}\nexport type {name} = {};\nexport const {archived} = {};",
-            target.to_ts_type(),
+        let mut output = format!("// Type alias: {name}\n");
+        if self.allow_typescript_syntax {
+            output.push_str(&format!("export type {name} = {};\n", target.to_ts_type()));
+        }
+        output.push_str(&format!(
+            "export const {archived} = {};",
             target.resolve_codec_expr(archived_names)
-        )
+        ));
+        output
     }
 
     fn generate_struct(
@@ -514,11 +538,13 @@ impl CodeGenerator {
                 field_type.resolve_codec_expr(archived_names)
             ));
         }
-        output.push_str("});\n\n");
-        output.push_str(&format!(
-            "export type {} = r.Infer<typeof {}>;",
-            name, archived
-        ));
+        output.push_str("});");
+        if self.allow_typescript_syntax {
+            output.push_str(&format!(
+                "\n\nexport type {} = r.Infer<typeof {}>;",
+                name, archived
+            ));
+        }
         output
     }
 
@@ -562,11 +588,13 @@ impl CodeGenerator {
                 }
             }
         }
-        output.push_str("});\n\n");
-        output.push_str(&format!(
-            "export type {} = r.Infer<typeof {}>;",
-            name, archived
-        ));
+        output.push_str("});");
+        if self.allow_typescript_syntax {
+            output.push_str(&format!(
+                "\n\nexport type {} = r.Infer<typeof {}>;",
+                name, archived
+            ));
+        }
         output
     }
 
@@ -579,15 +607,17 @@ impl CodeGenerator {
         let name = &entry.name;
         let archived = entry.archived_name();
         let mut output = String::new();
-        output.push_str(&format!("export interface {}Variants {{\n", name));
-        for variant in variants {
-            output.push_str(&format!(
-                "  {}: {};\n",
-                variant.name,
-                variant.ty.to_ts_type()
-            ));
+        if self.allow_typescript_syntax {
+            output.push_str(&format!("export interface {}Variants {{\n", name));
+            for variant in variants {
+                output.push_str(&format!(
+                    "  {}: {};\n",
+                    variant.name,
+                    variant.ty.to_ts_type()
+                ));
+            }
+            output.push_str("}\n\n");
         }
-        output.push_str("}\n\n");
         output.push_str(&format!(
             "// Union codec for {}\n// Note: You need to provide a discriminate function based on your data format\n",
             name
@@ -603,11 +633,13 @@ impl CodeGenerator {
                 variant.ty.resolve_codec_expr(archived_names)
             ));
         }
-        output.push_str("  }\n);\n\n");
-        output.push_str(&format!(
-            "export type {} = r.Infer<typeof {}>;",
-            name, archived
-        ));
+        output.push_str("  }\n);");
+        if self.allow_typescript_syntax {
+            output.push_str(&format!(
+                "\n\nexport type {} = r.Infer<typeof {}>;",
+                name, archived
+            ));
+        }
         output
     }
 }
@@ -757,6 +789,73 @@ mod tests {
         // No set_archived_name call
         let code = codegen.generate();
         assert!(code.contains("export const ArchivedPoint = r.struct({"));
+        assert!(code.contains("export type Point = r.Infer<typeof ArchivedPoint>;"));
+    }
+
+    // ── JavaScript-compatible output tests ─────────────────────────────
+
+    #[test]
+    fn test_js_mode_struct_omits_type() {
+        let mut codegen = CodeGenerator::new();
+        codegen.allow_typescript_syntax(false);
+        codegen.add_struct("Point", &[("x", TypeDef::f64()), ("y", TypeDef::f64())]);
+        let code = codegen.generate();
+        assert!(code.contains("export const ArchivedPoint = r.struct({"));
+        assert!(!code.contains("export type"));
+        assert!(!code.contains("r.Infer"));
+    }
+
+    #[test]
+    fn test_js_mode_enum_omits_type() {
+        let mut codegen = CodeGenerator::new();
+        codegen.allow_typescript_syntax(false);
+        codegen.add_enum(
+            "Status",
+            &[
+                EnumVariant::Unit("Pending".to_string()),
+                EnumVariant::Unit("Active".to_string()),
+            ],
+        );
+        let code = codegen.generate();
+        assert!(code.contains("export const ArchivedStatus = r.taggedEnum({"));
+        assert!(!code.contains("export type"));
+        assert!(!code.contains("r.Infer"));
+    }
+
+    #[test]
+    fn test_js_mode_union_omits_interface_and_type() {
+        let mut codegen = CodeGenerator::new();
+        codegen.allow_typescript_syntax(false);
+        codegen.add_union(
+            "NumberUnion",
+            &[
+                UnionVariant::new("asU32", TypeDef::u32()),
+                UnionVariant::new("asF32", TypeDef::f32()),
+            ],
+        );
+        let code = codegen.generate();
+        assert!(code.contains("export const ArchivedNumberUnion = r.union("));
+        assert!(!code.contains("export interface"));
+        assert!(!code.contains("export type"));
+        assert!(!code.contains("r.Infer"));
+    }
+
+    #[test]
+    fn test_js_mode_alias_omits_type() {
+        let mut codegen = CodeGenerator::new();
+        codegen.allow_typescript_syntax(false);
+        codegen.add_alias("UserId", TypeDef::u32());
+        let code = codegen.generate();
+        assert!(code.contains("export const ArchivedUserId = r.u32;"));
+        assert!(!code.contains("export type"));
+    }
+
+    #[test]
+    fn test_ts_mode_is_default() {
+        let mut codegen = CodeGenerator::new();
+        codegen.add_struct("Point", &[("x", TypeDef::f64())]);
+        let code = codegen.generate();
+        // Default should include TypeScript syntax
         assert!(code.contains("export type Point = r.Infer<typeof ArchivedPoint>;"));
     }
 }
