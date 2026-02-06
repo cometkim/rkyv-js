@@ -1,16 +1,16 @@
 {
   "entries": [
     [
+      "gamma",
+      300
+    ],
+    [
       "alpha",
       100
     ],
     [
       "beta",
       200
-    ],
-    [
-      "gamma",
-      300
     ]
   ],
   "name": "test-map"
