@@ -1,12 +1,44 @@
 //! TypeScript code generator for rkyv types.
 
-use crate::types::{EnumVariant, LibImport, TypeDef, UnionVariant, generate_lib_imports};
+use crate::registry::{TypeMapping, TypeRegistry};
+use crate::types::{generate_imports, EnumVariant, Import, TypeDef, UnionVariant};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
 
 /// Code generator that collects type definitions and outputs TypeScript code.
+///
+/// # Type registry
+///
+/// The generator includes a [`TypeRegistry`] that maps Rust type names to
+/// TypeScript codec definitions. Built-in mappings for all rkyv-supported
+/// external crates are registered by default. You can customize the registry
+/// via [`register_type`](CodeGenerator::register_type) and
+/// [`unregister_type`](CodeGenerator::unregister_type).
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use rkyv_js_codegen::{CodeGenerator, TypeDef, Import};
+/// use rkyv_js_codegen::registry::{TypeMapping, GenericShape};
+///
+/// let mut gen = CodeGenerator::new();
+///
+/// // Register a custom external type
+/// gen.register_type("MyVec", TypeMapping {
+///     codec_expr: "myVec({0})".to_string(),
+///     ts_type: "{0}[]".to_string(),
+///     import: Some(Import::new("my-pkg/codecs", "myVec")),
+///     generics: GenericShape::Single,
+/// });
+///
+/// // Add types and generate
+/// gen.add_struct("Config", &[
+///     ("name", TypeDef::String),
+/// ]);
+/// let code = gen.generate();
+/// ```
 #[derive(Debug)]
 pub struct CodeGenerator {
     /// Struct definitions: name -> fields
@@ -26,6 +58,9 @@ pub struct CodeGenerator {
 
     /// Marker names to look for in derive attributes (default: ["Archive"])
     pub(crate) markers: Vec<String>,
+
+    /// Type registry for resolving external types
+    pub(crate) registry: TypeRegistry,
 }
 
 impl Default for CodeGenerator {
@@ -37,12 +72,13 @@ impl Default for CodeGenerator {
             aliases: BTreeMap::new(),
             header: None,
             markers: vec!["Archive".to_string()],
+            registry: TypeRegistry::with_builtins(),
         }
     }
 }
 
 impl CodeGenerator {
-    /// Create a new code generator.
+    /// Create a new code generator with built-in type mappings.
     pub fn new() -> Self {
         Self::default()
     }
@@ -78,6 +114,43 @@ impl CodeGenerator {
     pub fn set_markers(&mut self, markers: &[impl AsRef<str>]) -> &mut Self {
         self.markers = markers.iter().map(|s| s.as_ref().to_string()).collect();
         self
+    }
+
+    /// Register a custom type mapping in the type registry.
+    ///
+    /// This allows the code generator to handle custom external types when
+    /// parsing Rust source files or when resolving `TypeDef` values.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use rkyv_js_codegen::{CodeGenerator, Import};
+    /// use rkyv_js_codegen::registry::{TypeMapping, GenericShape};
+    ///
+    /// let mut gen = CodeGenerator::new();
+    /// gen.register_type("CustomMap", TypeMapping {
+    ///     codec_expr: "customMap({0}, {1})".to_string(),
+    ///     ts_type: "Map<{0}, {1}>".to_string(),
+    ///     import: Some(Import::new("my-package/codecs", "customMap")),
+    ///     generics: GenericShape::Pair,
+    /// });
+    /// ```
+    pub fn register_type(&mut self, name: impl Into<String>, mapping: TypeMapping) -> &mut Self {
+        self.registry.register(name, mapping);
+        self
+    }
+
+    /// Remove a type mapping from the registry.
+    ///
+    /// This can be used to disable a built-in mapping.
+    pub fn unregister_type(&mut self, name: &str) -> &mut Self {
+        self.registry.unregister(name);
+        self
+    }
+
+    /// Get a reference to the type registry.
+    pub fn registry(&self) -> &TypeRegistry {
+        &self.registry
     }
 
     /// Add a struct definition.
@@ -176,7 +249,7 @@ impl CodeGenerator {
         }
 
         // Imports
-        output.push_str(&self.generate_imports());
+        output.push_str(&self.generate_import_block());
         output.push_str("\n\n");
 
         // Get topologically sorted order for types
@@ -339,6 +412,11 @@ impl CodeGenerator {
                     Self::collect_named_deps(elem, deps);
                 }
             }
+            TypeDef::External(ext) => {
+                for param in &ext.type_params {
+                    Self::collect_named_deps(param, deps);
+                }
+            }
             _ => {}
         }
     }
@@ -355,13 +433,13 @@ impl CodeGenerator {
         writer.write_all(code.as_bytes())
     }
 
-    fn generate_imports(&self) -> String {
-        // Collect all lib imports needed
-        let mut lib_imports: HashSet<LibImport> = HashSet::new();
+    fn generate_import_block(&self) -> String {
+        // Collect all imports needed
+        let mut lib_imports: HashSet<Import> = HashSet::new();
 
         for fields in self.structs.values() {
             for (_, ty) in fields {
-                ty.collect_lib_imports(&mut lib_imports);
+                ty.collect_imports(&mut lib_imports);
             }
         }
 
@@ -371,12 +449,12 @@ impl CodeGenerator {
                     EnumVariant::Unit(_) => {}
                     EnumVariant::Tuple(_, types) => {
                         for ty in types {
-                            ty.collect_lib_imports(&mut lib_imports);
+                            ty.collect_imports(&mut lib_imports);
                         }
                     }
                     EnumVariant::Struct(_, fields) => {
                         for (_, ty) in fields {
-                            ty.collect_lib_imports(&mut lib_imports);
+                            ty.collect_imports(&mut lib_imports);
                         }
                     }
                 }
@@ -385,12 +463,12 @@ impl CodeGenerator {
 
         for variants in self.unions.values() {
             for variant in variants {
-                variant.ty.collect_lib_imports(&mut lib_imports);
+                variant.ty.collect_imports(&mut lib_imports);
             }
         }
 
         for ty in self.aliases.values() {
-            ty.collect_lib_imports(&mut lib_imports);
+            ty.collect_imports(&mut lib_imports);
         }
 
         // Generate imports
@@ -400,7 +478,7 @@ impl CodeGenerator {
         output.push_str("import * as r from 'rkyv-js';\n");
 
         // Add lib imports
-        output.push_str(&generate_lib_imports(&lib_imports));
+        output.push_str(&generate_imports(&lib_imports));
 
         output.trim_end().to_string()
     }

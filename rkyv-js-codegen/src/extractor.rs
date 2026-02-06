@@ -2,9 +2,13 @@
 //!
 //! This module provides functionality to scan Rust source files and automatically
 //! extract type definitions for TypeScript binding generation.
+//!
+//! Type resolution for external crates is handled by the [`TypeRegistry`](crate::registry::TypeRegistry)
+//! on the [`CodeGenerator`], so adding support for new external types requires no changes here.
 
 use crate::CodeGenerator;
-use crate::types::{EnumVariant, LibTypeDef, TypeDef};
+use crate::registry::GenericShape;
+use crate::types::{EnumVariant, TypeDef};
 use std::fs;
 use std::path::Path;
 use syn::{
@@ -40,8 +44,8 @@ fn has_marker_derive(attrs: &[Attribute], markers: &[String]) -> bool {
     false
 }
 
-/// Convert a syn Type to our TypeDef.
-fn type_to_typedef(ty: &Type) -> Option<TypeDef> {
+/// Convert a syn Type to our TypeDef, using the type registry for external types.
+fn type_to_typedef(ty: &Type, codegen: &CodeGenerator) -> Option<TypeDef> {
     match ty {
         Type::Path(TypePath { path, .. }) => {
             let segment = path.segments.last()?;
@@ -66,132 +70,64 @@ fn type_to_typedef(ty: &Type) -> Option<TypeDef> {
                 // Container types
                 "Vec" => {
                     let inner = get_single_generic_arg(segment)?;
-                    let inner_def = type_to_typedef(inner)?;
+                    let inner_def = type_to_typedef(inner, codegen)?;
                     Some(TypeDef::Vec(Box::new(inner_def)))
                 }
                 "Option" => {
                     let inner = get_single_generic_arg(segment)?;
-                    let inner_def = type_to_typedef(inner)?;
+                    let inner_def = type_to_typedef(inner, codegen)?;
                     Some(TypeDef::Option(Box::new(inner_def)))
                 }
                 "Box" => {
                     let inner = get_single_generic_arg(segment)?;
-                    let inner_def = type_to_typedef(inner)?;
+                    let inner_def = type_to_typedef(inner, codegen)?;
                     Some(TypeDef::Box(Box::new(inner_def)))
                 }
 
-                // Built-in crate types (r.lib.*)
-                "Uuid" => Some(TypeDef::Lib(LibTypeDef::Uuid)),
-                "Bytes" => Some(TypeDef::Lib(LibTypeDef::Bytes)),
-                "SmolStr" => Some(TypeDef::Lib(LibTypeDef::SmolStr)),
-                "VecDeque" => {
-                    let inner = get_single_generic_arg(segment)?;
-                    let inner_def = type_to_typedef(inner)?;
-                    Some(TypeDef::Lib(LibTypeDef::VecDeque(Box::new(inner_def))))
-                }
-                "ThinVec" => {
-                    let inner = get_single_generic_arg(segment)?;
-                    let inner_def = type_to_typedef(inner)?;
-                    Some(TypeDef::Lib(LibTypeDef::ThinVec(Box::new(inner_def))))
-                }
-                "ArrayVec" => {
-                    // ArrayVec<T, CAP> - two generic args: type and const capacity
-                    let (inner, cap) = get_type_and_const_generic_args(segment)?;
-                    let inner_def = type_to_typedef(inner)?;
-                    Some(TypeDef::Lib(LibTypeDef::ArrayVec(Box::new(inner_def), cap)))
-                }
-                "SmallVec" => {
-                    // SmallVec<[T; N]> - single generic arg that is an array type
-                    let inner_array = get_single_generic_arg(segment)?;
-                    if let Type::Array(TypeArray { elem, len, .. }) = inner_array {
-                        let inner_def = type_to_typedef(elem)?;
-                        let cap = extract_array_len(len)?;
-                        Some(TypeDef::Lib(LibTypeDef::SmallVec(Box::new(inner_def), cap)))
+                // Check the type registry for external types
+                _ => {
+                    if let Some(mapping) = codegen.registry.get(&ident_str) {
+                        // Resolve type parameters based on the generic shape
+                        let type_params = match &mapping.generics {
+                            GenericShape::None => vec![],
+                            GenericShape::Single => {
+                                let inner = get_single_generic_arg(segment)?;
+                                let inner_def = type_to_typedef(inner, codegen)?;
+                                vec![inner_def]
+                            }
+                            GenericShape::Pair => {
+                                let (key, value) = get_two_generic_args(segment)?;
+                                let key_def = type_to_typedef(key, codegen)?;
+                                let value_def = type_to_typedef(value, codegen)?;
+                                vec![key_def, value_def]
+                            }
+                            GenericShape::Array => {
+                                // SmallVec<[T; N]> / TinyVec<[T; N]> style
+                                let inner_array = get_single_generic_arg(segment)?;
+                                if let Type::Array(TypeArray { elem, .. }) = inner_array {
+                                    let inner_def = type_to_typedef(elem, codegen)?;
+                                    vec![inner_def]
+                                } else {
+                                    return None;
+                                }
+                            }
+                            GenericShape::TypeAndConst => {
+                                // ArrayVec<T, CAP> style - only extract the type
+                                let inner = get_first_type_generic_arg(segment)?;
+                                let inner_def = type_to_typedef(inner, codegen)?;
+                                vec![inner_def]
+                            }
+                        };
+                        Some(mapping.to_type_def(type_params))
                     } else {
-                        None
+                        // Named type (custom struct/enum)
+                        Some(TypeDef::Named(ident_str))
                     }
                 }
-                "TinyVec" => {
-                    // TinyVec<[T; N]> - single generic arg that is an array type
-                    let inner_array = get_single_generic_arg(segment)?;
-                    if let Type::Array(TypeArray { elem, len, .. }) = inner_array {
-                        let inner_def = type_to_typedef(elem)?;
-                        let cap = extract_array_len(len)?;
-                        Some(TypeDef::Lib(LibTypeDef::TinyVec(Box::new(inner_def), cap)))
-                    } else {
-                        None
-                    }
-                }
-                "HashMap" => {
-                    let (key, value) = get_two_generic_args(segment)?;
-                    let key_def = type_to_typedef(key)?;
-                    let value_def = type_to_typedef(value)?;
-                    Some(TypeDef::Lib(LibTypeDef::HashMap(
-                        Box::new(key_def),
-                        Box::new(value_def),
-                    )))
-                }
-                "HashSet" => {
-                    let inner = get_single_generic_arg(segment)?;
-                    let inner_def = type_to_typedef(inner)?;
-                    Some(TypeDef::Lib(LibTypeDef::HashSet(Box::new(inner_def))))
-                }
-                "BTreeMap" => {
-                    let (key, value) = get_two_generic_args(segment)?;
-                    let key_def = type_to_typedef(key)?;
-                    let value_def = type_to_typedef(value)?;
-                    Some(TypeDef::Lib(LibTypeDef::BTreeMap(
-                        Box::new(key_def),
-                        Box::new(value_def),
-                    )))
-                }
-                "BTreeSet" => {
-                    let inner = get_single_generic_arg(segment)?;
-                    let inner_def = type_to_typedef(inner)?;
-                    Some(TypeDef::Lib(LibTypeDef::BTreeSet(Box::new(inner_def))))
-                }
-                "IndexMap" => {
-                    let (key, value) = get_two_generic_args(segment)?;
-                    let key_def = type_to_typedef(key)?;
-                    let value_def = type_to_typedef(value)?;
-                    Some(TypeDef::Lib(LibTypeDef::IndexMap(
-                        Box::new(key_def),
-                        Box::new(value_def),
-                    )))
-                }
-                "IndexSet" => {
-                    let inner = get_single_generic_arg(segment)?;
-                    let inner_def = type_to_typedef(inner)?;
-                    Some(TypeDef::Lib(LibTypeDef::IndexSet(Box::new(inner_def))))
-                }
-                "Arc" => {
-                    // triomphe::Arc<T> or std::sync::Arc<T>
-                    // Both archive to the same format (relative pointer)
-                    let inner = get_single_generic_arg(segment)?;
-                    let inner_def = type_to_typedef(inner)?;
-                    Some(TypeDef::Lib(LibTypeDef::Arc(Box::new(inner_def))))
-                }
-                "Rc" => {
-                    // std::rc::Rc<T>
-                    let inner = get_single_generic_arg(segment)?;
-                    let inner_def = type_to_typedef(inner)?;
-                    Some(TypeDef::Lib(LibTypeDef::Rc(Box::new(inner_def))))
-                }
-                "Weak" => {
-                    // Could be std::rc::Weak<T> or std::sync::Weak<T>
-                    // Both archive to the same format (nullable relative pointer)
-                    // We map to RcWeak by default since we can't distinguish at parse time
-                    let inner = get_single_generic_arg(segment)?;
-                    let inner_def = type_to_typedef(inner)?;
-                    Some(TypeDef::Lib(LibTypeDef::RcWeak(Box::new(inner_def))))
-                }
-
-                // Named type (custom struct/enum)
-                _ => Some(TypeDef::Named(ident_str)),
             }
         }
         Type::Array(TypeArray { elem, len, .. }) => {
-            let elem_def = type_to_typedef(elem)?;
+            let elem_def = type_to_typedef(elem, codegen)?;
             // Try to extract the array length
             if let syn::Expr::Lit(syn::ExprLit {
                 lit: syn::Lit::Int(lit_int),
@@ -208,7 +144,8 @@ fn type_to_typedef(ty: &Type) -> Option<TypeDef> {
             if elems.is_empty() {
                 Some(TypeDef::Unit)
             } else {
-                let elem_defs: Option<Vec<_>> = elems.iter().map(type_to_typedef).collect();
+                let elem_defs: Option<Vec<_>> =
+                    elems.iter().map(|e| type_to_typedef(e, codegen)).collect();
                 Some(TypeDef::Tuple(elem_defs?))
             }
         }
@@ -220,7 +157,7 @@ fn type_to_typedef(ty: &Type) -> Option<TypeDef> {
                 return Some(TypeDef::String);
             }
             // Otherwise, follow the reference
-            type_to_typedef(&reference.elem)
+            type_to_typedef(&reference.elem, codegen)
         }
         _ => None,
     }
@@ -234,6 +171,22 @@ fn get_single_generic_arg(segment: &syn::PathSegment) -> Option<&Type> {
                 GenericArgument::Type(ty) => Some(ty),
                 _ => None,
             }
+        }
+        _ => None,
+    }
+}
+
+/// Get the first type argument from angle-bracketed generics (ignoring const args).
+/// For `Foo<T, N>` where N is a const, this returns `T`.
+fn get_first_type_generic_arg(segment: &syn::PathSegment) -> Option<&Type> {
+    match &segment.arguments {
+        PathArguments::AngleBracketed(args) => {
+            for arg in &args.args {
+                if let GenericArgument::Type(ty) = arg {
+                    return Some(ty);
+                }
+            }
+            None
         }
         _ => None,
     }
@@ -261,48 +214,8 @@ fn get_two_generic_args(segment: &syn::PathSegment) -> Option<(&Type, &Type)> {
     }
 }
 
-/// Extract a type and a const generic argument (for ArrayVec<T, CAP>)
-fn get_type_and_const_generic_args(segment: &syn::PathSegment) -> Option<(&Type, usize)> {
-    match &segment.arguments {
-        PathArguments::AngleBracketed(args) => {
-            let mut iter = args.args.iter();
-            let first = iter.next()?;
-            let second = iter.next()?;
-
-            let ty = match first {
-                GenericArgument::Type(ty) => ty,
-                _ => return None,
-            };
-
-            let cap = match second {
-                GenericArgument::Const(syn::Expr::Lit(syn::ExprLit {
-                    lit: syn::Lit::Int(lit_int),
-                    ..
-                })) => lit_int.base10_parse().ok()?,
-                _ => return None,
-            };
-
-            Some((ty, cap))
-        }
-        _ => None,
-    }
-}
-
-/// Extract array length from an expression (for SmallVec<[T; N]> and TinyVec<[T; N]>)
-fn extract_array_len(expr: &syn::Expr) -> Option<usize> {
-    if let syn::Expr::Lit(syn::ExprLit {
-        lit: syn::Lit::Int(lit_int),
-        ..
-    }) = expr
-    {
-        lit_int.base10_parse().ok()
-    } else {
-        None
-    }
-}
-
 /// Extract a struct definition from a DeriveInput.
-fn extract_struct(fields: &Fields) -> Option<Vec<(String, TypeDef)>> {
+fn extract_struct(fields: &Fields, codegen: &CodeGenerator) -> Option<Vec<(String, TypeDef)>> {
     match fields {
         Fields::Named(named) => {
             let field_defs: Option<Vec<_>> = named
@@ -310,7 +223,7 @@ fn extract_struct(fields: &Fields) -> Option<Vec<(String, TypeDef)>> {
                 .iter()
                 .map(|f| {
                     let field_name = f.ident.as_ref()?.to_string();
-                    let type_def = type_to_typedef(&f.ty)?;
+                    let type_def = type_to_typedef(&f.ty, codegen)?;
                     Some((field_name, type_def))
                 })
                 .collect();
@@ -324,7 +237,7 @@ fn extract_struct(fields: &Fields) -> Option<Vec<(String, TypeDef)>> {
                 .enumerate()
                 .map(|(i, f)| {
                     let field_name = format!("_{}", i);
-                    let type_def = type_to_typedef(&f.ty)?;
+                    let type_def = type_to_typedef(&f.ty, codegen)?;
                     Some((field_name, type_def))
                 })
                 .collect();
@@ -337,6 +250,7 @@ fn extract_struct(fields: &Fields) -> Option<Vec<(String, TypeDef)>> {
 /// Extract an enum definition from a DeriveInput.
 fn extract_enum(
     variants: &syn::punctuated::Punctuated<syn::Variant, syn::token::Comma>,
+    codegen: &CodeGenerator,
 ) -> Option<Vec<EnumVariant>> {
     variants
         .iter()
@@ -348,7 +262,7 @@ fn extract_enum(
                     let types: Option<Vec<_>> = fields
                         .unnamed
                         .iter()
-                        .map(|f| type_to_typedef(&f.ty))
+                        .map(|f| type_to_typedef(&f.ty, codegen))
                         .collect();
                     Some(EnumVariant::Tuple(variant_name, types?))
                 }
@@ -358,7 +272,7 @@ fn extract_enum(
                         .iter()
                         .map(|f| {
                             let field_name = f.ident.as_ref()?.to_string();
-                            let type_def = type_to_typedef(&f.ty)?;
+                            let type_def = type_to_typedef(&f.ty, codegen)?;
                             Some((field_name, type_def))
                         })
                         .collect();
@@ -379,7 +293,7 @@ fn process_derive_input(codegen: &mut CodeGenerator, input: &DeriveInput, marker
 
     match &input.data {
         Data::Struct(data) => {
-            if let Some(fields) = extract_struct(&data.fields) {
+            if let Some(fields) = extract_struct(&data.fields, codegen) {
                 let fields_ref: Vec<_> = fields
                     .iter()
                     .map(|(n, t)| (n.as_str(), t.clone()))
@@ -388,7 +302,7 @@ fn process_derive_input(codegen: &mut CodeGenerator, input: &DeriveInput, marker
             }
         }
         Data::Enum(data) => {
-            if let Some(variants) = extract_enum(&data.variants) {
+            if let Some(variants) = extract_enum(&data.variants, codegen) {
                 codegen.add_enum(&name, &variants);
             }
         }
@@ -441,6 +355,10 @@ impl CodeGenerator {
     ///
     /// By default, looks for `#[derive(Archive)]` or any path ending with `Archive`.
     /// Use `add_marker()` to recognize additional marker names.
+    ///
+    /// Type resolution for external crates uses the type registry. Built-in
+    /// mappings are registered by default. Use [`register_type`](CodeGenerator::register_type)
+    /// to add custom mappings.
     ///
     /// # Example
     ///
@@ -973,5 +891,30 @@ mod tests {
 
         let code = codegen.generate();
         assert!(code.contains("weak_ref: r.rcWeak(r.u32)"));
+    }
+
+    #[test]
+    fn test_custom_registered_type() {
+        let source = r#"
+            #[derive(Archive)]
+            struct MyData {
+                custom: CustomVec<u32>,
+            }
+        "#;
+
+        let mut codegen = CodeGenerator::new();
+        use crate::registry::{GenericShape, TypeMapping};
+        use crate::types::Import;
+        codegen.register_type("CustomVec", TypeMapping {
+            codec_expr: "customVec({0})".to_string(),
+            ts_type: "{0}[]".to_string(),
+            import: Some(Import::new("my-package/codecs", "customVec")),
+            generics: GenericShape::Single,
+        });
+        codegen.add_source_str(source);
+
+        let code = codegen.generate();
+        assert!(code.contains("import { customVec } from 'my-package/codecs';"));
+        assert!(code.contains("custom: customVec(r.u32)"));
     }
 }

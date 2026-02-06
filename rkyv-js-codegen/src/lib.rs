@@ -9,6 +9,7 @@
 //! - Full support for rkyv's type system (primitives, containers, nested types)
 //! - Automatic dependency ordering for type definitions
 //! - Source file parsing to extract types annotated with `#[derive(Archive)]`
+//! - Extensible type registry for external crate support
 //!
 //! ## Quick Start
 //!
@@ -48,7 +49,7 @@
 //! ```typescript
 //! import * as r from 'rkyv-js';
 //!
-//! export const ArchivedPerson = r.object({
+//! export const ArchivedPerson = r.struct({
 //!   name: r.string,
 //!   age: r.u32,
 //!   email: r.option(r.string),
@@ -58,9 +59,28 @@
 //! export const ArchivedStatus = r.taggedEnum({
 //!   Pending: r.unit,
 //!   Active: r.unit,
-//!   Error: r.object({ message: r.string }),
+//!   Error: r.struct({ message: r.string }),
 //! });
 //! export type Status = r.Infer<typeof ArchivedStatus>;
+//! ```
+//!
+//! ### Extending with Custom Types
+//!
+//! ```rust,ignore
+//! use rkyv_js_codegen::{CodeGenerator, Import};
+//! use rkyv_js_codegen::registry::{TypeMapping, GenericShape};
+//!
+//! let mut gen = CodeGenerator::new();
+//!
+//! // Register a custom type mapping
+//! gen.register_type("MyCustomVec", TypeMapping {
+//!     codec_expr: "myVec({0})".to_string(),
+//!     ts_type: "{0}[]".to_string(),
+//!     import: Some(Import::new("my-package/codecs", "myVec")),
+//!     generics: GenericShape::Single,
+//! });
+//!
+//! // Now the generator will recognize `MyCustomVec<T>` in source files
 //! ```
 //!
 //! ### Using `#[derive(Archive)]` macro
@@ -104,11 +124,12 @@
 //! | `Box<T>` | `TypeDef::Box(Box::new(T))` | `r.box(T)` | `T` |
 //! | `[T; N]` | `TypeDef::Array(Box::new(T), N)` | `r.array(T, N)` | `T[]` |
 //! | `(T1, T2)` | `TypeDef::Tuple(vec![...])` | `r.tuple(T1, T2)` | `[T1, T2]` |
-//! | `HashMap<K, V>` | `TypeDef::HashMap(...)` | `r.hashMap(K, V)` | `Map<K, V>` |
+//! | External types | `TypeDef::External(...)` | via registry | via registry |
 
 mod extractor;
 mod generator;
+pub mod registry;
 mod types;
 
 pub use generator::CodeGenerator;
-pub use types::{EnumVariant, LibImport, LibTypeDef, TypeDef, UnionVariant, generate_lib_imports};
+pub use types::{EnumVariant, ExternalType, Import, TypeDef, UnionVariant, generate_imports};
