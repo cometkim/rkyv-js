@@ -9,6 +9,7 @@
 //! - Full support for rkyv's type system (primitives, containers, nested types)
 //! - Automatic dependency ordering for type definitions
 //! - Source file parsing to extract types annotated with `#[derive(Archive)]`
+//! - Automatic `use` alias resolution — `use X as Y` is handled transparently
 //! - Extensible type registry for external crate support
 //!
 //! ## Quick Start
@@ -22,9 +23,9 @@
 //!
 //! // Add a struct
 //! generator.add_struct("Person", &[
-//!     ("name", TypeDef::String),
-//!     ("age", TypeDef::U32),
-//!     ("email", TypeDef::Option(Box::new(TypeDef::String))),
+//!     ("name", TypeDef::string()),
+//!     ("age", TypeDef::u32()),
+//!     ("email", TypeDef::option(TypeDef::string())),
 //! ]);
 //!
 //! // Add an enum
@@ -32,7 +33,7 @@
 //!     EnumVariant::Unit("Pending".to_string()),
 //!     EnumVariant::Unit("Active".to_string()),
 //!     EnumVariant::Struct("Error".to_string(), vec![
-//!         ("message".to_string(), TypeDef::String),
+//!         ("message".to_string(), TypeDef::string()),
 //!     ]),
 //! ]);
 //!
@@ -42,45 +43,22 @@
 //! // generator.write_to_file("bindings.ts").unwrap();
 //! ```
 //!
-//! ### Generated Output
-//!
-//! The above generates:
-//!
-//! ```typescript
-//! import * as r from 'rkyv-js';
-//!
-//! export const ArchivedPerson = r.struct({
-//!   name: r.string,
-//!   age: r.u32,
-//!   email: r.option(r.string),
-//! });
-//! export type Person = r.Infer<typeof ArchivedPerson>;
-//!
-//! export const ArchivedStatus = r.taggedEnum({
-//!   Pending: r.unit,
-//!   Active: r.unit,
-//!   Error: r.struct({ message: r.string }),
-//! });
-//! export type Status = r.Infer<typeof ArchivedStatus>;
-//! ```
-//!
 //! ### Extending with Custom Types
 //!
-//! ```rust,ignore
-//! use rkyv_js_codegen::{CodeGenerator, Import};
-//! use rkyv_js_codegen::registry::{TypeMapping, GenericShape};
+//! ```
+//! # fn main() {
+//! use rkyv_js_codegen::{CodeGenerator, TypeDef};
 //!
-//! let mut gen = CodeGenerator::new();
+//! let mut generator = CodeGenerator::new();
 //!
 //! // Register a custom type mapping
-//! gen.register_type("MyCustomVec", TypeMapping {
-//!     codec_expr: "myVec({0})".to_string(),
-//!     ts_type: "{0}[]".to_string(),
-//!     import: Some(Import::new("my-package/codecs", "myVec")),
-//!     generics: GenericShape::Single,
-//! });
+//! generator.register_type("MyCustomVec",
+//!     TypeDef::new("myVec({0})", "{0}[]")
+//!         .with_import("my-package/codecs", "myVec"),
+//! );
 //!
 //! // Now the generator will recognize `MyCustomVec<T>` in source files
+//! # }
 //! ```
 //!
 //! ### Using `#[derive(Archive)]` macro
@@ -97,7 +75,7 @@
 //!
 //! Then in `build.rs`:
 //!
-//! ```rust,ignore
+//! ```no_run
 //! use rkyv_js_codegen::CodeGenerator;
 //!
 //! fn main() {
@@ -113,18 +91,18 @@
 //!
 //! | Rust Type | TypeDef | TypeScript Codec | TypeScript Type |
 //! |-----------|---------|------------------|-----------------|
-//! | `u8`-`u32`, `i8`-`i32`, `f32`, `f64` | `TypeDef::U32`, etc. | `r.u32`, etc. | `number` |
-//! | `u64`, `i64` | `TypeDef::U64`, `TypeDef::I64` | `r.u64`, `r.i64` | `bigint` |
-//! | `bool` | `TypeDef::Bool` | `r.bool` | `boolean` |
-//! | `char` | `TypeDef::Char` | `r.char` | `string` |
-//! | `()` | `TypeDef::Unit` | `r.unit` | `null` |
-//! | `String` | `TypeDef::String` | `r.string` | `string` |
-//! | `Vec<T>` | `TypeDef::Vec(Box::new(T))` | `r.vec(T)` | `T[]` |
-//! | `Option<T>` | `TypeDef::Option(Box::new(T))` | `r.option(T)` | `T \| null` |
-//! | `Box<T>` | `TypeDef::Box(Box::new(T))` | `r.box(T)` | `T` |
-//! | `[T; N]` | `TypeDef::Array(Box::new(T), N)` | `r.array(T, N)` | `T[]` |
-//! | `(T1, T2)` | `TypeDef::Tuple(vec![...])` | `r.tuple(T1, T2)` | `[T1, T2]` |
-//! | External types | `TypeDef::External(...)` | via registry | via registry |
+//! | `u8`-`u32`, `i8`-`i32`, `f32`, `f64` | `TypeDef::u32()`, etc. | `r.u32`, etc. | `number` |
+//! | `u64`, `i64` | `TypeDef::u64()`, `TypeDef::i64()` | `r.u64`, `r.i64` | `bigint` |
+//! | `bool` | `TypeDef::bool()` | `r.bool` | `boolean` |
+//! | `char` | `TypeDef::char()` | `r.char` | `string` |
+//! | `()` | `TypeDef::unit()` | `r.unit` | `null` |
+//! | `String` | `TypeDef::string()` | `r.string` | `string` |
+//! | `Vec<T>` | `TypeDef::vec(T)` | `r.vec(T)` | `T[]` |
+//! | `Option<T>` | `TypeDef::option(T)` | `r.option(T)` | `T \| null` |
+//! | `Box<T>` | `TypeDef::boxed(T)` | `r.box(T)` | `T` |
+//! | `[T; N]` | `TypeDef::array(T, N)` | `r.array(T, N)` | `T[]` |
+//! | `(T1, T2)` | `TypeDef::tuple(vec![...])` | `r.tuple(T1, T2)` | `[T1, T2]` |
+//! | External types | `TypeDef::new(...)` | via registry | via registry |
 
 mod extractor;
 mod generator;
@@ -132,4 +110,4 @@ pub mod registry;
 mod types;
 
 pub use generator::CodeGenerator;
-pub use types::{EnumVariant, ExternalType, Import, TypeDef, UnionVariant, generate_imports};
+pub use types::{EnumVariant, Import, TypeDef, UnionVariant, generate_imports};

@@ -7,6 +7,8 @@
 //! as documentation. The actual binding generation happens in build.rs
 //! using `CodeGenerator`.
 
+pub mod remote;
+
 use rkyv::{Archive, Deserialize, Serialize};
 use serde::ser::{SerializeStruct, Serializer};
 
@@ -16,7 +18,19 @@ pub use bytes::Bytes;
 pub use indexmap::{IndexMap, IndexSet};
 pub use smallvec::SmallVec;
 pub use smol_str::SmolStr;
-pub use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
+pub use std::collections::{BTreeSet, VecDeque};
+
+/// A deterministic `HashMap` using `DefaultHasher` (SipHash with fixed keys).
+///
+/// Unlike `std::collections::HashMap` (which uses random seeds per process),
+/// this produces identical iteration order across runs for the same input,
+/// making fixtures reproducible.
+pub type HashMap<K, V> =
+    std::collections::HashMap<K, V, std::hash::BuildHasherDefault<std::hash::DefaultHasher>>;
+
+/// A deterministic `HashSet` using `DefaultHasher` (SipHash with fixed keys).
+pub type HashSet<T> =
+    std::collections::HashSet<T, std::hash::BuildHasherDefault<std::hash::DefaultHasher>>;
 pub use thin_vec::ThinVec;
 pub use tinyvec::TinyVec;
 pub use triomphe::Arc;
@@ -634,7 +648,7 @@ pub struct HashMapData {
     pub name: String,
 }
 
-// Custom serde serializer for HashMapData to serialize as array of tuples
+// Custom serde serializer for HashMapData to serialize as sorted array of tuples
 impl serde::Serialize for HashMapData {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -645,8 +659,10 @@ impl serde::Serialize for HashMapData {
             entries: Vec<(&'a str, &'a u32)>,
             name: &'a str,
         }
+        let mut entries: Vec<_> = self.entries.iter().map(|(k, v)| (k.as_str(), v)).collect();
+        entries.sort_by_key(|(k, _)| *k);
         let inner = Inner {
-            entries: self.entries.iter().map(|(k, v)| (k.as_str(), v)).collect(),
+            entries,
             name: &self.name,
         };
         inner.serialize(serializer)
@@ -663,12 +679,14 @@ impl serde::Serialize for ArchivedHashMapData {
             entries: Vec<(&'a str, u32)>,
             name: &'a str,
         }
+        let mut entries: Vec<_> = self
+            .entries
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.to_native()))
+            .collect();
+        entries.sort_by_key(|(k, _)| *k);
         let inner = Inner {
-            entries: self
-                .entries
-                .iter()
-                .map(|(k, v)| (k.as_str(), v.to_native()))
-                .collect(),
+            entries,
             name: self.name.as_str(),
         };
         inner.serialize(serializer)
@@ -683,7 +701,7 @@ pub struct HashSetData {
     pub count: u32,
 }
 
-// Custom serde serializer for HashSetData to serialize as array
+// Custom serde serializer for HashSetData to serialize as sorted array
 impl serde::Serialize for HashSetData {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -694,8 +712,10 @@ impl serde::Serialize for HashSetData {
             ids: Vec<&'a str>,
             count: u32,
         }
+        let mut ids: Vec<_> = self.ids.iter().map(|s| s.as_str()).collect();
+        ids.sort();
         let inner = Inner {
-            ids: self.ids.iter().map(|s| s.as_str()).collect(),
+            ids,
             count: self.count,
         };
         inner.serialize(serializer)
@@ -712,8 +732,10 @@ impl serde::Serialize for ArchivedHashSetData {
             ids: Vec<&'a str>,
             count: u32,
         }
+        let mut ids: Vec<_> = self.ids.iter().map(|s| s.as_str()).collect();
+        ids.sort();
         let inner = Inner {
-            ids: self.ids.iter().map(|s| s.as_str()).collect(),
+            ids,
             count: self.count.to_native(),
         };
         inner.serialize(serializer)
@@ -760,6 +782,95 @@ impl serde::Serialize for ArchivedBTreeSetData {
         let inner = Inner {
             values: self.values.iter().map(|v| v.to_native()).collect(),
             label: self.label.as_str(),
+        };
+        inner.serialize(serializer)
+    }
+}
+
+// ── Remote derive types ─────────────────────────────────────────────
+
+/// An `ArchiveWith` wrapper that serializes any `serde::Serialize +
+/// serde::Deserialize` type as a JSON string in the rkyv buffer.
+///
+/// The archived form is `ArchivedString` — a relative pointer + length
+/// pointing to UTF-8 JSON text. This demonstrates that rkyv-js custom
+/// codecs can use arbitrary wire formats, not just rkyv's own struct layout.
+pub struct AsJson;
+
+impl rkyv::with::ArchiveWith<remote::Coord> for AsJson {
+    type Archived = rkyv::string::ArchivedString;
+    type Resolver = rkyv::string::StringResolver;
+
+    fn resolve_with(
+        field: &remote::Coord,
+        resolver: Self::Resolver,
+        out: rkyv::Place<Self::Archived>,
+    ) {
+        let json = serde_json::to_string(field).unwrap();
+        rkyv::string::ArchivedString::resolve_from_str(&json, resolver, out);
+    }
+}
+
+impl<S> rkyv::with::SerializeWith<remote::Coord, S> for AsJson
+where
+    S: rkyv::rancor::Fallible + ?Sized,
+    S::Error: rkyv::rancor::Source,
+    str: rkyv::SerializeUnsized<S>,
+{
+    fn serialize_with(
+        field: &remote::Coord,
+        serializer: &mut S,
+    ) -> Result<Self::Resolver, S::Error> {
+        let json = serde_json::to_string(field).map_err(|e| rkyv::rancor::Source::new(e))?;
+        rkyv::string::ArchivedString::serialize_from_str(&json, serializer)
+    }
+}
+
+impl<D> rkyv::with::DeserializeWith<rkyv::string::ArchivedString, remote::Coord, D> for AsJson
+where
+    D: rkyv::rancor::Fallible + ?Sized,
+    D::Error: rkyv::rancor::Source,
+{
+    fn deserialize_with(
+        archived: &rkyv::string::ArchivedString,
+        _deserializer: &mut D,
+    ) -> Result<remote::Coord, D::Error> {
+        serde_json::from_str(archived.as_str()).map_err(|e| rkyv::rancor::Source::new(e))
+    }
+}
+
+/// A struct that uses a remote type via an `AsJson` wrapper.
+///
+/// This demonstrates how rkyv-js-codegen handles types containing remote
+/// types — the codegen skips `AsJson` (it's just a wrapper, not an archived
+/// type) and the user registers `Coord` with a custom codec that reads/writes
+/// rkyv strings containing JSON.
+#[derive(Debug, Clone, Archive, Deserialize, Serialize, serde::Serialize)]
+#[rkyv(derive(Debug))]
+pub struct RemoteEvent {
+    pub name: String,
+    #[rkyv(with = AsJson)]
+    pub location: remote::Coord,
+    pub priority: u32,
+}
+
+impl serde::Serialize for ArchivedRemoteEvent {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        #[derive(serde::Serialize)]
+        struct Inner<'a> {
+            name: &'a str,
+            location: serde_json::Value,
+            priority: u32,
+        }
+        let location: serde_json::Value =
+            serde_json::from_str(self.location.as_str()).map_err(serde::ser::Error::custom)?;
+        let inner = Inner {
+            name: self.name.as_str(),
+            location,
+            priority: self.priority.to_native(),
         };
         inner.serialize(serializer)
     }

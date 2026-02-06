@@ -1,0 +1,8 @@
+{
+  "name": "Meeting",
+  "location": {
+    "x": 1.5,
+    "y": -2.25
+  },
+  "priority": 5
+}

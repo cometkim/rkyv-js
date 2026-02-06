@@ -83,5 +83,6 @@
     "protobufjs": "^8.0.0",
     "tinybench": "^5.1.0",
     "typescript": "^5.9.3"
-  }
+  },
+  "packageManager": "yarn@4.12.0"
 }

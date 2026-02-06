@@ -117,6 +117,14 @@ export const ArchivedGameState = r.struct({
 
 export type GameState = r.Infer<typeof ArchivedGameState>;
 
+export const ArchivedRemoteEvent = r.struct({
+  name: r.string,
+  location: ArchivedCoord,
+  priority: r.u32,
+});
+
+export type RemoteEvent = r.Infer<typeof ArchivedRemoteEvent>;
+
 export const ArchivedSmallVecData = r.struct({
   items: r.vec(r.u32),
   tags: r.vec(r.string),

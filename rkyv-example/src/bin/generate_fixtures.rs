@@ -6,13 +6,14 @@
 //! - codec.ts: TypeScript binding
 
 use rkyv::rancor::Error;
-use rkyv_js_codegen::CodeGenerator;
-use rkyv_js_example::{
+use rkyv_example::{
     Arc, ArcShared, ArrayVec, ArrayVecBuffer, BTreeMapConfig, BTreeSet, BTreeSetData, Bytes,
     BytesMessage, GameState, HashMap, HashMapData, HashSet, HashSetData, IndexMap, IndexMapConfig,
-    IndexSet, IndexSetTags, Message, Person, Point, SmallVec, SmallVecData, SmolStr, SmolStrConfig,
-    ThinVec, ThinVecData, TinyVec, TinyVecData, Uuid, UuidRecord, VecDeque, VecDequeData,
+    IndexSet, IndexSetTags, Message, Person, Point, RemoteEvent, SmallVec, SmallVecData, SmolStr,
+    SmolStrConfig, ThinVec, ThinVecData, TinyVec, TinyVecData, Uuid, UuidRecord, VecDeque,
+    VecDequeData,
 };
+use rkyv_js_codegen::{CodeGenerator, TypeDef};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -255,7 +256,7 @@ fn main() {
     );
 
     // HashMap fixture - semantic equivalence only (different hash function)
-    let mut hash_entries: HashMap<String, u32> = HashMap::new();
+    let mut hash_entries: HashMap<String, u32> = HashMap::with_hasher(Default::default());
     hash_entries.insert("alpha".to_string(), 100);
     hash_entries.insert("beta".to_string(), 200);
     hash_entries.insert("gamma".to_string(), 300);
@@ -269,7 +270,7 @@ fn main() {
     );
 
     // HashSet fixture - semantic equivalence only (different hash function)
-    let mut hash_ids: HashSet<String> = HashSet::new();
+    let mut hash_ids: HashSet<String> = HashSet::with_hasher(Default::default());
     hash_ids.insert("user-001".to_string());
     hash_ids.insert("user-002".to_string());
     hash_ids.insert("user-003".to_string());
@@ -295,6 +296,19 @@ fn main() {
         &BTreeSetData {
             values: btree_values,
             label: "sorted-values".to_string(),
+        },
+    );
+
+    // Remote derive fixtures
+    println!("Generating remote derive fixtures...");
+
+    write_fixture::<RemoteEvent>(
+        &identical_dir,
+        "remote_event",
+        &RemoteEvent {
+            name: "Meeting".to_string(),
+            location: rkyv_example::remote::Coord::new(1.5, -2.25),
+            priority: 5,
         },
     );
 
@@ -663,6 +677,38 @@ impl GenerateFixture for BTreeSetData {
             struct BTreeSetData {
                 values: BTreeSet<i64>,
                 label: String,
+            }
+            "#,
+        );
+    }
+}
+
+impl GenerateFixture for RemoteEvent {
+    const CODEC_NAME: &'static str = "ArchivedRemoteEvent";
+
+    fn generate_codec(codegen: &mut CodeGenerator) {
+        // Register a user-provided codec for the remote type.
+        // The JS implementation must be provided separately — the codegen
+        // only needs to know the codec name and where to import it from.
+        //
+        // In this example, `Coord` is serialized as a JSON string via the
+        // `AsJson` ArchiveWith wrapper. The custom JS codec reads/writes an
+        // rkyv String containing JSON text, then parses/serializes it.
+        codegen.register_type(
+            "Coord",
+            TypeDef::new("Coord", "Coord").with_import("./coord.ts", "Coord"),
+        );
+
+        // Feed the source for RemoteEvent — the `location` field uses `Coord`
+        // (resolved from the registered type). The codegen doesn't need to know
+        // about `AsJson` — it just sees `Coord` as a user-provided codec.
+        codegen.add_source_str(
+            r#"
+            #[derive(Archive)]
+            struct RemoteEvent {
+                name: String,
+                location: Coord,
+                priority: u32,
             }
             "#,
         );

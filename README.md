@@ -8,15 +8,14 @@ This library allows JavaScript programs to efficiently exchange data with a Rust
 
 - Archived Rust types can be read directly from JS programs without an additional serialization layer.
 - Bytes written in JS programs can be deserialized in Rust programs in a zero-copy manner.
-
-Unlike Protobuf or Cap'n Proto, the schema derived directly from your Rust codebase without having to manage additional schema files.
+- Unlike Protobuf or Cap'n Proto, the schema is derived directly from your Rust codebase without having to manage additional schema files.
 
 ## Components
 
 This project consists of two parts:
 
 1. `rkyv-js` (NPM package) - JavaScript runtime library for encoding/decoding rkyv archives
-2. `rkyv-js-codegen` (Rust crate) - Code generator that creates JavaScript/TypeScript bindings from Rust source
+2. `rkyv-js-codegen` (Rust crate) - Code generator that creates TypeScript bindings from Rust source
 
 ## Installation
 
@@ -37,7 +36,7 @@ rkyv-js-codegen = "0.1"
 
 ### Option 1: Code Generation (Recommended)
 
-To `rkyv-js-codegen` extract archived types from your Rust codebase.
+Annotate your Rust types with `#[derive(Archive)]`:
 
 ```rs
 use rkyv::{Archive, Deserialize, Serialize};
@@ -54,7 +53,9 @@ struct Person {
 Configure the output in your `build.rs`:
 
 ```rs
-use rkyv_js_codegen::{CodeGenerator, TypeDef};
+use rkyv_js_codegen::CodeGenerator;
+use std::env;
+use std::path::PathBuf;
 
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
@@ -71,13 +72,28 @@ fn main() {
     codegen.add_source_file(manifest_dir.join("src/lib.rs"))
         .expect("Failed to parse source file");
 
-    // Write to OUT_DIR (standard cargo location)
+    // Write generated bindings
     codegen.write_to_file(out_dir.join("bindings.ts"))
         .expect("Failed to write bindings");
 
     println!("cargo:rerun-if-changed=src/lib.rs");
     println!("cargo:rerun-if-changed=build.rs");
 }
+```
+
+This generates TypeScript like:
+
+```typescript
+import * as r from 'rkyv-js';
+
+export const ArchivedPerson = r.struct({
+  name: r.string,
+  age: r.u32,
+  email: r.option(r.string),
+  scores: r.vec(r.u32),
+});
+
+export type Person = r.Infer<typeof ArchivedPerson>;
 ```
 
 ### Option 2: Manual Schema Definition
@@ -87,15 +103,7 @@ You can also use `rkyv-js` as a standalone library without Rust code generation:
 ```typescript
 import * as r from 'rkyv-js';
 
-// Define a codec matching your Rust struct:
-//
-// #[derive(rkyv::Archive)]
-// struct Person {
-//   name: String,
-//   age: u32,
-//   email: Option<String>,
-//   scores: Vec<u32>,
-// }
+// Define a codec matching your Rust struct
 const ArchivedPerson = r.struct({
   name: r.string,
   age: r.u32,
@@ -107,14 +115,14 @@ const ArchivedPerson = r.struct({
 type Person = r.Infer<typeof ArchivedPerson>;
 
 // Encode to rkyv bytes
-const data = r.encode(ArchivedPerson, { 
-  name: "Bob",
-  age: 25,
-  email: null,
-  scores: [100],
+const data = r.encode(ArchivedPerson, {
+  name: 'Alice',
+  age: 30,
+  email: 'alice@example.com',
+  scores: [95, 87, 92],
 });
 
-// Decode from rkyv data
+// Decode from rkyv bytes
 const person = r.decode(ArchivedPerson, data);
 console.log(person.name);   // "Alice"
 console.log(person.age);    // 30
@@ -125,70 +133,69 @@ const lazy = r.access(ArchivedPerson, data);
 console.log(lazy.name); // Only 'name' field is decoded
 ```
 
-### Option 3: Low-level CodeGenerator API
+## Codec API
 
-You can generate bindings without rkyv macros if you want programmatic control:
+### Primitives
 
-```rust
-use rkyv_js_codegen::{CodeGenerator, TypeDef};
+| Codec | Rust Type | TypeScript Type |
+|-------|-----------|-----------------|
+| `r.u8`, `r.i8` | `u8`, `i8` | `number` |
+| `r.u16`, `r.i16` | `u16`, `i16` | `number` |
+| `r.u32`, `r.i32` | `u32`, `i32` | `number` |
+| `r.u64`, `r.i64` | `u64`, `i64` | `bigint` |
+| `r.f32`, `r.f64` | `f32`, `f64` | `number` |
+| `r.bool` | `bool` | `boolean` |
+| `r.char` | `char` | `string` |
+| `r.unit` | `()` | `null` |
+| `r.string` | `String` | `string` |
 
-fn main() {
-    let mut generator = CodeGenerator::new();
+### Containers
 
-    generator.add_struct("Person", &[
-        ("name", TypeDef::String),
-        ("age", TypeDef::U32),
-        ("email", TypeDef::Option(Box::new(TypeDef::String))),
-        ("scores", TypeDef::Vec(Box::new(TypeDef::U32))),
-    ]);
+| Codec | Rust Type | TypeScript Type |
+|-------|-----------|-----------------|
+| `r.vec(T)` | `Vec<T>` | `T[]` |
+| `r.option(T)` | `Option<T>` | `T \| null` |
+| `r.box(T)` | `Box<T>` | `T` |
+| `r.array(T, N)` | `[T; N]` | `T[]` |
+| `r.tuple(T1, T2, ...)` | `(T1, T2, ...)` | `[T1, T2, ...]` |
 
-    generator.write_to_file("generated/bindings.ts").unwrap();
-}
-```
+### Composite Types
 
-## Type Mappings
+| Codec | Rust Type | TypeScript Type |
+|-------|-----------|-----------------|
+| `r.struct({...})` | `struct { ... }` | `{ ... }` |
+| `r.taggedEnum({...})` | `enum { ... }` | `{ tag: string, value: ... }` |
 
-| Rust Type | TypeDef | TypeScript Type |
-|-----------|---------|-----------------|
-| `u8`, `i8`, `u16`, `i16`, `u32`, `i32` | `TypeDef::U32`, etc. | `number` |
-| `u64`, `i64` | `TypeDef::U64`, `TypeDef::I64` | `bigint` |
-| `f32`, `f64` | `TypeDef::F32`, `TypeDef::F64` | `number` |
-| `bool` | `TypeDef::Bool` | `boolean` |
-| `char` | `TypeDef::Char` | `string` |
-| `()` | `TypeDef::Unit` | `null` |
-| `String` | `TypeDef::String` | `string` |
-| `Vec<T>` | `TypeDef::Vec(Box::new(T))` | `T[]` |
-| `Option<T>` | `TypeDef::Option(Box::new(T))` | `T \| null` |
-| `Box<T>` | `TypeDef::Box(Box::new(T))` | `T` |
-| `[T; N]` | `TypeDef::Array(Box::new(T), N)` | `T[]` |
-| `(T1, T2, ...)` | `TypeDef::Tuple(vec![...])` | `[T1, T2, ...]` |
-| `Rc<T>` | `TypeDef::Rc(Box::new(T))` | `T` |
-| `Arc<T>` | `TypeDef::Arc(Box::new(T))` | `T` |
-| `Weak<T>` (rc) | `TypeDef::RcWeak(Box::new(T))` | `T \| null` |
-| `Weak<T>` (sync) | `TypeDef::ArcWeak(Box::new(T))` | `T \| null` |
+### Smart Pointers
 
-### Built-in Crate Types
+| Codec | Rust Type | TypeScript Type |
+|-------|-----------|-----------------|
+| `r.rc(T)` | `Rc<T>` | `T` |
+| `r.arc(T)` | `Arc<T>` | `T` |
+| `r.rcWeak(T)` | `rc::Weak<T>` | `T \| null` |
+| `r.arcWeak(T)` | `sync::Weak<T>` | `T \| null` |
+
+### External Crate Types
 
 The codegen recognizes types from [external crates that rkyv supports](https://docs.rs/rkyv/latest/rkyv/#crates). Many of these archive to the same format as built-in types:
 
-
-| Rust Type | Archive Format | TypeScript Type |
-|-----------|----------------|-----------------|
-| `uuid::Uuid` | unique | `string` |
-| `bytes::Bytes` | unique | `Uint8Array` |
-| `std:collections::HashMap<K, V>` | unique (SwissTable) | `Map<K, V>` |
-| `std:collections::HashSet<T>` | same as `HashMap<T, ()>` | `Set<T>` |
-| `std:collections::BTreeMap<K, V>` | unique (B-Tree) | `Map<K, V>` |
-| `std:collections::BTreeSet<T>` | same as `BTreeMap<T, ()>` | `Set<T>` |
-| `indexmap::IndexMap<K, V>` | unique (SwissTable) | `Map<K, V>` |
-| `indexmap::IndexSet<T>` | same as `IndexMap<T, ()>` | `Set<T>` |
-| `smol_str::SmolStr` | same as `String` | `string` |
-| `thin_vec::ThinVec<T>` | same as `Vec<T>` | `T[]` |
-| `arrayvec::ArrayVec<T, N>` | same as `Vec<T>` | `T[]` |
-| `smallvec::SmallVec<[T; N]>` | same as `Vec<T>` | `T[]` |
-| `tinyvec::TinyVec<[T; N]>` | same as `Vec<T>` | `T[]` |
-| `triomphe::Arc<T>` | same as `Box<T>` | `T` |
-| `hashbrown::HashMap<K, V>` | same as `HashMap<K, V>` | `Map<K, V>` |
+| Rust Type | Import | TypeScript Type |
+|-----------|--------|-----------------|
+| `uuid::Uuid` | `rkyv-js/lib/uuid` | `string` |
+| `bytes::Bytes` | `rkyv-js/lib/bytes` | `Uint8Array` |
+| `std::collections::HashMap<K, V>` | `rkyv-js/lib/std-hash-map` | `Map<K, V>` |
+| `std::collections::HashSet<T>` | `rkyv-js/lib/std-hash-set` | `Set<T>` |
+| `std::collections::BTreeMap<K, V>` | `rkyv-js/lib/std-btree-map` | `Map<K, V>` |
+| `std:collections::BTreeSet<T>` | `rkyv-js/lib/std-btree-set` | `Set<T>` |
+| `indexmap::IndexMap<K, V>` | `rkyv-js/lib/indexmap` | `Map<K, V>` |
+| `indexmap::IndexSet<T>` | `rkyv-js/lib/indexmap` | `Set<T>` |
+| `smol_str::SmolStr` | (none, same as String) | `string` |
+| `thin_vec::ThinVec<T>` | (none, same as Vec) | `T[]` |
+| `arrayvec::ArrayVec<T, N>` | (none, same as Vec) | `T[]` |
+| `smallvec::SmallVec<[T; N]>` | (none, same as Vec) | `T[]` |
+| `tinyvec::TinyVec<[T; N]>` | (none, same as Vec) | `T[]` |
+| `triomphe::Arc<T>` | (none, same as Box) | `T` |
+| `hashbrown::HashMap<K, V>` | (same as HashMap) | `Map<K, V>` |
 
 Example usage:
 
@@ -204,20 +211,142 @@ const ArchivedRecord = r.struct({
   data: bytes,
   tags: indexSet(r.string),
   settings: indexMap(r.string, r.u32),
+  orderedConfig: btreeMap(r.string, r.u32),
 });
+```
 
-// Shared pointer types
-const ArchivedGraph = r.struct({
-  root: r.rc(r.string),           // Rc<String>
-  shared: r.arc(r.u32),           // Arc<u32>
-  weakRef: r.rcWeak(r.string),    // rc::Weak<String> -> T | null
-  syncWeakRef: r.arcWeak(r.u32),  // sync::Weak<u32> -> T | null
-});
+## Code Generation
 
-// BTreeMap (ordered map using B-tree structure)
-const ArchivedConfig = r.struct({
-  orderedSettings: btreeMap(r.string, r.u32),  // BTreeMap<String, u32>
-});
+### Source File Extraction
+
+The codegen parses Rust source files and extracts types annotated with `#[derive(Archive)]`:
+
+```rust
+use rkyv_js_codegen::CodeGenerator;
+
+fn main() {
+    let mut codegen = CodeGenerator::new();
+
+    // Single file
+    codegen.add_source_file("src/lib.rs").unwrap();
+
+    // Or scan an entire directory recursively
+    codegen.add_source_dir("src/").unwrap();
+
+    // Or pass source code directly
+    codegen.add_source_str(r#"
+        #[derive(Archive)]
+        struct Point { x: f64, y: f64 }
+    "#);
+
+    codegen.write_to_file("bindings.ts").unwrap();
+}
+```
+
+### Use-Alias Resolution
+
+The codegen automatically resolves `use` aliases. For example:
+
+```rust
+use std::collections::BTreeMap as MyMap;
+
+#[derive(Archive)]
+struct Config {
+    data: MyMap<String, u32>,  // Resolved as BTreeMap<String, u32>
+}
+```
+
+Marker aliases are also auto-detected:
+
+```rust
+use rkyv::Archive as Rkyv;
+
+#[derive(Rkyv)]  // Recognized as #[derive(Archive)]
+struct Point { x: f64, y: f64 }
+```
+
+However, wildcard imports are not supported.
+
+### Custom Type Registration
+
+You can register custom type mappings for the codegen to use when encountering external types:
+
+```rust
+use rkyv_js_codegen::{CodeGenerator, TypeDef};
+
+let mut codegen = CodeGenerator::new();
+
+// Register a custom type with a template
+// {0}, {1} are placeholders for type parameters
+codegen.register_type("CustomMap",
+    TypeDef::new("customMap({0}, {1})", "Map<{0}, {1}>")
+        .with_import("my-package/codecs", "customMap"),
+);
+
+// Now `CustomMap<K, V>` in source files will generate:
+//   import { customMap } from 'my-package/codecs';
+//   field: customMap(r.string, r.u32)
+```
+
+### Remote Types
+
+Types from external crates that don't support rkyv can be handled via `#[rkyv(remote = ...)]`. The codegen skips proxy types and uses the registered codec for the remote type:
+
+```rust
+use rkyv_js_codegen::{CodeGenerator, TypeDef};
+
+let mut codegen = CodeGenerator::new();
+
+// Register a codec for the external type
+codegen.register_type("Coord",
+    TypeDef::new("Coord", "Coord")
+        .with_import("./coord.ts", "Coord"),
+);
+
+codegen.add_source_str(r#"
+    // This proxy type is skipped by codegen
+    #[derive(Archive)]
+    #[rkyv(remote = external::Coord)]
+    struct CoordDef {
+        x: f32,
+        y: f32,
+    }
+
+    #[derive(Archive)]
+    struct Event {
+        name: String,
+        location: Coord,  // Uses the registered codec
+    }
+"#);
+```
+
+The user-provided codec (`coord.ts`) has full control over the binary format. It implements the `RkyvCodec<T>` interface and can use any serialization strategy — it's not tied to rkyv's struct layout.
+
+### Programmatic API
+
+You can also build types programmatically without parsing source files:
+
+```rust
+use rkyv_js_codegen::{CodeGenerator, TypeDef, EnumVariant};
+
+let mut codegen = CodeGenerator::new();
+
+codegen.add_struct("Person", &[
+    ("name", TypeDef::string()),
+    ("age", TypeDef::u32()),
+    ("email", TypeDef::option(TypeDef::string())),
+    ("scores", TypeDef::vec(TypeDef::u32())),
+]);
+
+codegen.add_enum("Status", &[
+    EnumVariant::Unit("Pending".to_string()),
+    EnumVariant::Unit("Active".to_string()),
+    EnumVariant::Struct("Error".to_string(), vec![
+        ("message".to_string(), TypeDef::string()),
+    ]),
+]);
+
+codegen.write_to_file("bindings.ts").unwrap();
 ```
 
 ## rkyv Format Notes
@@ -236,18 +365,7 @@ If your Rust code uses different `rkyv` features (`big_endian`, `unaligned`, `po
 
 - Unlike rkyv's `bytecheck`, `rkyv-js` does not validate data integrity
 - Trait objects (`rkyv_dyn`) are not supported
-
-## TODOs
-
-This library does not support all rkyv features, but these are planned to support in the future:
-
-- [ ] Non-default formats
-  - Big-endian
-  - Unaligned primitives
-  - 16-bit and 64-bit pointer width
-- [ ] Rename with `archived = ...` attr
-- [ ] Remote types
-- [ ] Wrapper types
+- Non-default rkyv formats (big-endian, unaligned, 16/64-bit pointers) are not supported
 
 ## License
 
