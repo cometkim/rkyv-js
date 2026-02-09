@@ -821,7 +821,7 @@ where
         field: &remote::Coord,
         serializer: &mut S,
     ) -> Result<Self::Resolver, S::Error> {
-        let json = serde_json::to_string(field).map_err(|e| rkyv::rancor::Source::new(e))?;
+        let json = serde_json::to_string(field).map_err(rkyv::rancor::Source::new)?;
         rkyv::string::ArchivedString::serialize_from_str(&json, serializer)
     }
 }
@@ -835,7 +835,7 @@ where
         archived: &rkyv::string::ArchivedString,
         _deserializer: &mut D,
     ) -> Result<remote::Coord, D::Error> {
-        serde_json::from_str(archived.as_str()).map_err(|e| rkyv::rancor::Source::new(e))
+        serde_json::from_str(archived.as_str()).map_err(rkyv::rancor::Source::new)
     }
 }
 

@@ -116,14 +116,12 @@ fn extract_rkyv_remote(attrs: &[Attribute]) -> Option<String> {
             syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated,
         ) {
             for meta in &nested {
-                if let syn::Meta::NameValue(nv) = meta {
-                    if nv.path.is_ident("remote") {
-                        if let syn::Expr::Path(expr_path) = &nv.value {
-                            if let Some(last) = expr_path.path.segments.last() {
-                                return Some(last.ident.to_string());
-                            }
-                        }
-                    }
+                if let syn::Meta::NameValue(nv) = meta
+                    && nv.path.is_ident("remote")
+                    && let syn::Expr::Path(expr_path) = &nv.value
+                    && let Some(last) = expr_path.path.segments.last()
+                {
+                    return Some(last.ident.to_string());
                 }
             }
         }
@@ -143,14 +141,12 @@ fn extract_rkyv_archived(attrs: &[Attribute]) -> Option<String> {
             syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated,
         ) {
             for meta in &nested {
-                if let syn::Meta::NameValue(nv) = meta {
-                    if nv.path.is_ident("archived") {
-                        if let syn::Expr::Path(expr_path) = &nv.value {
-                            if let Some(last) = expr_path.path.segments.last() {
-                                return Some(last.ident.to_string());
-                            }
-                        }
-                    }
+                if let syn::Meta::NameValue(nv) = meta
+                    && nv.path.is_ident("archived")
+                    && let syn::Expr::Path(expr_path) = &nv.value
+                    && let Some(last) = expr_path.path.segments.last()
+                {
+                    return Some(last.ident.to_string());
                 }
             }
         }
