@@ -14,7 +14,7 @@ export interface RkyvWriterOptions {
  * 3. The root object ends up at the end of the buffer
  */
 export class RkyvWriter {
-  buffer: Uint8Array;
+  buffer: ArrayBuffer;
   view: DataView;
   position: number;
   capacity: number;
@@ -23,8 +23,8 @@ export class RkyvWriter {
   constructor(options: RkyvWriterOptions = {}) {
     this.capacity = options.initialCapacity || 1024;
     this.textEncoder = options.textEncoder || new TextEncoder();
-    this.buffer = new Uint8Array(this.capacity);
-    this.view = new DataView(this.buffer.buffer);
+    this.buffer = new ArrayBuffer(this.capacity);
+    this.view = new DataView(this.buffer);
     this.position = 0;
   }
 
@@ -45,10 +45,8 @@ export class RkyvWriter {
       while (this.capacity < required) {
         this.capacity *= 2;
       }
-      const newBuffer = new Uint8Array(this.capacity);
-      newBuffer.set(this.buffer);
-      this.buffer = newBuffer;
-      this.view = new DataView(this.buffer.buffer);
+      this.buffer = this.buffer.transfer(this.capacity);
+      this.view = new DataView(this.buffer);
     }
   }
 
@@ -63,7 +61,7 @@ export class RkyvWriter {
       this.ensureCapacity(padding);
       // Zero-fill padding
       for (let i = 0; i < padding; i++) {
-        this.buffer[this.position++] = 0;
+        this.view.setUint8(this.position++, 0);
       }
     }
     return this.position;
@@ -77,7 +75,7 @@ export class RkyvWriter {
       const padding = targetPosition - this.position;
       this.ensureCapacity(padding);
       for (let i = 0; i < padding; i++) {
-        this.buffer[this.position++] = 0;
+        this.view.setUint8(this.position++, 0);
       }
     }
   }
@@ -180,7 +178,7 @@ export class RkyvWriter {
   writeBytes(bytes: Uint8Array): number {
     const pos = this.position;
     this.ensureCapacity(bytes.length);
-    this.buffer.set(bytes, this.position);
+    new Uint8Array(this.buffer, this.position, bytes.length).set(bytes);
     this.position += bytes.length;
     return pos;
   }
@@ -210,7 +208,7 @@ export class RkyvWriter {
    * Get the final buffer containing the serialized data.
    */
   finish(): Uint8Array {
-    return this.buffer.subarray(0, this.position);
+    return new Uint8Array(this.buffer, 0, this.position);
   }
 
   /**
