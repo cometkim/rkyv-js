@@ -1,4 +1,4 @@
-//! Type registry for mapping Rust type names to TypeScript codec definitions.
+//! Type registry for mapping Rust type paths to TypeScript codec definitions.
 //!
 //! The registry provides a data-driven way to teach the code generator how to
 //! handle external crate types. Built-in mappings for rkyv's supported crates
@@ -8,7 +8,7 @@ use std::collections::HashMap;
 
 use crate::types::TypeDef;
 
-/// A registry of type name -> `TypeDef` template associations.
+/// A registry of fully-qualified Rust type path -> `TypeDef` template associations.
 ///
 /// The `TypeRegistry` is the central place where the code generator learns how
 /// to handle external types. It ships with built-in mappings for all types
@@ -24,23 +24,25 @@ use crate::types::TypeDef;
 ///
 /// | Rust type | Codec expression | Import |
 /// |-----------|-----------------|--------|
-/// | `Uuid` | `uuid` | `rkyv-js/lib/uuid` |
-/// | `Bytes` | `bytes` | `rkyv-js/lib/bytes` |
-/// | `SmolStr` | `r.string` | none |
-/// | `VecDeque<T>` | `r.vec({0})` | none |
-/// | `ThinVec<T>` | `r.vec({0})` | none |
-/// | `ArrayVec<T, N>` | `r.vec({0})` | none |
-/// | `SmallVec<[T; N]>` | `r.vec({0})` | none |
-/// | `TinyVec<[T; N]>` | `r.vec({0})` | none |
-/// | `HashMap<K, V>` | `hashMap({0}, {1})` | `rkyv-js/lib/std-hash-map` |
-/// | `HashSet<T>` | `hashSet({0})` | `rkyv-js/lib/std-hash-set` |
-/// | `BTreeMap<K, V>` | `btreeMap({0}, {1})` | `rkyv-js/lib/std-btree-map` |
-/// | `BTreeSet<T>` | `btreeSet({0})` | `rkyv-js/lib/std-btree-set` |
-/// | `IndexMap<K, V>` | `indexMap({0}, {1})` | `rkyv-js/lib/indexmap` |
-/// | `IndexSet<T>` | `indexSet({0})` | `rkyv-js/lib/indexmap` |
-/// | `Arc<T>` | `r.arc({0})` | none |
-/// | `Rc<T>` | `r.rc({0})` | none |
-/// | `Weak<T>` | `r.rcWeak({0})` | none |
+/// | `uuid::Uuid` | `uuid` | `rkyv-js/lib/uuid` |
+/// | `bytes::Bytes` | `bytes` | `rkyv-js/lib/bytes` |
+/// | `smol_str::SmolStr` | `r.string` | none |
+/// | `std::collections::VecDeque<T>` | `r.vec({0})` | none |
+/// | `thin_vec::ThinVec<T>` | `r.vec({0})` | none |
+/// | `arrayvec::ArrayVec<T, N>` | `r.vec({0})` | none |
+/// | `smallvec::SmallVec<[T; N]>` | `r.vec({0})` | none |
+/// | `tinyvec::TinyVec<[T; N]>` | `r.vec({0})` | none |
+/// | `std::collections::HashMap<K, V>` | `hashMap({0}, {1})` | `rkyv-js/lib/std-hash-map` |
+/// | `std::collections::HashSet<T>` | `hashSet({0})` | `rkyv-js/lib/std-hash-set` |
+/// | `std::collections::BTreeMap<K, V>` | `btreeMap({0}, {1})` | `rkyv-js/lib/std-btree-map` |
+/// | `std::collections::BTreeSet<T>` | `btreeSet({0})` | `rkyv-js/lib/std-btree-set` |
+/// | `indexmap::IndexMap<K, V>` | `indexMap({0}, {1})` | `rkyv-js/lib/indexmap` |
+/// | `indexmap::IndexSet<T>` | `indexSet({0})` | `rkyv-js/lib/indexmap` |
+/// | `hashbrown::HashMap<K, V>` | `hashMap({0}, {1})` | `rkyv-js/lib/std-hash-map` |
+/// | `hashbrown::HashSet<T>` | `hashSet({0})` | `rkyv-js/lib/std-hash-set` |
+/// | `std::sync::Arc<T>` / `triomphe::Arc<T>` | `r.arc({0})` | none |
+/// | `std::rc::Rc<T>` | `r.rc({0})` | none |
+/// | `std::rc::Weak<T>` / `std::sync::Weak<T>` | `r.rcWeak({0})` | none |
 ///
 /// # Custom mappings
 ///
@@ -49,7 +51,7 @@ use crate::types::TypeDef;
 /// use rkyv_js_codegen::{CodeGenerator, TypeDef};
 ///
 /// let mut generator = CodeGenerator::new();
-/// generator.register_type("MyCustomVec",
+/// generator.register_type("my_crate::MyCustomVec",
 ///     TypeDef::new("myVec({0})", "{0}[]")
 ///         .with_import("my-package/codecs", "myVec"),
 /// );
@@ -79,100 +81,127 @@ impl TypeRegistry {
     pub fn register_builtins(&mut self) {
         // uuid::Uuid
         self.register(
-            "Uuid",
+            "uuid::Uuid",
             TypeDef::new("uuid", "string").with_import("rkyv-js/lib/uuid", "uuid"),
         );
 
         // bytes::Bytes
         self.register(
-            "Bytes",
+            "bytes::Bytes",
             TypeDef::new("bytes", "Uint8Array").with_import("rkyv-js/lib/bytes", "bytes"),
         );
 
         // smol_str::SmolStr -> same as r.string
-        self.register("SmolStr", TypeDef::new("r.string", "string"));
+        self.register("smol_str::SmolStr", TypeDef::new("r.string", "string"));
 
         // std::collections::VecDeque<T> -> same as r.vec(T)
-        self.register("VecDeque", TypeDef::new("r.vec({0})", "{0}[]"));
+        self.register(
+            "std::collections::VecDeque",
+            TypeDef::new("r.vec({0})", "{0}[]"),
+        );
 
         // thin_vec::ThinVec<T> -> same as r.vec(T)
-        self.register("ThinVec", TypeDef::new("r.vec({0})", "{0}[]"));
+        self.register("thin_vec::ThinVec", TypeDef::new("r.vec({0})", "{0}[]"));
 
         // arrayvec::ArrayVec<T, CAP> -> same as r.vec(T)
-        self.register("ArrayVec", TypeDef::new("r.vec({0})", "{0}[]"));
+        self.register("arrayvec::ArrayVec", TypeDef::new("r.vec({0})", "{0}[]"));
 
         // smallvec::SmallVec<[T; N]> -> same as r.vec(T)
-        self.register("SmallVec", TypeDef::new("r.vec({0})", "{0}[]"));
+        self.register("smallvec::SmallVec", TypeDef::new("r.vec({0})", "{0}[]"));
 
         // tinyvec::TinyVec<[T; N]> -> same as r.vec(T)
-        self.register("TinyVec", TypeDef::new("r.vec({0})", "{0}[]"));
+        self.register("tinyvec::TinyVec", TypeDef::new("r.vec({0})", "{0}[]"));
 
         // std::collections::HashMap<K, V>
         self.register(
-            "HashMap",
+            "std::collections::HashMap",
             TypeDef::new("hashMap({0}, {1})", "Map<{0}, {1}>")
                 .with_import("rkyv-js/lib/std-hash-map", "hashMap"),
         );
 
         // std::collections::HashSet<T>
         self.register(
-            "HashSet",
+            "std::collections::HashSet",
             TypeDef::new("hashSet({0})", "Set<{0}>")
                 .with_import("rkyv-js/lib/std-hash-set", "hashSet"),
         );
 
         // std::collections::BTreeMap<K, V>
         self.register(
-            "BTreeMap",
+            "std::collections::BTreeMap",
             TypeDef::new("btreeMap({0}, {1})", "Map<{0}, {1}>")
                 .with_import("rkyv-js/lib/std-btree-map", "btreeMap"),
         );
 
         // std::collections::BTreeSet<T>
         self.register(
-            "BTreeSet",
+            "std::collections::BTreeSet",
             TypeDef::new("btreeSet({0})", "Set<{0}>")
                 .with_import("rkyv-js/lib/std-btree-set", "btreeSet"),
         );
 
         // indexmap::IndexMap<K, V>
         self.register(
-            "IndexMap",
+            "indexmap::IndexMap",
             TypeDef::new("indexMap({0}, {1})", "Map<{0}, {1}>")
                 .with_import("rkyv-js/lib/indexmap", "indexMap"),
         );
 
         // indexmap::IndexSet<T>
         self.register(
-            "IndexSet",
+            "indexmap::IndexSet",
             TypeDef::new("indexSet({0})", "Set<{0}>")
                 .with_import("rkyv-js/lib/indexmap", "indexSet"),
         );
 
-        // triomphe::Arc<T> or std::sync::Arc<T>
-        self.register("Arc", TypeDef::new("r.arc({0})", "{0}"));
+        // hashbrown::HashMap<K, V> -> same as std HashMap
+        self.register(
+            "hashbrown::HashMap",
+            TypeDef::new("hashMap({0}, {1})", "Map<{0}, {1}>")
+                .with_import("rkyv-js/lib/std-hash-map", "hashMap"),
+        );
+
+        // hashbrown::HashSet<T> -> same as std HashSet
+        self.register(
+            "hashbrown::HashSet",
+            TypeDef::new("hashSet({0})", "Set<{0}>")
+                .with_import("rkyv-js/lib/std-hash-set", "hashSet"),
+        );
+
+        // triomphe::Arc<T>
+        self.register("triomphe::Arc", TypeDef::new("r.arc({0})", "{0}"));
+
+        // std::sync::Arc<T>
+        self.register("std::sync::Arc", TypeDef::new("r.arc({0})", "{0}"));
 
         // std::rc::Rc<T>
-        self.register("Rc", TypeDef::new("r.rc({0})", "{0}"));
+        self.register("std::rc::Rc", TypeDef::new("r.rc({0})", "{0}"));
 
-        // std::rc::Weak<T> or std::sync::Weak<T>
-        self.register("Weak", TypeDef::new("r.rcWeak({0})", "{0} | null"));
+        // std::rc::Weak<T>
+        self.register("std::rc::Weak", TypeDef::new("r.rcWeak({0})", "{0} | null"));
+
+        // std::sync::Weak<T>
+        self.register(
+            "std::sync::Weak",
+            TypeDef::new("r.rcWeak({0})", "{0} | null"),
+        );
     }
 
-    /// Register a type for a Rust type name.
+    /// Register a type for a fully-qualified Rust type path.
     ///
-    /// The name should be the last path segment of the type (e.g., `"Uuid"` for `uuid::Uuid`).
-    /// If a mapping already exists for this name, it is replaced.
+    /// The name should be the full module path of the type
+    /// (e.g., `"uuid::Uuid"`, `"std::collections::HashMap"`).
+    /// If a mapping already exists for this path, it is replaced.
     pub fn register(&mut self, name: impl Into<String>, typedef: TypeDef) {
         self.mappings.insert(name.into(), typedef);
     }
 
-    /// Look up the type definition template for a Rust type name.
+    /// Look up the type definition template for a fully-qualified Rust type path.
     pub fn get(&self, name: &str) -> Option<&TypeDef> {
         self.mappings.get(name)
     }
 
-    /// Check if a type name is registered.
+    /// Check if a type path is registered.
     pub fn contains(&self, name: &str) -> bool {
         self.mappings.contains_key(name)
     }
@@ -196,12 +225,13 @@ mod tests {
     #[test]
     fn test_registry_with_builtins() {
         let registry = TypeRegistry::with_builtins();
-        assert!(registry.contains("Uuid"));
-        assert!(registry.contains("Bytes"));
-        assert!(registry.contains("SmolStr"));
-        assert!(registry.contains("VecDeque"));
-        assert!(registry.contains("HashMap"));
-        assert!(registry.contains("Arc"));
+        assert!(registry.contains("uuid::Uuid"));
+        assert!(registry.contains("bytes::Bytes"));
+        assert!(registry.contains("smol_str::SmolStr"));
+        assert!(registry.contains("std::collections::VecDeque"));
+        assert!(registry.contains("std::collections::HashMap"));
+        assert!(registry.contains("triomphe::Arc"));
+        assert!(registry.contains("std::sync::Arc"));
         assert!(!registry.contains("NonExistent"));
     }
 
@@ -209,11 +239,11 @@ mod tests {
     fn test_registry_custom_type() {
         let mut registry = TypeRegistry::new();
         registry.register(
-            "MyType",
+            "my_crate::MyType",
             TypeDef::new("myCodec({0})", "MyType<{0}>").with_import("my-pkg/codecs", "myCodec"),
         );
 
-        let template = registry.get("MyType").unwrap();
+        let template = registry.get("my_crate::MyType").unwrap();
         let td = template.resolve(vec![TypeDef::string()]);
         assert_eq!(td.to_codec_expr(), "myCodec(r.string)");
         assert_eq!(td.to_ts_type(), "MyType<string>");
@@ -223,11 +253,11 @@ mod tests {
     fn test_registry_override_builtin() {
         let mut registry = TypeRegistry::with_builtins();
         registry.register(
-            "Uuid",
+            "uuid::Uuid",
             TypeDef::new("customUuid", "CustomUuid").with_import("my-pkg/uuid", "customUuid"),
         );
 
-        let template = registry.get("Uuid").unwrap();
+        let template = registry.get("uuid::Uuid").unwrap();
         let td = template.resolve(vec![]);
         assert_eq!(td.to_codec_expr(), "customUuid");
     }
@@ -235,15 +265,15 @@ mod tests {
     #[test]
     fn test_registry_unregister() {
         let mut registry = TypeRegistry::with_builtins();
-        assert!(registry.contains("Uuid"));
-        registry.unregister("Uuid");
-        assert!(!registry.contains("Uuid"));
+        assert!(registry.contains("uuid::Uuid"));
+        registry.unregister("uuid::Uuid");
+        assert!(!registry.contains("uuid::Uuid"));
     }
 
     #[test]
     fn test_builtin_uuid() {
         let registry = TypeRegistry::with_builtins();
-        let td = registry.get("Uuid").unwrap().resolve(vec![]);
+        let td = registry.get("uuid::Uuid").unwrap().resolve(vec![]);
         assert_eq!(td.to_codec_expr(), "uuid");
         assert_eq!(td.to_ts_type(), "string");
     }
@@ -252,7 +282,7 @@ mod tests {
     fn test_builtin_hashmap() {
         let registry = TypeRegistry::with_builtins();
         let td = registry
-            .get("HashMap")
+            .get("std::collections::HashMap")
             .unwrap()
             .resolve(vec![TypeDef::string(), TypeDef::u32()]);
         assert_eq!(td.to_codec_expr(), "hashMap(r.string, r.u32)");
@@ -260,9 +290,31 @@ mod tests {
     }
 
     #[test]
+    fn test_builtin_hashbrown_hashmap() {
+        let registry = TypeRegistry::with_builtins();
+        let td = registry
+            .get("hashbrown::HashMap")
+            .unwrap()
+            .resolve(vec![TypeDef::string(), TypeDef::u32()]);
+        assert_eq!(td.to_codec_expr(), "hashMap(r.string, r.u32)");
+        assert_eq!(td.to_ts_type(), "Map<string, number>");
+    }
+
+    #[test]
+    fn test_builtin_hashbrown_hashset() {
+        let registry = TypeRegistry::with_builtins();
+        let td = registry
+            .get("hashbrown::HashSet")
+            .unwrap()
+            .resolve(vec![TypeDef::string()]);
+        assert_eq!(td.to_codec_expr(), "hashSet(r.string)");
+        assert_eq!(td.to_ts_type(), "Set<string>");
+    }
+
+    #[test]
     fn test_builtin_smolstr() {
         let registry = TypeRegistry::with_builtins();
-        let td = registry.get("SmolStr").unwrap().resolve(vec![]);
+        let td = registry.get("smol_str::SmolStr").unwrap().resolve(vec![]);
         assert_eq!(td.to_codec_expr(), "r.string");
         assert_eq!(td.to_ts_type(), "string");
     }

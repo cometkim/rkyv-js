@@ -49,10 +49,10 @@ impl TypeEntry {
 ///
 /// # Type registry
 ///
-/// The generator includes a [`TypeRegistry`] that maps Rust type names to
-/// TypeScript codec definitions. Built-in mappings for all rkyv-supported
-/// external crates are registered by default. You can customize the registry
-/// via [`register_type`](CodeGenerator::register_type) and
+/// The generator includes a [`TypeRegistry`] that maps fully-qualified Rust
+/// type paths to TypeScript codec definitions. Built-in mappings for all
+/// rkyv-supported external crates are registered by default. You can customize
+/// the registry via [`register_type`](CodeGenerator::register_type) and
 /// [`unregister_type`](CodeGenerator::unregister_type).
 ///
 /// # Example
@@ -63,8 +63,8 @@ impl TypeEntry {
 ///
 /// let mut generator = CodeGenerator::new();
 ///
-/// // Register a custom external type
-/// generator.register_type("MyVec",
+/// // Register a custom external type (use fully-qualified Rust path)
+/// generator.register_type("my_crate::MyVec",
 ///     TypeDef::new("myVec({0})", "{0}[]")
 ///         .with_import("my-pkg/codecs", "myVec"),
 /// );
@@ -137,6 +137,9 @@ impl CodeGenerator {
     /// `generics` field describes how to parse type parameters from source,
     /// and `resolve()` is called to fill in `type_params`.
     ///
+    /// The `name` should be the fully-qualified Rust type path
+    /// (e.g., `"my_crate::CustomMap"`, `"chrono::NaiveDate"`).
+    ///
     /// # Example
     ///
     /// ```
@@ -144,7 +147,7 @@ impl CodeGenerator {
     /// use rkyv_js_codegen::{CodeGenerator, TypeDef};
     ///
     /// let mut generator = CodeGenerator::new();
-    /// generator.register_type("CustomMap",
+    /// generator.register_type("my_crate::CustomMap",
     ///     TypeDef::new("customMap({0}, {1})", "Map<{0}, {1}>")
     ///         .with_import("my-package/codecs", "customMap"),
     /// );

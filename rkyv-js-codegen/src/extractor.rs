@@ -8,9 +8,13 @@
 //!
 //! ## Use-item analysis
 //!
-//! The extractor automatically processes `use` statements in each source file
-//! to resolve type aliases: `use std::collections::BTreeMap as MyMap`
-//! allows `MyMap<K, V>` to be correctly resolved as a `BTreeMap`.
+//! The extractor automatically processes `use` statements in each source file to
+//! build a mapping from local names to fully-qualified module paths:
+//!
+//! - `use std::collections::BTreeMap` maps `"BTreeMap"` to `"std::collections::BTreeMap"`
+//! - `use std::collections::BTreeMap as MyMap` maps `"MyMap"` to `"std::collections::BTreeMap"`
+//! - `use rkyv::Archive as Rkyv` maps `"Rkyv"` to `"rkyv::Archive"`, which is then
+//!   recognized as a valid derive marker.
 
 use crate::CodeGenerator;
 use crate::types::{EnumVariant, TypeDef};
@@ -25,62 +29,95 @@ use walkdir::WalkDir;
 
 /// Per-file context built from `use` items.
 ///
-/// This holds the alias map for a single source file, so that type resolution
-/// and derive detection are alias-aware.
+/// This holds the import map for a single source file, so that type resolution
+/// and derive detection work with fully-qualified paths.
 struct SourceContext {
-    /// Maps local alias -> canonical name (last segment of the original path).
+    /// Maps local name -> fully-qualified path.
     ///
-    /// Only populated for `use ... as Alias` renames. Non-renamed imports are
-    /// not included since the local name already matches the canonical name.
-    aliases: HashMap<String, String>,
+    /// Populated for both plain imports (`use foo::Bar` -> `"Bar" => "foo::Bar"`)
+    /// and renames (`use foo::Bar as Baz` -> `"Baz" => "foo::Bar"`).
+    /// Glob imports are not tracked since they can't be resolved statically.
+    imports: HashMap<String, String>,
 }
 
-/// Recursively flatten a `UseTree` into alias entries.
+/// Recursively flatten a `UseTree` into import entries.
 ///
-/// For `UseTree::Rename`, records `(alias, canonical_last_segment)`.
-fn collect_use_aliases(
+/// Each entry maps the local name to its fully-qualified path built from `prefix`.
+fn collect_imports(
     tree: &UseTree,
     prefix: &[String],
-    aliases: &mut HashMap<String, String>,
+    imports: &mut HashMap<String, String>,
 ) {
     match tree {
         UseTree::Path(p) => {
             let mut new_prefix = prefix.to_vec();
             new_prefix.push(p.ident.to_string());
-            collect_use_aliases(&p.tree, &new_prefix, aliases);
+            collect_imports(&p.tree, &new_prefix, imports);
+        }
+        UseTree::Name(n) => {
+            let name = n.ident.to_string();
+            let full_path = make_full_path(prefix, &name);
+            imports.insert(name, full_path);
         }
         UseTree::Rename(r) => {
             let canonical = r.ident.to_string();
             let alias = r.rename.to_string();
-            aliases.insert(alias, canonical);
+            let full_path = make_full_path(prefix, &canonical);
+            imports.insert(alias, full_path);
         }
-        UseTree::Name(_) | UseTree::Glob(_) => {
-            // No alias to record; glob imports can't be resolved statically
+        UseTree::Glob(_) => {
+            // Glob imports can't be resolved statically
         }
         UseTree::Group(g) => {
             for item in &g.items {
-                collect_use_aliases(item, prefix, aliases);
+                collect_imports(item, prefix, imports);
             }
         }
     }
 }
 
-/// Build a `SourceContext` from all `use` items in a parsed file.
+/// Join prefix segments with the final name using `::`.
+fn make_full_path(prefix: &[String], name: &str) -> String {
+    if prefix.is_empty() {
+        name.to_string()
+    } else {
+        format!("{}::{}", prefix.join("::"), name)
+    }
+}
+
+/// Build a `SourceContext` from all `use` items and type aliases in a parsed file.
 fn build_source_context(file: &syn::File) -> SourceContext {
-    let mut aliases = HashMap::new();
+    let mut imports = HashMap::new();
 
     for item in &file.items {
-        if let syn::Item::Use(item_use) = item {
-            collect_use_aliases(&item_use.tree, &[], &mut aliases);
+        match item {
+            syn::Item::Use(item_use) => {
+                collect_imports(&item_use.tree, &[], &mut imports);
+            }
+            // `type Foo<..> = some::path::Bar<..>` → maps "Foo" to "some::path::Bar"
+            syn::Item::Type(item_type) => {
+                if let Type::Path(TypePath { path, .. }) = &*item_type.ty
+                    && path.segments.len() > 1
+                {
+                    let full_path = path
+                        .segments
+                        .iter()
+                        .map(|s| s.ident.to_string())
+                        .collect::<Vec<_>>()
+                        .join("::");
+                    imports.insert(item_type.ident.to_string(), full_path);
+                }
+            }
+            _ => {}
         }
     }
 
-    SourceContext { aliases }
+    SourceContext { imports }
 }
 
 /// Extract the remote type path from `#[rkyv(remote = some::Type)]`, if present.
 ///
-/// Returns the last segment of the path (e.g., `"NaiveDate"` from `chrono::NaiveDate`).
+/// Returns the full qualified path (e.g., `"chrono::NaiveDate"` from `chrono::NaiveDate`).
 fn extract_rkyv_remote(attrs: &[Attribute]) -> Option<String> {
     for attr in attrs {
         if !attr.path().is_ident("rkyv") {
@@ -93,9 +130,15 @@ fn extract_rkyv_remote(attrs: &[Attribute]) -> Option<String> {
                 if let syn::Meta::NameValue(nv) = meta
                     && nv.path.is_ident("remote")
                     && let syn::Expr::Path(expr_path) = &nv.value
-                    && let Some(last) = expr_path.path.segments.last()
                 {
-                    return Some(last.ident.to_string());
+                    let path_str = expr_path
+                        .path
+                        .segments
+                        .iter()
+                        .map(|s| s.ident.to_string())
+                        .collect::<Vec<_>>()
+                        .join("::");
+                    return Some(path_str);
                 }
             }
         }
@@ -128,8 +171,16 @@ fn extract_rkyv_archived(attrs: &[Attribute]) -> Option<String> {
     None
 }
 
-/// Check if a derive input has any of the specified marker derives.
-fn has_marker_derive(attrs: &[Attribute], markers: &[String]) -> bool {
+/// The fully-qualified derive marker path that triggers type extraction.
+const MARKER: &str = "rkyv::Archive";
+
+/// Check if a derive input has the `Archive` marker derive.
+///
+/// Recognizes:
+/// - `#[derive(Archive)]` when `use rkyv::Archive` is in scope
+/// - `#[derive(rkyv::Archive)]` or any qualified path ending in `::Archive`
+/// - `#[derive(Rkyv)]` when `use rkyv::Archive as Rkyv` is in scope
+fn has_marker_derive(attrs: &[Attribute], ctx: &SourceContext) -> bool {
     for attr in attrs {
         if attr.path().is_ident("derive")
             && let Ok(nested) = attr.parse_args_with(
@@ -137,9 +188,21 @@ fn has_marker_derive(attrs: &[Attribute], markers: &[String]) -> bool {
             )
         {
             for path in nested {
-                if let Some(last_segment) = path.segments.last() {
-                    let ident = last_segment.ident.to_string();
-                    if markers.iter().any(|m| m == &ident) {
+                if path.segments.len() == 1 {
+                    // Unqualified: resolve via imports
+                    let ident = path.segments[0].ident.to_string();
+                    if ctx.imports.get(&ident).is_some_and(|p| p == MARKER) {
+                        return true;
+                    }
+                } else {
+                    // Qualified path like `rkyv::Archive`: join segments
+                    let qualified: String = path
+                        .segments
+                        .iter()
+                        .map(|s| s.ident.to_string())
+                        .collect::<Vec<_>>()
+                        .join("::");
+                    if qualified == MARKER || qualified.ends_with("::Archive") {
                         return true;
                     }
                 }
@@ -149,18 +212,39 @@ fn has_marker_derive(attrs: &[Attribute], markers: &[String]) -> bool {
     false
 }
 
-/// Convert a syn Type to our TypeDef, using the type registry and alias map.
+/// Resolve a local type name to its fully-qualified path using the import map.
+///
+/// For names found in `ctx.imports`, returns the full path (e.g., `"std::collections::HashMap"`).
+/// For names not in imports (local types, primitives), returns the name as-is.
+fn resolve_type_path(raw_ident: &str, ctx: &SourceContext) -> String {
+    ctx.imports
+        .get(raw_ident)
+        .cloned()
+        .unwrap_or_else(|| raw_ident.to_string())
+}
+
+/// Convert a syn Type to our TypeDef, using the type registry and import map.
 fn type_to_typedef(ty: &Type, codegen: &CodeGenerator, ctx: &SourceContext) -> Option<TypeDef> {
     match ty {
         Type::Path(TypePath { path, .. }) => {
             let segment = path.segments.last()?;
             let raw_ident = segment.ident.to_string();
 
-            // Resolve alias to canonical name
-            let ident_str = ctx.aliases.get(&raw_ident).cloned().unwrap_or(raw_ident);
+            // For multi-segment paths (e.g., std::collections::BTreeMap),
+            // join all segments to get the full path directly.
+            // For single-segment paths, resolve via the import map.
+            let full_path = if path.segments.len() > 1 {
+                path.segments
+                    .iter()
+                    .map(|s| s.ident.to_string())
+                    .collect::<Vec<_>>()
+                    .join("::")
+            } else {
+                resolve_type_path(&raw_ident, ctx)
+            };
 
-            match ident_str.as_str() {
-                // Primitives
+            match full_path.as_str() {
+                // Primitives (no module path needed)
                 "u8" => Some(TypeDef::u8()),
                 "i8" => Some(TypeDef::i8()),
                 "u16" => Some(TypeDef::u16()),
@@ -173,25 +257,25 @@ fn type_to_typedef(ty: &Type, codegen: &CodeGenerator, ctx: &SourceContext) -> O
                 "f64" => Some(TypeDef::f64()),
                 "bool" => Some(TypeDef::bool()),
                 "char" => Some(TypeDef::char()),
-                "String" => Some(TypeDef::string()),
+                "String" | "std::string::String" => Some(TypeDef::string()),
 
                 // Container types
-                "Vec" => {
+                "Vec" | "std::vec::Vec" => {
                     let inner = get_single_generic_arg(segment)?;
                     Some(TypeDef::vec(type_to_typedef(inner, codegen, ctx)?))
                 }
-                "Option" => {
+                "Option" | "std::option::Option" => {
                     let inner = get_single_generic_arg(segment)?;
                     Some(TypeDef::option(type_to_typedef(inner, codegen, ctx)?))
                 }
-                "Box" => {
+                "Box" | "std::boxed::Box" => {
                     let inner = get_single_generic_arg(segment)?;
                     Some(TypeDef::boxed(type_to_typedef(inner, codegen, ctx)?))
                 }
 
                 // Check the type registry for external types, fallback to named
                 _ => {
-                    if let Some(template) = codegen.registry.get(&ident_str) {
+                    if let Some(template) = codegen.registry.get(&full_path) {
                         let arity = template.arity();
                         let type_params = if arity == 0 {
                             vec![]
@@ -206,7 +290,8 @@ fn type_to_typedef(ty: &Type, codegen: &CodeGenerator, ctx: &SourceContext) -> O
                         };
                         Some(template.resolve(type_params))
                     } else {
-                        Some(TypeDef::named(ident_str))
+                        // For unresolved types, use the raw ident (local type name)
+                        Some(TypeDef::named(raw_ident))
                     }
                 }
             }
@@ -348,10 +433,9 @@ fn extract_enum(
 fn process_derive_input(
     codegen: &mut CodeGenerator,
     input: &DeriveInput,
-    markers: &[String],
     ctx: &SourceContext,
 ) {
-    if !has_marker_derive(&input.attrs, markers) {
+    if !has_marker_derive(&input.attrs, ctx) {
         return;
     }
 
@@ -400,9 +484,6 @@ fn process_derive_input(
     }
 }
 
-/// The derive marker name that triggers type extraction.
-const MARKER: &str = "Archive";
-
 fn parse_source_file(codegen: &mut CodeGenerator, source: &str) {
     let file = match syn::parse_file(source) {
         Ok(f) => f,
@@ -411,15 +492,6 @@ fn parse_source_file(codegen: &mut CodeGenerator, source: &str) {
 
     // Build per-file context from `use` items
     let ctx = build_source_context(&file);
-
-    // Collect marker names: "Archive" + any aliases for it (e.g. `use rkyv::Archive as Rkyv`)
-    let mut markers = vec![MARKER.to_string()];
-    markers.extend(
-        ctx.aliases
-            .iter()
-            .filter(|(_, canonical)| canonical.as_str() == MARKER)
-            .map(|(alias, _)| alias.clone()),
-    );
 
     for item in file.items {
         if let syn::Item::Struct(s) = item {
@@ -434,7 +506,7 @@ fn parse_source_file(codegen: &mut CodeGenerator, source: &str) {
                     semi_token: s.semi_token,
                 }),
             };
-            process_derive_input(codegen, &input, &markers, &ctx);
+            process_derive_input(codegen, &input, &ctx);
         } else if let syn::Item::Enum(e) = item {
             let input = DeriveInput {
                 attrs: e.attrs,
@@ -447,7 +519,7 @@ fn parse_source_file(codegen: &mut CodeGenerator, source: &str) {
                     variants: e.variants,
                 }),
             };
-            process_derive_input(codegen, &input, &markers, &ctx);
+            process_derive_input(codegen, &input, &ctx);
         }
     }
 }
@@ -531,6 +603,7 @@ mod tests {
         let mut codegen = CodeGenerator::new();
         codegen.add_source_str(
             r#"
+            use rkyv::Archive;
             #[derive(Archive)]
             struct Person { name: String, age: u32, scores: Vec<u32>, email: Option<String> }
         "#,
@@ -546,6 +619,7 @@ mod tests {
         let mut codegen = CodeGenerator::new();
         codegen.add_source_str(
             r#"
+            use rkyv::Archive;
             #[derive(Archive)]
             enum Message { Quit, Move { x: i32, y: i32 }, Write(String) }
         "#,
@@ -562,6 +636,7 @@ mod tests {
         let mut codegen = CodeGenerator::new();
         codegen.add_source_str(
             r#"
+            use rkyv::Archive;
             #[derive(Debug)]
             struct NotExported { x: i32 }
             #[derive(Debug, Archive)]
@@ -610,7 +685,7 @@ mod tests {
             use rkyv::Archive as Rkyv;
             #[derive(Rkyv)]
             struct AliasedMarker { value: i32 }
-            #[derive(Archive)]
+            #[derive(rkyv::Archive)]
             struct DefaultMarker { value: u32 }
         "#,
         );
@@ -634,20 +709,20 @@ mod tests {
     }
 
     #[test]
-    fn test_unaliased_marker_not_detected() {
-        // Without a `use ... as Rkyv` alias, `#[derive(Rkyv)]` should not be detected
+    fn test_unimported_marker_not_detected() {
+        // Without a `use rkyv::Archive`, neither bare `Archive` nor `Rkyv` should be detected
         let mut codegen = CodeGenerator::new();
         codegen.add_source_str(
             r#"
             #[derive(Rkyv)]
-            struct NotDetected { a: i32 }
+            struct NotDetected1 { a: i32 }
             #[derive(Archive)]
-            struct Detected { b: i32 }
+            struct NotDetected2 { b: i32 }
         "#,
         );
         let code = codegen.generate();
-        assert!(!code.contains("ArchivedNotDetected"));
-        assert!(code.contains("ArchivedDetected"));
+        assert!(!code.contains("ArchivedNotDetected1"));
+        assert!(!code.contains("ArchivedNotDetected2"));
     }
 
     #[test]
@@ -655,6 +730,7 @@ mod tests {
         let mut codegen = CodeGenerator::new();
         codegen.add_source_str(
             r#"
+            use rkyv::Archive;
             #[derive(Archive)]
             struct Inner { value: u32 }
             #[derive(Archive)]
@@ -671,6 +747,7 @@ mod tests {
         let mut codegen = CodeGenerator::new();
         codegen.add_source_str(
             r#"
+            use rkyv::Archive;
             use uuid::Uuid;
             #[derive(Archive)]
             struct Record { id: Uuid, name: String }
@@ -686,6 +763,7 @@ mod tests {
         let mut codegen = CodeGenerator::new();
         codegen.add_source_str(
             r#"
+            use rkyv::Archive;
             use bytes::Bytes;
             #[derive(Archive)]
             struct Message { payload: Bytes }
@@ -701,6 +779,7 @@ mod tests {
         let mut codegen = CodeGenerator::new();
         codegen.add_source_str(
             r#"
+            use rkyv::Archive;
             use smol_str::SmolStr;
             #[derive(Archive)]
             struct Config { key: SmolStr }
@@ -715,6 +794,7 @@ mod tests {
         let mut codegen = CodeGenerator::new();
         codegen.add_source_str(
             r#"
+            use rkyv::Archive;
             use thin_vec::ThinVec;
             #[derive(Archive)]
             struct Data { items: ThinVec<u32> }
@@ -729,6 +809,7 @@ mod tests {
         let mut codegen = CodeGenerator::new();
         codegen.add_source_str(
             r#"
+            use rkyv::Archive;
             use arrayvec::ArrayVec;
             #[derive(Archive)]
             struct Buffer { data: ArrayVec<u8, 64> }
@@ -743,6 +824,7 @@ mod tests {
         let mut codegen = CodeGenerator::new();
         codegen.add_source_str(
             r#"
+            use rkyv::Archive;
             use smallvec::SmallVec;
             #[derive(Archive)]
             struct Items { values: SmallVec<[u32; 4]> }
@@ -757,6 +839,7 @@ mod tests {
         let mut codegen = CodeGenerator::new();
         codegen.add_source_str(
             r#"
+            use rkyv::Archive;
             use tinyvec::TinyVec;
             #[derive(Archive)]
             struct Stack { elements: TinyVec<[String; 8]> }
@@ -771,6 +854,7 @@ mod tests {
         let mut codegen = CodeGenerator::new();
         codegen.add_source_str(
             r#"
+            use rkyv::Archive;
             use indexmap::IndexMap;
             #[derive(Archive)]
             struct Config { settings: IndexMap<String, u32> }
@@ -787,6 +871,7 @@ mod tests {
         let mut codegen = CodeGenerator::new();
         codegen.add_source_str(
             r#"
+            use rkyv::Archive;
             use indexmap::IndexSet;
             #[derive(Archive)]
             struct Tags { items: IndexSet<String> }
@@ -803,6 +888,7 @@ mod tests {
         let mut codegen = CodeGenerator::new();
         codegen.add_source_str(
             r#"
+            use rkyv::Archive;
             use std::collections::VecDeque;
             #[derive(Archive)]
             struct Queue { items: VecDeque<u32> }
@@ -817,6 +903,7 @@ mod tests {
         let mut codegen = CodeGenerator::new();
         codegen.add_source_str(
             r#"
+            use rkyv::Archive;
             use std::collections::HashSet;
             #[derive(Archive)]
             struct UniqueItems { ids: HashSet<String> }
@@ -832,6 +919,7 @@ mod tests {
         let mut codegen = CodeGenerator::new();
         codegen.add_source_str(
             r#"
+            use rkyv::Archive;
             use std::collections::BTreeSet;
             #[derive(Archive)]
             struct SortedItems { values: BTreeSet<i64> }
@@ -847,6 +935,7 @@ mod tests {
         let mut codegen = CodeGenerator::new();
         codegen.add_source_str(
             r#"
+            use rkyv::Archive;
             use triomphe::Arc;
             #[derive(Archive)]
             struct Shared { config: Arc<String> }
@@ -861,6 +950,7 @@ mod tests {
         let mut codegen = CodeGenerator::new();
         codegen.add_source_str(
             r#"
+            use rkyv::Archive;
             use std::rc::Rc;
             #[derive(Archive)]
             struct Shared { data: Rc<String> }
@@ -875,6 +965,7 @@ mod tests {
         let mut codegen = CodeGenerator::new();
         codegen.add_source_str(
             r#"
+            use rkyv::Archive;
             use std::rc::Weak;
             #[derive(Archive)]
             struct MaybeShared { weak_ref: Weak<u32> }
@@ -888,11 +979,13 @@ mod tests {
     fn test_custom_registered_type() {
         let mut codegen = CodeGenerator::new();
         codegen.register_type(
-            "CustomVec",
+            "my_crate::CustomVec",
             TypeDef::new("customVec({0})", "{0}[]").with_import("my-package/codecs", "customVec"),
         );
         codegen.add_source_str(
             r#"
+            use rkyv::Archive;
+            use my_crate::CustomVec;
             #[derive(Archive)]
             struct MyData { custom: CustomVec<u32> }
         "#,
@@ -909,6 +1002,7 @@ mod tests {
         let mut codegen = CodeGenerator::new();
         codegen.add_source_str(
             r#"
+            use rkyv::Archive;
             use std::collections::BTreeMap as MyMap;
             #[derive(Archive)]
             struct Config { data: MyMap<String, u32> }
@@ -924,6 +1018,7 @@ mod tests {
         let mut codegen = CodeGenerator::new();
         codegen.add_source_str(
             r#"
+            use rkyv::Archive;
             use std::collections::HashMap as Map;
             #[derive(Archive)]
             struct Data { entries: Map<String, u64> }
@@ -939,6 +1034,7 @@ mod tests {
         let mut codegen = CodeGenerator::new();
         codegen.add_source_str(
             r#"
+            use rkyv::Archive;
             use std::vec::Vec as List;
             #[derive(Archive)]
             struct Data { items: List<u32> }
@@ -953,6 +1049,7 @@ mod tests {
         let mut codegen = CodeGenerator::new();
         codegen.add_source_str(
             r#"
+            use rkyv::Archive;
             use std::option::Option as Maybe;
             #[derive(Archive)]
             struct Data { value: Maybe<String> }
@@ -967,6 +1064,7 @@ mod tests {
         let mut codegen = CodeGenerator::new();
         codegen.add_source_str(
             r#"
+            use rkyv::Archive;
             use uuid::Uuid as Id;
             #[derive(Archive)]
             struct Record { id: Id }
@@ -982,6 +1080,7 @@ mod tests {
         let mut codegen = CodeGenerator::new();
         codegen.add_source_str(
             r#"
+            use rkyv::Archive;
             use std::collections::{HashMap as Map, BTreeSet as SortedSet};
             #[derive(Archive)]
             struct Data { map: Map<String, u32>, set: SortedSet<String> }
@@ -997,6 +1096,7 @@ mod tests {
         let mut codegen = CodeGenerator::new();
         codegen.add_source_str(
             r#"
+            use rkyv::Archive;
             use std::collections::{HashMap as Map, BTreeMap};
             #[derive(Archive)]
             struct Data { map: Map<String, u32>, tree: BTreeMap<String, u64> }
@@ -1013,11 +1113,12 @@ mod tests {
     fn test_remote_derive_skips_proxy_type() {
         let mut codegen = CodeGenerator::new();
         codegen.register_type(
-            "NaiveDate",
+            "chrono::NaiveDate",
             TypeDef::new("naiveDate", "string").with_import("my-package/chrono", "naiveDate"),
         );
         codegen.add_source_str(
             r#"
+            use rkyv::Archive;
             #[derive(Archive)]
             #[rkyv(remote = chrono::NaiveDate)]
             struct NaiveDateDef {
@@ -1036,11 +1137,13 @@ mod tests {
     fn test_remote_derive_referenced_by_other_type() {
         let mut codegen = CodeGenerator::new();
         codegen.register_type(
-            "NaiveDate",
+            "chrono::NaiveDate",
             TypeDef::new("naiveDate", "string").with_import("my-package/chrono", "naiveDate"),
         );
         codegen.add_source_str(
             r#"
+            use rkyv::Archive;
+            use chrono::NaiveDate;
             #[derive(Archive)]
             #[rkyv(remote = chrono::NaiveDate)]
             struct NaiveDateDef {
@@ -1068,11 +1171,12 @@ mod tests {
         // Ensure #[rkyv(remote = X)] is detected even alongside other rkyv attrs
         let mut codegen = CodeGenerator::new();
         codegen.register_type(
-            "Foo",
+            "external::Foo",
             TypeDef::new("foo", "string").with_import("my-package/foo", "foo"),
         );
         codegen.add_source_str(
             r#"
+            use rkyv::Archive;
             #[derive(Archive)]
             #[rkyv(compare(PartialEq), remote = external::Foo)]
             struct FooDef {
@@ -1092,6 +1196,7 @@ mod tests {
         let mut codegen = CodeGenerator::new();
         codegen.add_source_str(
             r#"
+            use rkyv::Archive;
             #[derive(Archive)]
             #[rkyv(remote = chrono::NaiveDate)]
             struct NaiveDateDef {
@@ -1110,6 +1215,7 @@ mod tests {
         let mut codegen = CodeGenerator::new();
         codegen.add_source_str(
             r#"
+            use rkyv::Archive;
             #[derive(Archive)]
             #[rkyv(compare(PartialEq), derive(Debug))]
             struct Normal {
@@ -1129,6 +1235,7 @@ mod tests {
         let mut codegen = CodeGenerator::new();
         codegen.add_source_str(
             r#"
+            use rkyv::Archive;
             #[derive(Archive)]
             #[rkyv(archived = CustomPoint)]
             struct Point {
@@ -1148,6 +1255,7 @@ mod tests {
         let mut codegen = CodeGenerator::new();
         codegen.add_source_str(
             r#"
+            use rkyv::Archive;
             #[derive(Archive)]
             #[rkyv(archived = CustomMessage)]
             enum Message {
@@ -1167,6 +1275,7 @@ mod tests {
         let mut codegen = CodeGenerator::new();
         codegen.add_source_str(
             r#"
+            use rkyv::Archive;
             #[derive(Archive)]
             #[rkyv(archived = MyPoint)]
             struct Point {
@@ -1195,6 +1304,7 @@ mod tests {
         let mut codegen = CodeGenerator::new();
         codegen.add_source_str(
             r#"
+            use rkyv::Archive;
             #[derive(Archive)]
             #[rkyv(compare(PartialEq), archived = APoint, derive(Debug))]
             struct Point {
@@ -1212,9 +1322,10 @@ mod tests {
         // When both remote and archived are present, the type is still skipped
         // (it's a proxy type for remote derive)
         let mut codegen = CodeGenerator::new();
-        codegen.register_type("Coord", TypeDef::new("Coord", "Coord"));
+        codegen.register_type("external::Coord", TypeDef::new("Coord", "Coord"));
         codegen.add_source_str(
             r#"
+            use rkyv::Archive;
             #[derive(Archive)]
             #[rkyv(remote = external::Coord)]
             #[rkyv(archived = ArchivedCoord)]

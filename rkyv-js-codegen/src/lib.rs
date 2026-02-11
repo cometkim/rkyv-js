@@ -9,7 +9,7 @@
 //! - Full support for rkyv's type system (primitives, containers, nested types)
 //! - Automatic dependency ordering for type definitions
 //! - Source file parsing to extract types annotated with `#[derive(Archive)]`
-//! - Automatic `use` alias resolution — `use X as Y` is handled transparently
+//! - Full `use` import resolution — type paths are resolved to their fully-qualified forms
 //! - Extensible type registry for external crate support
 //!
 //! ## Quick Start
@@ -51,13 +51,13 @@
 //!
 //! let mut generator = CodeGenerator::new();
 //!
-//! // Register a custom type mapping
-//! generator.register_type("MyCustomVec",
+//! // Register a custom type mapping (use fully-qualified Rust path)
+//! generator.register_type("my_crate::MyCustomVec",
 //!     TypeDef::new("myVec({0})", "{0}[]")
 //!         .with_import("my-package/codecs", "myVec"),
 //! );
 //!
-//! // Now the generator will recognize `MyCustomVec<T>` in source files
+//! // Now the generator will recognize `my_crate::MyCustomVec<T>` in source files
 //! # }
 //! ```
 //!

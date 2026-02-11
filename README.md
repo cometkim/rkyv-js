@@ -186,7 +186,7 @@ The codegen recognizes types from [external crates that rkyv supports](https://d
 | `std::collections::HashMap<K, V>` | `rkyv-js/lib/std-hash-map` | `Map<K, V>` |
 | `std::collections::HashSet<T>` | `rkyv-js/lib/std-hash-set` | `Set<T>` |
 | `std::collections::BTreeMap<K, V>` | `rkyv-js/lib/std-btree-map` | `Map<K, V>` |
-| `std:collections::BTreeSet<T>` | `rkyv-js/lib/std-btree-set` | `Set<T>` |
+| `std::collections::BTreeSet<T>` | `rkyv-js/lib/std-btree-set` | `Set<T>` |
 | `indexmap::IndexMap<K, V>` | `rkyv-js/lib/indexmap` | `Map<K, V>` |
 | `indexmap::IndexSet<T>` | `rkyv-js/lib/indexmap` | `Set<T>` |
 | `smol_str::SmolStr` | (none, same as String) | `string` |
@@ -196,6 +196,7 @@ The codegen recognizes types from [external crates that rkyv supports](https://d
 | `tinyvec::TinyVec<[T; N]>` | (none, same as Vec) | `T[]` |
 | `triomphe::Arc<T>` | (none, same as Box) | `T` |
 | `hashbrown::HashMap<K, V>` | (same as HashMap) | `Map<K, V>` |
+| `hashbrown::HashSet<T>` | (same as HashSet) | `Set<T>` |
 
 Example usage:
 
@@ -235,6 +236,8 @@ fn main() {
 
     // Or pass source code directly
     codegen.add_source_str(r#"
+        use rkyv::Archive;
+
         #[derive(Archive)]
         struct Point { x: f64, y: f64 }
     "#);
@@ -243,16 +246,17 @@ fn main() {
 }
 ```
 
-### Use-Alias Resolution
+### Import Resolution
 
-The codegen automatically resolves `use` aliases. For example:
+The codegen resolves all `use` imports to fully-qualified paths. This means types are matched by their canonical module path, not by their local name.
 
 ```rust
+use rkyv::Archive;
 use std::collections::BTreeMap as MyMap;
 
 #[derive(Archive)]
 struct Config {
-    data: MyMap<String, u32>,  // Resolved as BTreeMap<String, u32>
+    data: MyMap<String, u32>,  // Resolved as std::collections::BTreeMap
 }
 ```
 
@@ -261,11 +265,11 @@ Marker aliases are also auto-detected:
 ```rust
 use rkyv::Archive as Rkyv;
 
-#[derive(Rkyv)]  // Recognized as #[derive(Archive)]
+#[derive(Rkyv)]  // Recognized as rkyv::Archive
 struct Point { x: f64, y: f64 }
 ```
 
-However, wildcard imports are not supported.
+Note that `#[derive(Archive)]` requires an explicit `use rkyv::Archive;` import (or a `use rkyv::Archive as ...` alias) — the codegen does not assume unresolved names. Wildcard imports (`use rkyv::*`) are not supported.
 
 ### Custom Type Registration
 
@@ -276,14 +280,15 @@ use rkyv_js_codegen::{CodeGenerator, TypeDef};
 
 let mut codegen = CodeGenerator::new();
 
-// Register a custom type with a template
-// {0}, {1} are placeholders for type parameters
-codegen.register_type("CustomMap",
+// Register a custom type with a fully-qualified Rust path.
+// {0}, {1} are placeholders for type parameters.
+codegen.register_type("my_crate::CustomMap",
     TypeDef::new("customMap({0}, {1})", "Map<{0}, {1}>")
         .with_import("my-package/codecs", "customMap"),
 );
 
-// Now `CustomMap<K, V>` in source files will generate:
+// Now `my_crate::CustomMap<K, V>` (or a `use my_crate::CustomMap` alias)
+// in source files will generate:
 //   import { customMap } from 'my-package/codecs';
 //   field: customMap(r.string, r.u32)
 ```
@@ -297,13 +302,15 @@ use rkyv_js_codegen::{CodeGenerator, TypeDef};
 
 let mut codegen = CodeGenerator::new();
 
-// Register a codec for the external type
-codegen.register_type("Coord",
+// Register a codec for the external type (use the fully-qualified path)
+codegen.register_type("external::Coord",
     TypeDef::new("Coord", "Coord")
         .with_import("./coord.ts", "Coord"),
 );
 
 codegen.add_source_str(r#"
+    use rkyv::Archive;
+
     // This proxy type is skipped by codegen
     #[derive(Archive)]
     #[rkyv(remote = external::Coord)]
@@ -315,7 +322,7 @@ codegen.add_source_str(r#"
     #[derive(Archive)]
     struct Event {
         name: String,
-        location: Coord,  // Uses the registered codec
+        location: Coord,  // Uses the registered codec for external::Coord
     }
 "#);
 ```

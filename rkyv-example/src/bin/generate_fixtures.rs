@@ -329,7 +329,7 @@ impl GenerateFixture for Point {
     fn generate_codec(codegen: &mut CodeGenerator) {
         codegen.add_source_str(
             r#"
-            #[derive(Archive)]
+            #[derive(rkyv::Archive)]
             struct Point {
                 x: f64,
                 y: f64,
@@ -345,7 +345,7 @@ impl GenerateFixture for Person {
     fn generate_codec(codegen: &mut CodeGenerator) {
         codegen.add_source_str(
             r#"
-            #[derive(Archive)]
+            #[derive(rkyv::Archive)]
             struct Person {
                 name: String,
                 age: u32,
@@ -364,7 +364,7 @@ impl GenerateFixture for Message {
     fn generate_codec(codegen: &mut CodeGenerator) {
         codegen.add_source_str(
             r#"
-            #[derive(Archive)]
+            #[derive(rkyv::Archive)]
             enum Message {
                 Quit,
                 Move { x: i32, y: i32 },
@@ -383,13 +383,13 @@ impl GenerateFixture for GameState {
         // GameState depends on Point and Message, so we need to include them
         codegen.add_source_str(
             r#"
-            #[derive(Archive)]
+            #[derive(rkyv::Archive)]
             struct Point {
                 x: f64,
                 y: f64,
             }
 
-            #[derive(Archive)]
+            #[derive(rkyv::Archive)]
             enum Message {
                 Quit,
                 Move { x: i32, y: i32 },
@@ -397,7 +397,7 @@ impl GenerateFixture for GameState {
                 ChangeColor(u8, u8, u8),
             }
 
-            #[derive(Archive)]
+            #[derive(rkyv::Archive)]
             struct GameState {
                 player_position: Point,
                 health: u32,
@@ -417,9 +417,10 @@ impl GenerateFixture for UuidRecord {
     fn generate_codec(codegen: &mut CodeGenerator) {
         codegen.add_source_str(
             r#"
+            use rkyv::Archive;
             use uuid::Uuid;
 
-            #[derive(Archive)]
+            #[derive(rkyv::Archive)]
             struct UuidRecord {
                 id: Uuid,
                 name: String,
@@ -438,7 +439,7 @@ impl GenerateFixture for BytesMessage {
             r#"
             use bytes::Bytes;
 
-            #[derive(Archive)]
+            #[derive(rkyv::Archive)]
             struct BytesMessage {
                 payload: Bytes,
                 checksum: u32,
@@ -456,7 +457,7 @@ impl GenerateFixture for SmolStrConfig {
             r#"
             use smol_str::SmolStr;
 
-            #[derive(Archive)]
+            #[derive(rkyv::Archive)]
             struct SmolStrConfig {
                 key: SmolStr,
                 value: SmolStr,
@@ -475,7 +476,7 @@ impl GenerateFixture for ThinVecData {
             r#"
             use thin_vec::ThinVec;
 
-            #[derive(Archive)]
+            #[derive(rkyv::Archive)]
             struct ThinVecData {
                 items: ThinVec<u32>,
                 labels: ThinVec<String>,
@@ -493,7 +494,7 @@ impl GenerateFixture for ArrayVecBuffer {
             r#"
             use arrayvec::ArrayVec;
 
-            #[derive(Archive)]
+            #[derive(rkyv::Archive)]
             struct ArrayVecBuffer {
                 data: ArrayVec<u32, 8>,
                 name: String,
@@ -511,7 +512,7 @@ impl GenerateFixture for SmallVecData {
             r#"
             use smallvec::SmallVec;
 
-            #[derive(Archive)]
+            #[derive(rkyv::Archive)]
             struct SmallVecData {
                 items: SmallVec<[u32; 4]>,
                 tags: SmallVec<[String; 2]>,
@@ -529,7 +530,7 @@ impl GenerateFixture for TinyVecData {
             r#"
             use tinyvec::TinyVec;
 
-            #[derive(Archive)]
+            #[derive(rkyv::Archive)]
             struct TinyVecData {
                 values: TinyVec<[u32; 4]>,
                 enabled: bool,
@@ -547,7 +548,7 @@ impl GenerateFixture for IndexMapConfig {
             r#"
             use indexmap::IndexMap;
 
-            #[derive(Archive)]
+            #[derive(rkyv::Archive)]
             struct IndexMapConfig {
                 settings: IndexMap<String, u32>,
                 version: u32,
@@ -565,7 +566,7 @@ impl GenerateFixture for IndexSetTags {
             r#"
             use indexmap::IndexSet;
 
-            #[derive(Archive)]
+            #[derive(rkyv::Archive)]
             struct IndexSetTags {
                 tags: IndexSet<String>,
                 count: u32,
@@ -583,7 +584,7 @@ impl GenerateFixture for ArcShared {
             r#"
             use triomphe::Arc;
 
-            #[derive(Archive)]
+            #[derive(rkyv::Archive)]
             struct ArcShared {
                 shared_data: Arc<String>,
                 local_data: u32,
@@ -601,7 +602,7 @@ impl GenerateFixture for BTreeMapConfig {
             r#"
             use std::collections::BTreeMap;
 
-            #[derive(Archive)]
+            #[derive(rkyv::Archive)]
             struct BTreeMapConfig {
                 settings: BTreeMap<String, u32>,
                 version: u32,
@@ -619,7 +620,7 @@ impl GenerateFixture for VecDequeData {
             r#"
             use std::collections::VecDeque;
 
-            #[derive(Archive)]
+            #[derive(rkyv::Archive)]
             struct VecDequeData {
                 items: VecDeque<u32>,
                 name: String,
@@ -637,7 +638,7 @@ impl GenerateFixture for HashMapData {
             r#"
             use std::collections::HashMap;
 
-            #[derive(Archive)]
+            #[derive(rkyv::Archive)]
             struct HashMapData {
                 entries: HashMap<String, u32>,
                 name: String,
@@ -655,7 +656,7 @@ impl GenerateFixture for HashSetData {
             r#"
             use std::collections::HashSet;
 
-            #[derive(Archive)]
+            #[derive(rkyv::Archive)]
             struct HashSetData {
                 ids: HashSet<String>,
                 count: u32,
@@ -673,7 +674,7 @@ impl GenerateFixture for BTreeSetData {
             r#"
             use std::collections::BTreeSet;
 
-            #[derive(Archive)]
+            #[derive(rkyv::Archive)]
             struct BTreeSetData {
                 values: BTreeSet<i64>,
                 label: String,
@@ -704,7 +705,7 @@ impl GenerateFixture for RemoteEvent {
         // about `AsJson` — it just sees `Coord` as a user-provided codec.
         codegen.add_source_str(
             r#"
-            #[derive(Archive)]
+            #[derive(rkyv::Archive)]
             struct RemoteEvent {
                 name: String,
                 location: Coord,
