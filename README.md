@@ -137,75 +137,75 @@ console.log(lazy.name); // Only 'name' field is decoded
 
 ### Primitives
 
-| Codec | Rust Type | TypeScript Type |
-|-------|-----------|-----------------|
-| `r.u8`, `r.i8` | `u8`, `i8` | `number` |
-| `r.u16`, `r.i16` | `u16`, `i16` | `number` |
-| `r.u32`, `r.i32` | `u32`, `i32` | `number` |
-| `r.u64`, `r.i64` | `u64`, `i64` | `bigint` |
-| `r.f32`, `r.f64` | `f32`, `f64` | `number` |
-| `r.bool` | `bool` | `boolean` |
-| `r.char` | `char` | `string` |
-| `r.unit` | `()` | `null` |
-| `r.string` | `String` | `string` |
+| Rust Type | JavaScript Codec | TypeScript Type |
+|-----------|-------|-----------------|
+| `u8`, `i8` | `r.u8`, `r.i8` | `number` |
+| `u16`, `i16` | `r.u16`, `r.i16` | `number` |
+| `u32`, `i32` | `r.u32`, `r.i32` | `number` |
+| `u64`, `i64` | `r.u64`, `r.i64` | `bigint` |
+| `f32`, `f64` | `r.f32`, `r.f64` | `number` |
+| `bool` | `r.bool` | `boolean` |
+| `char` | `r.char` | `string` |
+| `()` | `r.unit` | `null` |
+| `String` | `r.string` | `string` |
 
 ### Containers
 
-| Codec | Rust Type | TypeScript Type |
-|-------|-----------|-----------------|
-| `r.vec(T)` | `Vec<T>` | `T[]` |
-| `r.option(T)` | `Option<T>` | `T \| null` |
-| `r.box(T)` | `Box<T>` | `T` |
-| `r.array(T, N)` | `[T; N]` | `T[]` |
-| `r.tuple(T1, T2, ...)` | `(T1, T2, ...)` | `[T1, T2, ...]` |
+| Rust Type | JavaScript Codec | TypeScript Type |
+|-----------|-------|-----------------|
+| `Vec<T>` | `r.vec(T)` | `T[]` |
+| `Option<T>` | `r.option(T)` | `T \| null` |
+| `Box<T>` | `r.box(T)` | `T` |
+| `[T; N]` | `r.array(T, N)` | `T[]` |
+| `(T1, T2, ...)` | `r.tuple(T1, T2, ...)` | `[T1, T2, ...]` |
 
 ### Composite Types
 
-| Codec | Rust Type | TypeScript Type |
-|-------|-----------|-----------------|
-| `r.struct({...})` | `struct { ... }` | `{ ... }` |
-| `r.taggedEnum({...})` | `enum { ... }` | `{ tag: string, value: ... }` |
+| Rust Type | JavaScript Codec | TypeScript Type |
+|-----------|-------|-----------------|
+| `struct { ... }` | `r.struct({...})` | `{ ... }` |
+| `enum { ... }` | `r.taggedEnum({...})` | `{ tag: string, value: ... }` |
 
 ### Smart Pointers
 
-| Codec | Rust Type | TypeScript Type |
-|-------|-----------|-----------------|
-| `r.rc(T)` | `Rc<T>` | `T` |
-| `r.arc(T)` | `Arc<T>` | `T` |
-| `r.rcWeak(T)` | `rc::Weak<T>` | `T \| null` |
-| `r.arcWeak(T)` | `sync::Weak<T>` | `T \| null` |
+| Rust Type | JavaScript Codec | TypeScript Type |
+|-----------|-------|-----------------|
+| `Rc<T>` | `r.rc(T)` | `T` |
+| `Arc<T>` | `r.arc(T)` | `T` |
+| `rc::Weak<T>` | `r.rcWeak(T)` | `T \| null` |
+| `sync::Weak<T>` | `r.arcWeak(T)` | `T \| null` |
 
 ### External Crate Types
 
 The codegen recognizes types from [external crates that rkyv supports](https://docs.rs/rkyv/latest/rkyv/#crates). Many of these archive to the same format as built-in types:
 
-| Rust Type | Import | TypeScript Type |
-|-----------|--------|-----------------|
-| `uuid::Uuid` | `rkyv-js/lib/uuid` | `string` |
-| `bytes::Bytes` | `rkyv-js/lib/bytes` | `Uint8Array` |
-| `std::collections::HashMap<K, V>` | `rkyv-js/lib/std-hash-map` | `Map<K, V>` |
-| `std::collections::HashSet<T>` | `rkyv-js/lib/std-hash-set` | `Set<T>` |
-| `std::collections::BTreeMap<K, V>` | `rkyv-js/lib/std-btree-map` | `Map<K, V>` |
-| `std::collections::BTreeSet<T>` | `rkyv-js/lib/std-btree-set` | `Set<T>` |
-| `indexmap::IndexMap<K, V>` | `rkyv-js/lib/indexmap` | `Map<K, V>` |
-| `indexmap::IndexSet<T>` | `rkyv-js/lib/indexmap` | `Set<T>` |
-| `smol_str::SmolStr` | (none, same as String) | `string` |
-| `thin_vec::ThinVec<T>` | (none, same as Vec) | `T[]` |
-| `arrayvec::ArrayVec<T, N>` | (none, same as Vec) | `T[]` |
-| `smallvec::SmallVec<[T; N]>` | (none, same as Vec) | `T[]` |
-| `tinyvec::TinyVec<[T; N]>` | (none, same as Vec) | `T[]` |
-| `triomphe::Arc<T>` | (none, same as Box) | `T` |
-| `hashbrown::HashMap<K, V>` | (same as HashMap) | `Map<K, V>` |
-| `hashbrown::HashSet<T>` | (same as HashSet) | `Set<T>` |
+| Rust Type | JavaScript Codec | TypeScript Type |
+|-----------|-------|-----------------|
+| `uuid::Uuid` | `import { uuid } from 'rkyv-js/lib/uuid'` | `string` |
+| `bytes::Bytes` | `import { bytes } from 'rkyv-js/lib/bytes'` | `Uint8Array` |
+| `std::collections::BTreeMap<K, V>` | `import { btreeMap } from 'rkyv-js/lib/btreemap'` | `Map<K, V>` |
+| `std::collections::BTreeSet<T>` | `import { btreeSet } from 'rkyv-js/lib/btreemap'` | `Set<T>` |
+| `std::collections::HashMap<K, V>` | `import { hashMap } from 'rkyv-js/lib/hashmap'` | `Map<K, V>` |
+| `std::collections::HashSet<T>` | `import { hashSet } from 'rkyv-js/lib/hashmap'` | `Set<T>` |
+| `hashbrown::HashMap<K, V>` | `import { hashMap } from 'rkyv-js/lib/hashmap'` | `Map<K, V>` |
+| `hashbrown::HashSet<T>` | `import { hashSet } from 'rkyv-js/lib/hashmap'` | `Set<T>` |
+| `indexmap::IndexMap<K, V>` | `import { indexMap } from 'rkyv-js/lib/indexmap'` | `Map<K, V>` |
+| `indexmap::IndexSet<T>` | `import { indexSet } from 'rkyv-js/lib/indexmap'` | `Set<T>` |
+| `smol_str::SmolStr` | `r.string` | `string` |
+| `thin_vec::ThinVec<T>` | `r.vec(T)` | `T[]` |
+| `arrayvec::ArrayVec<T, N>` | `r.vec(T)` | `T[]` |
+| `smallvec::SmallVec<[T; N]>` | `r.vec(T)` | `T[]` |
+| `tinyvec::TinyVec<[T; N]>` | `r.vec(T)` | `T[]` |
+| `triomphe::Arc<T>` | `r.arc(T)` | `T` |
 
 Example usage:
 
 ```typescript
 import * as r from 'rkyv-js';
-import { btreeMap } from 'rkyv-js/lib/std-btree-map';
-import { uuid } from 'rkyv-js/lib/uuid';
+import { btreeMap } from 'rkyv-js/lib/btreemap';
 import { bytes } from 'rkyv-js/lib/bytes';
 import { indexSet, indexMap } from 'rkyv-js/lib/indexmap';
+import { uuid } from 'rkyv-js/lib/uuid';
 
 const ArchivedRecord = r.struct({
   id: uuid,
