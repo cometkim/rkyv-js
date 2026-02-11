@@ -37,4 +37,4 @@ jobs:
         uses: CodSpeedHQ/action@v4
         with:
           mode: simulation
-          run: node benchmarks/${{ matrix.test-file }}.ts
+          run: node benchmark/${{ matrix.test-file }}.ts
