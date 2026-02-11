@@ -4,7 +4,7 @@
  */
 
 import * as r from 'rkyv-js';
-import { btreeSet } from 'rkyv-js/lib/std-btree-set';
+import { btreeSet } from 'rkyv-js/lib/btreemap';
 
 export const ArchivedBTreeSetData = r.struct({
   values: btreeSet(r.i64),

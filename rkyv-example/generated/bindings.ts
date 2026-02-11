@@ -4,12 +4,10 @@
  */
 
 import * as r from 'rkyv-js';
+import { btreeMap, btreeSet } from 'rkyv-js/lib/btreemap';
 import { bytes } from 'rkyv-js/lib/bytes';
+import { hashMap, hashSet } from 'rkyv-js/lib/hashmap';
 import { indexMap, indexSet } from 'rkyv-js/lib/indexmap';
-import { btreeMap } from 'rkyv-js/lib/std-btree-map';
-import { btreeSet } from 'rkyv-js/lib/std-btree-set';
-import { hashMap } from 'rkyv-js/lib/std-hash-map';
-import { hashSet } from 'rkyv-js/lib/std-hash-set';
 import { uuid } from 'rkyv-js/lib/uuid';
 
 export const ArchivedVecDequeData = r.struct({

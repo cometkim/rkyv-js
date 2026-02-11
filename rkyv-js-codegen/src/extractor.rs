@@ -910,7 +910,7 @@ mod tests {
         "#,
         );
         let code = codegen.generate();
-        assert!(code.contains("import { hashSet } from 'rkyv-js/lib/std-hash-set';"));
+        assert!(code.contains("import { hashSet } from 'rkyv-js/lib/hashmap';"));
         assert!(code.contains("ids: hashSet(r.string)"));
     }
 
@@ -926,7 +926,7 @@ mod tests {
         "#,
         );
         let code = codegen.generate();
-        assert!(code.contains("import { btreeSet } from 'rkyv-js/lib/std-btree-set';"));
+        assert!(code.contains("import { btreeSet } from 'rkyv-js/lib/btreemap';"));
         assert!(code.contains("values: btreeSet(r.i64)"));
     }
 
@@ -1009,7 +1009,7 @@ mod tests {
         "#,
         );
         let code = codegen.generate();
-        assert!(code.contains("import { btreeMap } from 'rkyv-js/lib/std-btree-map';"));
+        assert!(code.contains("import { btreeMap } from 'rkyv-js/lib/btreemap';"));
         assert!(code.contains("data: btreeMap(r.string, r.u32)"));
     }
 
@@ -1025,7 +1025,7 @@ mod tests {
         "#,
         );
         let code = codegen.generate();
-        assert!(code.contains("import { hashMap } from 'rkyv-js/lib/std-hash-map';"));
+        assert!(code.contains("import { hashMap } from 'rkyv-js/lib/hashmap';"));
         assert!(code.contains("entries: hashMap(r.string, r.u64)"));
     }
 

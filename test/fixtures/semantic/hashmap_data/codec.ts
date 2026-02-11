@@ -4,7 +4,7 @@
  */
 
 import * as r from 'rkyv-js';
-import { hashMap } from 'rkyv-js/lib/std-hash-map';
+import { hashMap } from 'rkyv-js/lib/hashmap';
 
 export const ArchivedHashMapData = r.struct({
   entries: hashMap(r.string, r.u32),

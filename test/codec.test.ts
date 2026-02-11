@@ -2,7 +2,7 @@ import * as assert from 'node:assert';
 import { describe, it } from 'node:test';
 
 import * as r from 'rkyv-js';
-import { btreeMap } from 'rkyv-js/lib/std-btree-map';
+import { btreeMap } from 'rkyv-js/lib/btreemap';
 import { uuid as uuidCodec } from 'rkyv-js/lib/uuid';
 import { bytes as bytesCodec } from 'rkyv-js/lib/bytes';
 import { indexMap, indexSet } from 'rkyv-js/lib/indexmap';

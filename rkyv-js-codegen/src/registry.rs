@@ -32,14 +32,14 @@ use crate::types::TypeDef;
 /// | `arrayvec::ArrayVec<T, N>` | `r.vec({0})` | none |
 /// | `smallvec::SmallVec<[T; N]>` | `r.vec({0})` | none |
 /// | `tinyvec::TinyVec<[T; N]>` | `r.vec({0})` | none |
-/// | `std::collections::HashMap<K, V>` | `hashMap({0}, {1})` | `rkyv-js/lib/std-hash-map` |
-/// | `std::collections::HashSet<T>` | `hashSet({0})` | `rkyv-js/lib/std-hash-set` |
-/// | `std::collections::BTreeMap<K, V>` | `btreeMap({0}, {1})` | `rkyv-js/lib/std-btree-map` |
-/// | `std::collections::BTreeSet<T>` | `btreeSet({0})` | `rkyv-js/lib/std-btree-set` |
+/// | `std::collections::BTreeMap<K, V>` | `btreeMap({0}, {1})` | `rkyv-js/lib/btreemap` |
+/// | `std::collections::BTreeSet<T>` | `btreeSet({0})` | `rkyv-js/lib/btreemap` |
+/// | `std::collections::HashMap<K, V>` | `hashMap({0}, {1})` | `rkyv-js/lib/hashmap` |
+/// | `std::collections::HashSet<T>` | `hashSet({0})` | `rkyv-js/lib/hashmap` |
+/// | `hashbrown::HashMap<K, V>` | `hashMap({0}, {1})` | `rkyv-js/lib/hashmap` |
+/// | `hashbrown::HashSet<T>` | `hashSet({0})` | `rkyv-js/lib/hashmap` |
 /// | `indexmap::IndexMap<K, V>` | `indexMap({0}, {1})` | `rkyv-js/lib/indexmap` |
 /// | `indexmap::IndexSet<T>` | `indexSet({0})` | `rkyv-js/lib/indexmap` |
-/// | `hashbrown::HashMap<K, V>` | `hashMap({0}, {1})` | `rkyv-js/lib/std-hash-map` |
-/// | `hashbrown::HashSet<T>` | `hashSet({0})` | `rkyv-js/lib/std-hash-set` |
 /// | `std::sync::Arc<T>` / `triomphe::Arc<T>` | `r.arc({0})` | none |
 /// | `std::rc::Rc<T>` | `r.rc({0})` | none |
 /// | `std::rc::Weak<T>` / `std::sync::Weak<T>` | `r.rcWeak({0})` | none |
@@ -112,32 +112,46 @@ impl TypeRegistry {
         // tinyvec::TinyVec<[T; N]> -> same as r.vec(T)
         self.register("tinyvec::TinyVec", TypeDef::new("r.vec({0})", "{0}[]"));
 
-        // std::collections::HashMap<K, V>
-        self.register(
-            "std::collections::HashMap",
-            TypeDef::new("hashMap({0}, {1})", "Map<{0}, {1}>")
-                .with_import("rkyv-js/lib/std-hash-map", "hashMap"),
-        );
-
-        // std::collections::HashSet<T>
-        self.register(
-            "std::collections::HashSet",
-            TypeDef::new("hashSet({0})", "Set<{0}>")
-                .with_import("rkyv-js/lib/std-hash-set", "hashSet"),
-        );
-
         // std::collections::BTreeMap<K, V>
         self.register(
             "std::collections::BTreeMap",
             TypeDef::new("btreeMap({0}, {1})", "Map<{0}, {1}>")
-                .with_import("rkyv-js/lib/std-btree-map", "btreeMap"),
+                .with_import("rkyv-js/lib/btreemap", "btreeMap"),
         );
 
         // std::collections::BTreeSet<T>
         self.register(
             "std::collections::BTreeSet",
             TypeDef::new("btreeSet({0})", "Set<{0}>")
-                .with_import("rkyv-js/lib/std-btree-set", "btreeSet"),
+                .with_import("rkyv-js/lib/btreemap", "btreeSet"),
+        );
+
+        // std::collections::HashMap<K, V>
+        self.register(
+            "std::collections::HashMap",
+            TypeDef::new("hashMap({0}, {1})", "Map<{0}, {1}>")
+                .with_import("rkyv-js/lib/hashmap", "hashMap"),
+        );
+
+        // std::collections::HashSet<T>
+        self.register(
+            "std::collections::HashSet",
+            TypeDef::new("hashSet({0})", "Set<{0}>")
+                .with_import("rkyv-js/lib/hashmap", "hashSet"),
+        );
+
+        // hashbrown::HashMap<K, V> -> same as std HashMap
+        self.register(
+            "hashbrown::HashMap",
+            TypeDef::new("hashMap({0}, {1})", "Map<{0}, {1}>")
+                .with_import("rkyv-js/lib/hashmap", "hashMap"),
+        );
+
+        // hashbrown::HashSet<T> -> same as std HashSet
+        self.register(
+            "hashbrown::HashSet",
+            TypeDef::new("hashSet({0})", "Set<{0}>")
+                .with_import("rkyv-js/lib/hashmap", "hashSet"),
         );
 
         // indexmap::IndexMap<K, V>
@@ -152,20 +166,6 @@ impl TypeRegistry {
             "indexmap::IndexSet",
             TypeDef::new("indexSet({0})", "Set<{0}>")
                 .with_import("rkyv-js/lib/indexmap", "indexSet"),
-        );
-
-        // hashbrown::HashMap<K, V> -> same as std HashMap
-        self.register(
-            "hashbrown::HashMap",
-            TypeDef::new("hashMap({0}, {1})", "Map<{0}, {1}>")
-                .with_import("rkyv-js/lib/std-hash-map", "hashMap"),
-        );
-
-        // hashbrown::HashSet<T> -> same as std HashSet
-        self.register(
-            "hashbrown::HashSet",
-            TypeDef::new("hashSet({0})", "Set<{0}>")
-                .with_import("rkyv-js/lib/std-hash-set", "hashSet"),
         );
 
         // triomphe::Arc<T>

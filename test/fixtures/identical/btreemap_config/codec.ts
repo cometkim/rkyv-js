@@ -4,7 +4,7 @@
  */
 
 import * as r from 'rkyv-js';
-import { btreeMap } from 'rkyv-js/lib/std-btree-map';
+import { btreeMap } from 'rkyv-js/lib/btreemap';
 
 export const ArchivedBTreeMapConfig = r.struct({
   settings: btreeMap(r.string, r.u32),

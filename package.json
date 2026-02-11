@@ -36,12 +36,10 @@
     "./reader": "./src/reader.ts",
     "./writer": "./src/writer.ts",
     "./primitives": "./src/primitives.ts",
-    "./lib/std-btree-map": "./src/lib/std-btree-map.ts",
-    "./lib/std-btree-set": "./src/lib/std-btree-set.ts",
-    "./lib/std-hash-map": "./src/lib/std-hash-map.ts",
-    "./lib/std-hash-set": "./src/lib/std-hash-set.ts",
     "./lib/uuid": "./src/lib/uuid.ts",
     "./lib/bytes": "./src/lib/bytes.ts",
+    "./lib/btreemap": "./src/lib/btreemap.ts",
+    "./lib/hashmap": "./src/lib/hashmap.ts",
     "./lib/indexmap": "./src/lib/indexmap.ts"
   },
   "publishConfig": {
@@ -54,12 +52,10 @@
       "./reader": "./dist/reader.js",
       "./writer": "./dist/writer.js",
       "./primitives": "./dist/primitives.js",
-      "./lib/std-btree-map": "./dist/lib/std-btree-map.js",
-      "./lib/std-btree-set": "./dist/lib/std-btree-set.js",
-      "./lib/std-hash-map": "./dist/lib/std-hash-map.js",
-      "./lib/std-hash-set": "./dist/lib/std-hash-set.js",
       "./lib/uuid": "./dist/lib/uuid.js",
       "./lib/bytes": "./dist/lib/bytes.js",
+      "./lib/btreemap": "./dist/lib/btreemap.js",
+      "./lib/hashmap": "./dist/lib/hashmap.js",
       "./lib/indexmap": "./dist/lib/indexmap.js",
       "./package.json": "./package.json"
     }
