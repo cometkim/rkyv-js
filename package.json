@@ -24,7 +24,9 @@
     "decoding"
   ],
   "workspaces": [
-    "rkyv-example"
+    ".",
+    "rkyv-example",
+    "rkyv-js-codegen"
   ],
   "type": "module",
   "main": "./src/index.ts",
@@ -75,6 +77,7 @@
     "bench:decode": "node --expose-gc benchmark/decode.ts"
   },
   "devDependencies": {
+    "@changesets/cli": "^2.29.8",
     "@codspeed/tinybench-plugin": "^5.1.0",
     "@types/node": "^22.0.0",
     "capnp-es": "^0.0.14",
