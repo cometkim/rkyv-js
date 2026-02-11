@@ -2,8 +2,8 @@
 /.yarn/releases/*    binary
 /.yarn/plugins/**/*  binary
 
-/benchmarks/capnp/**    linguist-vendored
-/benchmarks/protobuf/** linguist-vendored
+/benchmark/capnp/**    linguist-vendored
+/benchmark/protobuf/** linguist-vendored
 
 **/fixtures/**   linguist-generated
 **/generated/**  linguist-generated
