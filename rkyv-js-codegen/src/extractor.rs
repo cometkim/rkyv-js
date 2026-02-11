@@ -942,7 +942,7 @@ mod tests {
         "#,
         );
         let code = codegen.generate();
-        assert!(code.contains("config: r.arc(r.string)"));
+        assert!(code.contains("config: r.rc(r.string)"));
     }
 
     #[test]
@@ -972,7 +972,7 @@ mod tests {
         "#,
         );
         let code = codegen.generate();
-        assert!(code.contains("weak_ref: r.rcWeak(r.u32)"));
+        assert!(code.contains("weak_ref: r.weak(r.u32)"));
     }
 
     #[test]

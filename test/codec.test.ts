@@ -447,12 +447,11 @@ describe('Codec API', () => {
     it('r.rc and r.arc are aliases for r.box', () => {
       // They all have the same binary format
       assert.strictEqual(r.rc, r.box);
-      assert.strictEqual(r.arc, r.box);
     });
 
     it('should work in struct with Arc', () => {
       const ArcShared = r.struct({
-        shared_data: r.arc(r.string),
+        shared_data: r.rc(r.string),
         local_data: r.u32,
       });
       const value = {
@@ -504,11 +503,6 @@ describe('Codec API', () => {
       const bytes2 = r.encode(WithWeak, value2);
       const decoded2 = r.decode(WithWeak, bytes2);
       assert.deepStrictEqual(decoded2, value2);
-    });
-
-    it('r.rcWeak and r.arcWeak are aliases for r.weak', () => {
-      assert.strictEqual(r.rcWeak, r.weak);
-      assert.strictEqual(r.arcWeak, r.weak);
     });
   });
 

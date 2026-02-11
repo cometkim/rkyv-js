@@ -929,15 +929,6 @@ export function lazy<T>(getCodec: () => RkyvCodec<T>): RkyvCodec<T> {
 export const rc = box;
 
 /**
- * Arc<T> - Atomically reference-counted pointer
- *
- * Same archive format as Rc<T> and Box<T>.
- *
- * @alias box
- */
-export const arc = box;
-
-/**
  * Weak<T> - Weak reference (rc::Weak or sync::Weak)
  *
  * In rkyv, Weak pointers serialize as nullable relative pointers:
@@ -1001,15 +992,3 @@ export function weak<T>(inner: RkyvCodec<T>): RkyvCodec<T | null> {
     },
   };
 }
-
-/**
- * rc::Weak<T> - Weak reference to Rc data
- * @alias weak
- */
-export const rcWeak = weak;
-
-/**
- * sync::Weak<T> - Weak reference to Arc data
- * @alias weak
- */
-export const arcWeak = weak;

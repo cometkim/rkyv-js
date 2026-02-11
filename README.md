@@ -170,10 +170,8 @@ console.log(lazy.name); // Only 'name' field is decoded
 
 | Rust Type | JavaScript Codec | TypeScript Type |
 |-----------|-------|-----------------|
-| `Rc<T>` | `r.rc(T)` | `T` |
-| `Arc<T>` | `r.arc(T)` | `T` |
-| `rc::Weak<T>` | `r.rcWeak(T)` | `T \| null` |
-| `sync::Weak<T>` | `r.arcWeak(T)` | `T \| null` |
+| `std::rc::Rc<T>`, `std::sync::Arc<T>` | `r.rc(T)` | `T` |
+| `std::rc::Weak<T>`, `std::sync::Weak<T>` | `r.weak(T)` | `T \| null` |
 
 ### External Crate Types
 
@@ -196,7 +194,7 @@ The codegen recognizes types from [external crates that rkyv supports](https://d
 | `arrayvec::ArrayVec<T, N>` | `r.vec(T)` | `T[]` |
 | `smallvec::SmallVec<[T; N]>` | `r.vec(T)` | `T[]` |
 | `tinyvec::TinyVec<[T; N]>` | `r.vec(T)` | `T[]` |
-| `triomphe::Arc<T>` | `r.arc(T)` | `T` |
+| `triomphe::Arc<T>` | `r.rc(T)` | `T` |
 
 Example usage:
 

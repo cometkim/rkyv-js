@@ -40,9 +40,8 @@ use crate::types::TypeDef;
 /// | `hashbrown::HashSet<T>` | `hashSet({0})` | `rkyv-js/lib/hashmap` |
 /// | `indexmap::IndexMap<K, V>` | `indexMap({0}, {1})` | `rkyv-js/lib/indexmap` |
 /// | `indexmap::IndexSet<T>` | `indexSet({0})` | `rkyv-js/lib/indexmap` |
-/// | `std::sync::Arc<T>` / `triomphe::Arc<T>` | `r.arc({0})` | none |
-/// | `std::rc::Rc<T>` | `r.rc({0})` | none |
-/// | `std::rc::Weak<T>` / `std::sync::Weak<T>` | `r.rcWeak({0})` | none |
+/// | `std::rc::Rc<T>` / `std::sync::Arc<T>` / `triomphe::Arc<T>` | `r.rc({0})` | none |
+/// | `std::rc::Weak<T>` / `std::sync::Weak<T>` | `r.weak({0})` | none |
 ///
 /// # Custom mappings
 ///
@@ -169,21 +168,21 @@ impl TypeRegistry {
         );
 
         // triomphe::Arc<T>
-        self.register("triomphe::Arc", TypeDef::new("r.arc({0})", "{0}"));
+        self.register("triomphe::Arc", TypeDef::new("r.rc({0})", "{0}"));
 
         // std::sync::Arc<T>
-        self.register("std::sync::Arc", TypeDef::new("r.arc({0})", "{0}"));
+        self.register("std::sync::Arc", TypeDef::new("r.rc({0})", "{0}"));
 
         // std::rc::Rc<T>
         self.register("std::rc::Rc", TypeDef::new("r.rc({0})", "{0}"));
 
         // std::rc::Weak<T>
-        self.register("std::rc::Weak", TypeDef::new("r.rcWeak({0})", "{0} | null"));
+        self.register("std::rc::Weak", TypeDef::new("r.weak({0})", "{0} | null"));
 
         // std::sync::Weak<T>
         self.register(
             "std::sync::Weak",
-            TypeDef::new("r.rcWeak({0})", "{0} | null"),
+            TypeDef::new("r.weak({0})", "{0} | null"),
         );
     }
 
