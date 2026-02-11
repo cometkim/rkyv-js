@@ -69,10 +69,10 @@
   "scripts": {
     "test": "node --test",
     "fixtures": "cargo run --bin generate-fixtures",
-    "bench:comparison": "node --expose-gc benchmarks/comparison.ts",
-    "bench:primitives": "node --expose-gc benchmarks/primitives.ts",
-    "bench:encode": "node --expose-gc benchmarks/encode.ts",
-    "bench:decode": "node --expose-gc benchmarks/decode.ts"
+    "bench:comparison": "node --expose-gc benchmark/comparison.ts",
+    "bench:primitives": "node --expose-gc benchmark/primitives.ts",
+    "bench:encode": "node --expose-gc benchmark/encode.ts",
+    "bench:decode": "node --expose-gc benchmark/decode.ts"
   },
   "devDependencies": {
     "@codspeed/tinybench-plugin": "^5.1.0",

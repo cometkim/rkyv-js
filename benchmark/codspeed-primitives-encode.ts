@@ -1,3 +1,4 @@
+import { do_not_optimize } from 'mitata';
 import { Bench } from 'tinybench';
 import { withCodSpeed } from '@codspeed/tinybench-plugin';
 import * as r from 'rkyv-js';
@@ -23,59 +24,59 @@ const testStringShort = 'Hello';
 const testStringLong = 'Hello, World! This is a longer string that exceeds inline storage.';
 
 bench.add('primitives/encode - u8', () => {
-  r.encode(r.u8, testU8);
+  do_not_optimize(r.encode(r.u8, testU8));
 });
 
 bench.add('primitives/encode - i8', () => {
-  r.encode(r.i8, testI8);
+  do_not_optimize(r.encode(r.i8, testI8));
 });
 
 bench.add('primitives/encode - u16', () => {
-  r.encode(r.u16, testU16);
+  do_not_optimize(r.encode(r.u16, testU16));
 });
 
 bench.add('primitives/encode - i16', () => {
-  r.encode(r.i16, testI16);
+  do_not_optimize(r.encode(r.i16, testI16));
 });
 
 bench.add('primitives/encode - u32', () => {
-  r.encode(r.u32, testU32);
+  do_not_optimize(r.encode(r.u32, testU32));
 });
 
 bench.add('primitives/encode - i32', () => {
-  r.encode(r.i32, testI32);
+  do_not_optimize(r.encode(r.i32, testI32));
 });
 
 bench.add('primitives/encode - u64', () => {
-  r.encode(r.u64, testU64);
+  do_not_optimize(r.encode(r.u64, testU64));
 });
 
 bench.add('primitives/encode - i64', () => {
-  r.encode(r.i64, testI64);
+  do_not_optimize(r.encode(r.i64, testI64));
 });
 
 bench.add('primitives/encode - f32', () => {
-  r.encode(r.f32, testF32);
+  do_not_optimize(r.encode(r.f32, testF32));
 });
 
 bench.add('primitives/encode - f64', () => {
-  r.encode(r.f64, testF64);
+  do_not_optimize(r.encode(r.f64, testF64));
 });
 
 bench.add('primitives/encode - bool', () => {
-  r.encode(r.bool, testBool);
+  do_not_optimize(r.encode(r.bool, testBool));
 });
 
 bench.add('primitives/encode - char', () => {
-  r.encode(r.char, testChar);
+  do_not_optimize(r.encode(r.char, testChar));
 });
 
 bench.add('primitives/encode - string (short)', () => {
-  r.encode(r.string, testStringShort);
+  do_not_optimize(r.encode(r.string, testStringShort));
 });
 
 bench.add('primitives/encode - string (long)', () => {
-  r.encode(r.string, testStringLong);
+  do_not_optimize(r.encode(r.string, testStringLong));
 });
 
 await bench.run();

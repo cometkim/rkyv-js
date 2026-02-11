@@ -1,4 +1,4 @@
-import { run, bench, group, summary } from 'mitata';
+import { run, bench, group, summary, do_not_optimize } from 'mitata';
 import * as r from 'rkyv-js';
 
 const ArchivedPerson = r.struct({
@@ -24,11 +24,11 @@ const rkyvPersonLargeBytes = r.encode(ArchivedPerson, testPersonLarge);
 summary(() => {
   group('rkyv-js: access vs decode (Person large)', () => {
     bench('decode (eager, full object)', () => {
-      r.decode(ArchivedPerson, rkyvPersonLargeBytes);
+      void r.decode(ArchivedPerson, rkyvPersonLargeBytes);
     }).baseline();
 
     bench('access (lazy)', () => {
-      r.access(ArchivedPerson, rkyvPersonLargeBytes);
+      void r.access(ArchivedPerson, rkyvPersonLargeBytes);
     });
 
     bench('access + read 1 field', () => {

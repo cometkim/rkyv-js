@@ -1,4 +1,4 @@
-import { run, bench, group } from 'mitata';
+import { run, bench, group, do_not_optimize } from 'mitata';
 import * as r from 'rkyv-js';
 
 const testU8 = 255;
@@ -34,118 +34,118 @@ const stringLongBytes = r.encode(r.string, testStringLong);
 // Integer encode benchmarks
 group('primitives encode', () => {
   bench('u8', () => {
-    r.encode(r.u8, testU8);
+    do_not_optimize(r.encode(r.u8, testU8));
   }).gc('inner');
 
   bench('i8', () => {
-    r.encode(r.i8, testI8);
+    do_not_optimize(r.encode(r.i8, testI8));
   }).gc('inner');
 
   bench('u16', () => {
-    r.encode(r.u16, testU16);
+    do_not_optimize(r.encode(r.u16, testU16));
   }).gc('inner');
 
   bench('i16', () => {
-    r.encode(r.i16, testI16);
+    do_not_optimize(r.encode(r.i16, testI16));
   }).gc('inner');
 
   bench('u32', () => {
-    r.encode(r.u32, testU32);
+    do_not_optimize(r.encode(r.u32, testU32));
   }).gc('inner');
 
   bench('i32', () => {
-    r.encode(r.i32, testI32);
+    do_not_optimize(r.encode(r.i32, testI32));
   }).gc('inner');
 
   bench('u64', () => {
-    r.encode(r.u64, testU64);
+    do_not_optimize(r.encode(r.u64, testU64));
   }).gc('inner');
 
   bench('i64', () => {
-    r.encode(r.i64, testI64);
+    do_not_optimize(r.encode(r.i64, testI64));
   }).gc('inner');
 
   bench('f32', () => {
-    r.encode(r.f32, testF32);
+    do_not_optimize(r.encode(r.f32, testF32));
   }).gc('inner');
 
   bench('f64', () => {
-    r.encode(r.f64, testF64);
+    do_not_optimize(r.encode(r.f64, testF64));
   }).gc('inner');
 
   bench('bool', () => {
-    r.encode(r.bool, testBool);
+    do_not_optimize(r.encode(r.bool, testBool));
   }).gc('inner');
 
   bench('char', () => {
-    r.encode(r.char, testChar);
+    do_not_optimize(r.encode(r.char, testChar));
   }).gc('inner');
 
   bench('string (short, inline)', () => {
-    r.encode(r.string, testStringShort);
+    do_not_optimize(r.encode(r.string, testStringShort));
   }).gc('inner').baseline();
 
   bench('string (long, out-of-line)', () => {
-    r.encode(r.string, testStringLong);
+    do_not_optimize(r.encode(r.string, testStringLong));
   }).gc('inner');
 });
 
 // Integer decode benchmarks
 group('primitives decode', () => {
   bench('u8', () => {
-    r.decode(r.u8, u8Bytes);
+    do_not_optimize(r.decode(r.u8, u8Bytes));
   }).gc('inner');
 
   bench('i8', () => {
-    r.decode(r.i8, i8Bytes);
+    do_not_optimize(r.decode(r.i8, i8Bytes));
   }).gc('inner');
 
   bench('u16', () => {
-    r.decode(r.u16, u16Bytes);
+    do_not_optimize(r.decode(r.u16, u16Bytes));
   }).gc('inner');
 
   bench('i16', () => {
-    r.decode(r.i16, i16Bytes);
+    do_not_optimize(r.decode(r.i16, i16Bytes));
   }).gc('inner');
 
   bench('u32', () => {
-    r.decode(r.u32, u32Bytes);
+    do_not_optimize(r.decode(r.u32, u32Bytes));
   }).gc('inner');
 
   bench('i32', () => {
-    r.decode(r.i32, i32Bytes);
+    do_not_optimize(r.decode(r.i32, i32Bytes));
   }).gc('inner');
 
   bench('u64', () => {
-    r.decode(r.u64, u64Bytes);
+    do_not_optimize(r.decode(r.u64, u64Bytes));
   }).gc('inner');
 
   bench('i64', () => {
-    r.decode(r.i64, i64Bytes);
+    do_not_optimize(r.decode(r.i64, i64Bytes));
   }).gc('inner');
 
   bench('f32', () => {
-    r.decode(r.f32, f32Bytes);
+    do_not_optimize(r.decode(r.f32, f32Bytes));
   }).gc('inner');
 
   bench('f64', () => {
-    r.decode(r.f64, f64Bytes);
+    do_not_optimize(r.decode(r.f64, f64Bytes));
   }).gc('inner');
 
   bench('bool', () => {
-    r.decode(r.bool, boolBytes);
+    do_not_optimize(r.decode(r.bool, boolBytes));
   }).gc('inner');
 
   bench('char', () => {
-    r.decode(r.char, charBytes);
+    do_not_optimize(r.decode(r.char, charBytes));
   }).gc('inner');
 
   bench('string (short, inline)', () => {
-    r.decode(r.string, stringShortBytes);
+    do_not_optimize(r.decode(r.string, stringShortBytes));
   }).gc('inner');
 
   bench('string (long, out-of-line)', () => {
-    r.decode(r.string, stringLongBytes);
+    do_not_optimize(r.decode(r.string, stringLongBytes));
   }).gc('inner');
 });
 
@@ -153,27 +153,27 @@ group('primitives decode', () => {
 group('Roundtrip (encode + decode)', () => {
   bench('u32', () => {
     const bytes = r.encode(r.u32, testU32);
-    r.decode(r.u32, bytes);
+    do_not_optimize(r.decode(r.u32, bytes));
   }).gc('inner');
 
   bench('u64', () => {
     const bytes = r.encode(r.u64, testU64);
-    r.decode(r.u64, bytes);
+    do_not_optimize(r.decode(r.u64, bytes));
   }).gc('inner');
 
   bench('f64', () => {
     const bytes = r.encode(r.f64, testF64);
-    r.decode(r.f64, bytes);
+    do_not_optimize(r.decode(r.f64, bytes));
   }).gc('inner');
 
   bench('string (inline)', () => {
     const bytes = r.encode(r.string, testStringShort);
-    r.decode(r.string, bytes);
+    do_not_optimize(r.decode(r.string, bytes));
   }).gc('inner');
 
   bench('string (out-of-line)', () => {
     const bytes = r.encode(r.string, testStringLong);
-    r.decode(r.string, bytes);
+    do_not_optimize(r.decode(r.string, bytes));
   }).gc('inner');
 });
 

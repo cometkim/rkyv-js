@@ -1,3 +1,4 @@
+import { do_not_optimize } from 'mitata';
 import { Bench } from 'tinybench';
 import { withCodSpeed } from '@codspeed/tinybench-plugin';
 import * as r from 'rkyv-js';
@@ -38,59 +39,59 @@ const stringShortBytes = r.encode(r.string, testStringShort);
 const stringLongBytes = r.encode(r.string, testStringLong);
 
 bench.add('primitives/decode - u8', () => {
-  r.decode(r.u8, u8Bytes);
+  do_not_optimize(r.decode(r.u8, u8Bytes));
 });
 
 bench.add('primitives/decode - i8', () => {
-  r.decode(r.i8, i8Bytes);
+  do_not_optimize(r.decode(r.i8, i8Bytes));
 });
 
 bench.add('primitives/decode - u16', () => {
-  r.decode(r.u16, u16Bytes);
+  do_not_optimize(r.decode(r.u16, u16Bytes));
 });
 
 bench.add('primitives/decode - i16', () => {
-  r.decode(r.i16, i16Bytes);
+  do_not_optimize(r.decode(r.i16, i16Bytes));
 });
 
 bench.add('primitives/decode - u32', () => {
-  r.decode(r.u32, u32Bytes);
+  do_not_optimize(r.decode(r.u32, u32Bytes));
 });
 
 bench.add('primitives/decode - i32', () => {
-  r.decode(r.i32, i32Bytes);
+  do_not_optimize(r.decode(r.i32, i32Bytes));
 });
 
 bench.add('primitives/decode - u64', () => {
-  r.decode(r.u64, u64Bytes);
+  do_not_optimize(r.decode(r.u64, u64Bytes));
 });
 
 bench.add('primitives/decode - i64', () => {
-  r.decode(r.i64, i64Bytes);
+  do_not_optimize(r.decode(r.i64, i64Bytes));
 });
 
 bench.add('primitives/decode - f32', () => {
-  r.decode(r.f32, f32Bytes);
+  do_not_optimize(r.decode(r.f32, f32Bytes));
 });
 
 bench.add('primitives/decode - f64', () => {
-  r.decode(r.f64, f64Bytes);
+  do_not_optimize(r.decode(r.f64, f64Bytes));
 });
 
 bench.add('primitives/decode - bool', () => {
-  r.decode(r.bool, boolBytes);
+  do_not_optimize(r.decode(r.bool, boolBytes));
 });
 
 bench.add('primitives/decode - char', () => {
-  r.decode(r.char, charBytes);
+  do_not_optimize(r.decode(r.char, charBytes));
 });
 
 bench.add('primitives/decode - string (short)', () => {
-  r.decode(r.string, stringShortBytes);
+  do_not_optimize(r.decode(r.string, stringShortBytes));
 });
 
 bench.add('primitives/decode - string (long)', () => {
-  r.decode(r.string, stringLongBytes);
+  do_not_optimize(r.decode(r.string, stringLongBytes));
 });
 
 await bench.run();
