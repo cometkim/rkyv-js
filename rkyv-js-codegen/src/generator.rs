@@ -92,12 +92,6 @@ pub struct CodeGenerator {
     /// compatible with `.js` / `.mjs` files.
     allow_typescript_syntax: bool,
 
-    /// Base marker names to look for in derive attributes.
-    ///
-    /// Defaults to `["Archive"]`. Additional markers are auto-detected per-file
-    /// from `use` items (e.g., `use rkyv::Archive as Rkyv` adds `"Rkyv"`).
-    pub(crate) markers: Vec<String>,
-
     /// Type registry for resolving external types
     pub(crate) registry: TypeRegistry,
 }
@@ -108,7 +102,6 @@ impl Default for CodeGenerator {
             types: BTreeMap::new(),
             header: None,
             allow_typescript_syntax: true,
-            markers: vec!["Archive".to_string()],
             registry: TypeRegistry::with_builtins(),
         }
     }

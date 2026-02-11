@@ -8,12 +8,9 @@
 //!
 //! ## Use-item analysis
 //!
-//! The extractor automatically processes `use` statements in each source file to:
-//!
-//! - **Resolve type aliases**: `use std::collections::BTreeMap as MyMap` allows `MyMap<K, V>`
-//!   to be correctly resolved as a `BTreeMap`.
-//! - **Detect marker aliases**: `use rkyv::Archive as Rkyv` allows `#[derive(Rkyv)]` to be
-//!   recognized automatically without manual configuration.
+//! The extractor automatically processes `use` statements in each source file
+//! to resolve type aliases: `use std::collections::BTreeMap as MyMap`
+//! allows `MyMap<K, V>` to be correctly resolved as a `BTreeMap`.
 
 use crate::CodeGenerator;
 use crate::types::{EnumVariant, TypeDef};
@@ -28,49 +25,33 @@ use walkdir::WalkDir;
 
 /// Per-file context built from `use` items.
 ///
-/// This holds the alias map and any auto-detected marker names for a single
-/// source file, so that type resolution and derive detection are alias-aware.
+/// This holds the alias map for a single source file, so that type resolution
+/// and derive detection are alias-aware.
 struct SourceContext {
     /// Maps local alias -> canonical name (last segment of the original path).
     ///
     /// Only populated for `use ... as Alias` renames. Non-renamed imports are
     /// not included since the local name already matches the canonical name.
     aliases: HashMap<String, String>,
-
-    /// Marker names detected from `use` items in this file.
-    ///
-    /// For example, `use rkyv::Archive as Rkyv` adds `"Rkyv"` here.
-    /// These are merged with the base markers from `CodeGenerator`.
-    markers: Vec<String>,
 }
 
 /// Recursively flatten a `UseTree` into alias entries.
 ///
 /// For `UseTree::Rename`, records `(alias, canonical_last_segment)`.
-/// For marker detection, when the canonical last segment is one of the base
-/// markers (e.g., `"Archive"`), the alias is recorded as a detected marker.
 fn collect_use_aliases(
     tree: &UseTree,
     prefix: &[String],
     aliases: &mut HashMap<String, String>,
-    markers: &mut Vec<String>,
-    base_markers: &[String],
 ) {
     match tree {
         UseTree::Path(p) => {
             let mut new_prefix = prefix.to_vec();
             new_prefix.push(p.ident.to_string());
-            collect_use_aliases(&p.tree, &new_prefix, aliases, markers, base_markers);
+            collect_use_aliases(&p.tree, &new_prefix, aliases);
         }
         UseTree::Rename(r) => {
             let canonical = r.ident.to_string();
             let alias = r.rename.to_string();
-
-            // If the canonical name is a base marker, the alias is a new marker
-            if base_markers.iter().any(|m| m == &canonical) {
-                markers.push(alias.clone());
-            }
-
             aliases.insert(alias, canonical);
         }
         UseTree::Name(_) | UseTree::Glob(_) => {
@@ -78,30 +59,23 @@ fn collect_use_aliases(
         }
         UseTree::Group(g) => {
             for item in &g.items {
-                collect_use_aliases(item, prefix, aliases, markers, base_markers);
+                collect_use_aliases(item, prefix, aliases);
             }
         }
     }
 }
 
 /// Build a `SourceContext` from all `use` items in a parsed file.
-fn build_source_context(file: &syn::File, base_markers: &[String]) -> SourceContext {
+fn build_source_context(file: &syn::File) -> SourceContext {
     let mut aliases = HashMap::new();
-    let mut markers = Vec::new();
 
     for item in &file.items {
         if let syn::Item::Use(item_use) = item {
-            collect_use_aliases(
-                &item_use.tree,
-                &[],
-                &mut aliases,
-                &mut markers,
-                base_markers,
-            );
+            collect_use_aliases(&item_use.tree, &[], &mut aliases);
         }
     }
 
-    SourceContext { aliases, markers }
+    SourceContext { aliases }
 }
 
 /// Extract the remote type path from `#[rkyv(remote = some::Type)]`, if present.
@@ -426,18 +400,26 @@ fn process_derive_input(
     }
 }
 
-fn parse_source_file(codegen: &mut CodeGenerator, source: &str, base_markers: &[String]) {
+/// The derive marker name that triggers type extraction.
+const MARKER: &str = "Archive";
+
+fn parse_source_file(codegen: &mut CodeGenerator, source: &str) {
     let file = match syn::parse_file(source) {
         Ok(f) => f,
         Err(_) => return,
     };
 
     // Build per-file context from `use` items
-    let ctx = build_source_context(&file, base_markers);
+    let ctx = build_source_context(&file);
 
-    // Merge base markers with auto-detected markers from this file
-    let mut markers = base_markers.to_vec();
-    markers.extend(ctx.markers.iter().cloned());
+    // Collect marker names: "Archive" + any aliases for it (e.g. `use rkyv::Archive as Rkyv`)
+    let mut markers = vec![MARKER.to_string()];
+    markers.extend(
+        ctx.aliases
+            .iter()
+            .filter(|(_, canonical)| canonical.as_str() == MARKER)
+            .map(|(alias, _)| alias.clone()),
+    );
 
     for item in file.items {
         if let syn::Item::Struct(s) = item {
@@ -487,13 +469,13 @@ impl CodeGenerator {
     /// ```
     pub fn add_source_file(&mut self, path: impl AsRef<Path>) -> std::io::Result<&mut Self> {
         let source = fs::read_to_string(path)?;
-        parse_source_file(self, &source, &self.markers.clone());
+        parse_source_file(self, &source);
         Ok(self)
     }
 
     /// Parse Rust source from a string and extract types with marker derives.
     pub fn add_source_str(&mut self, source: &str) -> &mut Self {
-        parse_source_file(self, source, &self.markers.clone());
+        parse_source_file(self, source);
         self
     }
 
@@ -512,12 +494,11 @@ impl CodeGenerator {
     /// # }
     /// ```
     pub fn add_source_dir(&mut self, path: impl AsRef<Path>) -> std::io::Result<&mut Self> {
-        let markers = self.markers.clone();
         for entry in WalkDir::new(path).into_iter().filter_map(|e| e.ok()) {
             let path = entry.path();
             if path.extension().map(|e| e == "rs").unwrap_or(false) {
                 let source = fs::read_to_string(path)?;
-                parse_source_file(self, &source, &markers);
+                parse_source_file(self, &source);
             }
         }
         Ok(self)
