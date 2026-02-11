@@ -11,23 +11,16 @@ export interface RkyvReaderOptions {
  */
 export class RkyvReader {
   readonly view: DataView;
-  readonly buffer: Uint8Array;
   readonly textDecoder: TextDecoder;
 
   constructor(buffer: ArrayBuffer | Uint8Array, options: RkyvReaderOptions = {}) {
     this.textDecoder = options.textDecoder || new TextDecoder();
 
     if (buffer instanceof Uint8Array) {
-      this.buffer = buffer;
       this.view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
     } else {
-      this.buffer = new Uint8Array(buffer);
       this.view = new DataView(buffer);
     }
-  }
-
-  get length(): number {
-    return this.buffer.length;
   }
 
   /**
@@ -36,7 +29,7 @@ export class RkyvReader {
    * meaning the root object is at the end of the buffer.
    */
   getRootPosition(rootSize: number): number {
-    return this.length - rootSize;
+    return this.view.byteLength - rootSize;
   }
 
   // === Primitive Type Readers (Little Endian) ===
@@ -89,7 +82,7 @@ export class RkyvReader {
    * Read a raw byte slice from the buffer
    */
   readBytes(offset: number, length: number): Uint8Array {
-    return this.buffer.subarray(offset, offset + length);
+    return new Uint8Array(this.view.buffer, this.view.byteOffset + offset, length);
   }
 
   /**
