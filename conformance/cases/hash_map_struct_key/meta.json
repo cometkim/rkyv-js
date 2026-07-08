@@ -1,0 +1,7 @@
+{
+  "case": "hash_map_struct_key",
+  "class": "semantic",
+  "codec": "ArchivedHashMapStructKey",
+  "ordered": false,
+  "type": "HashMapStructKey"
+}

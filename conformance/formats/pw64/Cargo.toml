@@ -1,0 +1,20 @@
+[package]
+name = "conformance-pw64"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# Standalone: rkyv format features are global and mutually exclusive per
+# build, so this crate must not share a build graph with the main workspace.
+[workspace]
+
+[dependencies]
+rkyv = { version = "=0.8.14", features = ["bytecheck", "indexmap-2", "pointer_width_64"] }
+indexmap = { version = "2", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+
+[[bin]]
+name = "smoke"
+path = "src/main.rs"

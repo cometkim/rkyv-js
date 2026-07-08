@@ -6,9 +6,12 @@ import { specs } from './_specs.ts';
 for (const spec of specs) {
   for (const [description, test] of spec.tests) {
     bench(`codec/decode - ${description}`, () => {
-      do_not_optimize(r.decode(spec.codec, test.expected));
+      do_not_optimize(spec.codec.decode(test.expected));
     }).gc('inner');
   }
 }
 
-await run();
+await run({
+  ...(process.env.NO_COLOR ? { colors: false } : {}),
+  ...(process.env.MITATA_FORMAT ? { format: process.env.MITATA_FORMAT as 'json' } : {}),
+});

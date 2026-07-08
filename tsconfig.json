@@ -9,12 +9,14 @@
     "noImplicitAny": true,
     "strictNullChecks": true,
     "skipLibCheck": true,
-    "erasableSyntaxOnly": true
+    "erasableSyntaxOnly": true,
+    "types": ["node"]
   },
   "include": [
     "src",
-    "tests",
-    "benchmarks",
+    "test",
+    "benchmark",
+    "conformance/cases",
     "rkyv-example"
   ],
   "exclude": [

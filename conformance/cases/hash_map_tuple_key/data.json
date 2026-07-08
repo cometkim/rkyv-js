@@ -1,0 +1,27 @@
+{
+  "m": {
+    "$map": [
+      [
+        [
+          "a longer tuple key element that leaves the inline range",
+          3
+        ],
+        true
+      ],
+      [
+        [
+          "alpha",
+          1
+        ],
+        true
+      ],
+      [
+        [
+          "beta",
+          2
+        ],
+        false
+      ]
+    ]
+  }
+}

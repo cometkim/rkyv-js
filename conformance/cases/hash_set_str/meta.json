@@ -1,0 +1,7 @@
+{
+  "case": "hash_set_str",
+  "class": "semantic",
+  "codec": "ArchivedHashSetStr",
+  "ordered": false,
+  "type": "HashSetStr"
+}

@@ -1,475 +1,451 @@
-import { alignOffset, type RkyvCodec, type Resolver } from 'rkyv-js/codec';
-import type { RkyvReader } from 'rkyv-js/reader';
+/**
+ * std::collections::BTreeMap / BTreeSet codecs.
+ *
+ * The archived format is rkyv's B-tree:
+ * - header: root pointer (RelPtr) + length (ArchivedUsize)
+ * - leaf nodes: kind (u8) + keys[E] + values[E] + len (ArchivedUsize)
+ * - inner nodes: kind (u8) + keys[E] + values[E] + lesser_nodes[E] +
+ *   greater_node (RelPtrs)
+ *
+ * Default branching factor E = 5 (entries per node).
+ *
+ * Entries are sorted by key before archiving — Rust's BTreeMap invariant.
+ * String keys sort by Unicode code point, matching Rust's UTF-8 byte order.
+ */
+
+import {
+  alignOffset,
+  Codec,
+  type AnyCodec,
+  type Infer,
+  type Layout,
+  type RkyvFormat,
+  type RkyvReader,
+  type RkyvWriter,
+} from 'rkyv-js/core';
 import { unit } from 'rkyv-js/primitives';
 
-/**
- * BTreeMap<K, V> - rkyv's B-tree map
- *
- * The archived format uses a B-tree structure with:
- * - Root pointer (RelPtr) + length (u32)
- * - Leaf nodes: kind (u8) + keys[E] + values[E] + len (u32)
- * - Inner nodes: kind (u8) + keys[E] + values[E] + lesser_nodes[E] + greater_node
- *
- * Default branching factor E = 5 (meaning up to 5 entries per node)
- */
-export function btreeMap<K, V>(
-  keyCodec: RkyvCodec<K>,
-  valueCodec: RkyvCodec<V>,
-  E: number = 5,
-): RkyvCodec<Map<K, V>> {
-  // Node layout calculations
-  const NODE_KIND_LEAF = 0;
-  const NODE_KIND_INNER = 1;
+import { SetOfMapCodec } from './internal/map-set.ts';
 
-  // Node<K, V, E> layout:
-  // - kind: u8
-  // - padding to align keys
-  // - keys: [MaybeUninit<K>; E]
-  // - values: [MaybeUninit<V>; E]
-  const keyAlign = keyCodec.align;
-  const valueAlign = valueCodec.align;
-  const nodeAlign = Math.max(1, keyAlign, valueAlign);
+const NODE_KIND_LEAF = 0;
 
-  const kindOffset = 0;
-  const keysOffset = alignOffset(1, keyAlign); // After kind byte, aligned for K
-  const keyStride = alignOffset(keyCodec.size, keyCodec.align);
-  const keysSize = keyStride * E;
-  const valuesOffset = alignOffset(keysOffset + keysSize, valueAlign);
-  const valueStride = alignOffset(valueCodec.size, valueCodec.align);
-  const valuesSize = valueStride * E;
-  const nodeBaseSize = valuesOffset + valuesSize;
+interface BTreeLayout extends Layout {
+  pb: 2 | 4 | 8;
+}
 
-  // LeafNode<K, V, E> = Node + len: ArchivedUsize (u32)
-  const leafLenOffset = alignOffset(nodeBaseSize, 4);
-  const leafNodeSize = alignOffset(leafLenOffset + 4, nodeAlign);
+interface NodeGeometry {
+  pb: 2 | 4 | 8;
+  keysOffset: number;
+  keyStride: number;
+  valuesOffset: number;
+  valueStride: number;
+  nodeAlign: number;
+  leafLenOffset: number;
+  leafNodeSize: number;
+  lesserNodesOffset: number;
+  greaterNodeOffset: number;
+  innerNodeSize: number;
+}
 
-  // InnerNode<K, V, E> = Node + lesser_nodes: [RelPtr; E] + greater_node: RelPtr
-  const lesserNodesOffset = alignOffset(nodeBaseSize, 4);
-  const lesserNodesSize = 4 * E;
-  const greaterNodeOffset = lesserNodesOffset + lesserNodesSize;
-  const innerNodeSize = alignOffset(greaterNodeOffset + 4, nodeAlign);
+interface BTreeResolver {
+  rootPos: number;
+  len: number;
+}
 
-  // Helper to read a key at index i from a node
-  const readKey = (reader: RkyvReader, nodeOffset: number, i: number): K => {
-    const keyOffset = nodeOffset + keysOffset + i * keyStride;
-    return keyCodec.decode(reader, keyOffset);
-  };
+interface InnerItem<K, V> {
+  entry: [K, V];
+  /** Position of the child closed just before this entry was pulled up. */
+  lesser: number | null;
+}
 
-  // Helper to read a value at index i from a node
-  const readValue = (reader: RkyvReader, nodeOffset: number, i: number): V => {
-    const valueOffset = nodeOffset + valuesOffset + i * valueStride;
-    return valueCodec.decode(reader, valueOffset);
-  };
+/** Compare strings by Unicode code point (equivalent to UTF-8 byte order). */
+function compareCodePoints(a: string, b: string): number {
+  const len = Math.min(a.length, b.length);
+  for (let i = 0; i < len; i++) {
+    let ca = a.charCodeAt(i);
+    let cb = b.charCodeAt(i);
+    if (ca !== cb) {
+      // Map surrogate halves above BMP code units so the order matches
+      // code points rather than UTF-16 code units.
+      if (ca >= 0xd800 && ca <= 0xdbff) ca += 0x2800;
+      if (cb >= 0xd800 && cb <= 0xdbff) cb += 0x2800;
+      return ca - cb;
+    }
+  }
+  return a.length - b.length;
+}
 
-  // In-order traversal of the B-tree to collect all entries
-  const collectEntries = (reader: RkyvReader, rootOffset: number, len: number): Map<K, V> => {
+function defaultCompare(a: unknown, b: unknown): number {
+  if (typeof a === 'string' && typeof b === 'string') {
+    return compareCodePoints(a, b);
+  }
+  if ((a as number) < (b as number)) return -1;
+  if ((a as number) > (b as number)) return 1;
+  return 0;
+}
+
+class BTreeMapCodec<K, V> extends Codec<Map<K, V>, BTreeResolver, BTreeLayout> {
+  #key: Codec<K>;
+  #value: Codec<V>;
+  #E: number;
+  #compare: (a: K, b: K) => number;
+  #geometryFormat: RkyvFormat | null = null;
+  #geometry: NodeGeometry | null = null;
+
+  constructor(
+    keyCodec: Codec<K>,
+    valueCodec: Codec<V>,
+    E: number,
+    compare: (a: K, b: K) => number,
+  ) {
+    super({ inline: false, hashable: false });
+    this.#key = keyCodec;
+    this.#value = valueCodec;
+    this.#E = E;
+    this.#compare = compare;
+  }
+
+  // Header layout never depends on the entry types (BTreeMap is a valid
+  // recursion point in Rust); node geometry is memoized separately and
+  // computed only at read/write time.
+  computeLayout(fmt: RkyvFormat): BTreeLayout {
+    const pb = (fmt.pointerWidth / 8) as 2 | 4 | 8;
+    return { size: pb * 2, align: fmt.aligned ? pb : 1, pb };
+  }
+
+  #nodeGeometry(fmt: RkyvFormat): NodeGeometry {
+    if (fmt !== this.#geometryFormat) {
+      const E = this.#E;
+      const pb = (fmt.pointerWidth / 8) as 2 | 4 | 8;
+      const k = this.#key.layout(fmt);
+      const v = this.#value.layout(fmt);
+      const usizeAlign = fmt.aligned ? pb : 1;
+
+      const keysOffset = alignOffset(1, k.align);
+      const keyStride = alignOffset(k.size, k.align);
+      const valuesOffset = alignOffset(keysOffset + keyStride * E, v.align);
+      const valueStride = alignOffset(v.size, v.align);
+      const nodeBaseSize = valuesOffset + valueStride * E;
+      const nodeAlign = Math.max(1, k.align, v.align, usizeAlign);
+
+      const leafLenOffset = alignOffset(nodeBaseSize, usizeAlign);
+      const lesserNodesOffset = alignOffset(nodeBaseSize, usizeAlign);
+      const greaterNodeOffset = lesserNodesOffset + pb * E;
+
+      this.#geometry = {
+        pb,
+        keysOffset,
+        keyStride,
+        valuesOffset,
+        valueStride,
+        nodeAlign,
+        leafLenOffset,
+        leafNodeSize: alignOffset(leafLenOffset + pb, nodeAlign),
+        lesserNodesOffset,
+        greaterNodeOffset,
+        innerNodeSize: alignOffset(greaterNodeOffset + pb, nodeAlign),
+      };
+      this.#geometryFormat = fmt;
+    }
+    return this.#geometry as NodeGeometry;
+  }
+
+  read(reader: RkyvReader, offset: number): Map<K, V> {
+    const l = this.layout(reader.format);
+    const len = reader.readUsize(offset + l.pb);
     const result = new Map<K, V>();
     if (len === 0) return result;
 
-    // Stack for iterative in-order traversal: (nodeOffset, nextIndex)
-    const stack: Array<{ nodeOffset: number; nextIndex: number }> = [];
+    const rootOffset = reader.readRelPtr(offset);
+    this.#collectEntries(reader, rootOffset, len, this.#nodeGeometry(reader.format), result);
+    return result;
+  }
 
-    // Start at root and descend to leftmost leaf
-    let current = rootOffset;
-    while (true) {
-      const kind = reader.readU8(current + kindOffset);
-      if (kind === NODE_KIND_LEAF) {
-        stack.push({ nodeOffset: current, nextIndex: 0 });
-        break;
-      } else {
-        // Inner node - push and descend to first lesser node
-        stack.push({ nodeOffset: current, nextIndex: 0 });
-        const lesserPtr = current + lesserNodesOffset;
-        const relOffset = reader.readI32(lesserPtr);
-        if (relOffset === 0) {
-          // Invalid pointer, stay at this node
-          break;
-        }
-        current = lesserPtr + relOffset;
-      }
+  #readKey(reader: RkyvReader, nodeOffset: number, i: number, g: NodeGeometry): K {
+    return this.#key.read(reader, nodeOffset + g.keysOffset + i * g.keyStride);
+  }
+
+  #readValue(reader: RkyvReader, nodeOffset: number, i: number, g: NodeGeometry): V {
+    return this.#value.read(reader, nodeOffset + g.valuesOffset + i * g.valueStride);
+  }
+
+  /** Descend to the leftmost reachable node, pushing the path on the stack. */
+  #descend(
+    reader: RkyvReader,
+    start: number,
+    g: NodeGeometry,
+    stack: Array<{ nodeOffset: number; nextIndex: number }>,
+  ): void {
+    let current = start;
+    for (;;) {
+      stack.push({ nodeOffset: current, nextIndex: 0 });
+      if (reader.readU8(current) === NODE_KIND_LEAF) return;
+      const lesserPtr = current + g.lesserNodesOffset;
+      // Missing children are rkyv's invalid pointer (raw offset 1).
+      if (reader.isInvalidPtr(lesserPtr)) return;
+      current = reader.readRelPtr(lesserPtr);
     }
+  }
 
-    // Iterate through entries
+  /** In-order traversal collecting all entries. */
+  #collectEntries(
+    reader: RkyvReader,
+    rootOffset: number,
+    len: number,
+    g: NodeGeometry,
+    result: Map<K, V>,
+  ): void {
+    const stack: Array<{ nodeOffset: number; nextIndex: number }> = [];
+    this.#descend(reader, rootOffset, g, stack);
+
     while (stack.length > 0 && result.size < len) {
       const top = stack[stack.length - 1];
-      const kind = reader.readU8(top.nodeOffset + kindOffset);
+      const kind = reader.readU8(top.nodeOffset);
 
       if (kind === NODE_KIND_LEAF) {
-        const leafLen = reader.readU32(top.nodeOffset + leafLenOffset);
+        const leafLen = reader.readUsize(top.nodeOffset + g.leafLenOffset);
         if (top.nextIndex < leafLen) {
-          const key = readKey(reader, top.nodeOffset, top.nextIndex);
-          const value = readValue(reader, top.nodeOffset, top.nextIndex);
-          result.set(key, value);
+          result.set(
+            this.#readKey(reader, top.nodeOffset, top.nextIndex, g),
+            this.#readValue(reader, top.nodeOffset, top.nextIndex, g),
+          );
           top.nextIndex++;
         } else {
           stack.pop();
         }
+      } else if (top.nextIndex < this.#E) {
+        result.set(
+          this.#readKey(reader, top.nodeOffset, top.nextIndex, g),
+          this.#readValue(reader, top.nodeOffset, top.nextIndex, g),
+        );
+        top.nextIndex++;
+
+        // After visiting the key, descend into the next subtree.
+        const nextChildPtrOffset =
+          top.nextIndex < this.#E
+            ? top.nodeOffset + g.lesserNodesOffset + top.nextIndex * g.pb
+            : top.nodeOffset + g.greaterNodeOffset;
+        if (!reader.isInvalidPtr(nextChildPtrOffset)) {
+          this.#descend(reader, reader.readRelPtr(nextChildPtrOffset), g, stack);
+        }
       } else {
-        // Inner node
-        if (top.nextIndex < E) {
-          // Check if we need to visit the key at nextIndex
-          const key = readKey(reader, top.nodeOffset, top.nextIndex);
-          const value = readValue(reader, top.nodeOffset, top.nextIndex);
-          result.set(key, value);
-          top.nextIndex++;
+        stack.pop();
+      }
+    }
+  }
 
-          // After visiting the key, descend into the next subtree
-          let nextChildPtrOffset: number;
-          if (top.nextIndex < E) {
-            nextChildPtrOffset = top.nodeOffset + lesserNodesOffset + top.nextIndex * 4;
-          } else {
-            nextChildPtrOffset = top.nodeOffset + greaterNodeOffset;
-          }
+  /** Archive one node's keys[E] and values[E] regions. */
+  #writeNodeEntries(
+    writer: RkyvWriter,
+    nodePos: number,
+    entries: readonly [K, V][],
+    keyResolvers: unknown[],
+    valueResolvers: unknown[],
+    g: NodeGeometry,
+  ): void {
+    writer.padTo(nodePos + g.keysOffset);
+    for (let i = 0; i < this.#E; i++) {
+      const slotPos = nodePos + g.keysOffset + i * g.keyStride;
+      writer.padTo(slotPos);
+      if (i < entries.length) {
+        this.#key.resolve(writer, entries[i][0], keyResolvers[i]);
+      }
+      writer.padTo(slotPos + g.keyStride);
+    }
+    writer.padTo(nodePos + g.valuesOffset);
+    for (let i = 0; i < this.#E; i++) {
+      const slotPos = nodePos + g.valuesOffset + i * g.valueStride;
+      writer.padTo(slotPos);
+      if (i < entries.length) {
+        this.#value.resolve(writer, entries[i][1], valueResolvers[i]);
+      }
+      writer.padTo(slotPos + g.valueStride);
+    }
+  }
 
-          const relOffset = reader.readI32(nextChildPtrOffset);
-          if (relOffset !== 0) {
-            // Valid child pointer - descend
-            let child = nextChildPtrOffset + relOffset;
-            while (true) {
-              const childKind = reader.readU8(child + kindOffset);
-              if (childKind === NODE_KIND_LEAF) {
-                stack.push({ nodeOffset: child, nextIndex: 0 });
-                break;
-              } else {
-                stack.push({ nodeOffset: child, nextIndex: 0 });
-                const lesserPtr = child + lesserNodesOffset;
-                const lesserRel = reader.readI32(lesserPtr);
-                if (lesserRel === 0) break;
-                child = lesserPtr + lesserRel;
-              }
+  #archiveNodeDeps(
+    writer: RkyvWriter,
+    entries: readonly [K, V][],
+  ): { keyResolvers: unknown[]; valueResolvers: unknown[] } {
+    const keyResolvers: unknown[] = new Array<unknown>(entries.length);
+    const valueResolvers: unknown[] = new Array<unknown>(entries.length);
+    for (let i = 0; i < entries.length; i++) {
+      keyResolvers[i] = this.#key.inline ? undefined : this.#key.archive(writer, entries[i][0]);
+      valueResolvers[i] = this.#value.inline ? undefined : this.#value.archive(writer, entries[i][1]);
+    }
+    return { keyResolvers, valueResolvers };
+  }
+
+  #writeLeaf(writer: RkyvWriter, entries: readonly [K, V][], g: NodeGeometry): number {
+    const { keyResolvers, valueResolvers } = this.#archiveNodeDeps(writer, entries);
+    writer.align(g.nodeAlign);
+    const pos = writer.pos;
+    writer.writeU8(NODE_KIND_LEAF);
+    this.#writeNodeEntries(writer, pos, entries, keyResolvers, valueResolvers, g);
+    writer.padTo(pos + g.leafLenOffset);
+    writer.writeUsize(entries.length);
+    writer.padTo(pos + g.leafNodeSize);
+    return pos;
+  }
+
+  #writeInner(
+    writer: RkyvWriter,
+    items: readonly InnerItem<K, V>[],
+    greaterPos: number | null,
+    g: NodeGeometry,
+  ): number {
+    const entries = items.map((item) => item.entry);
+    const { keyResolvers, valueResolvers } = this.#archiveNodeDeps(writer, entries);
+    writer.align(g.nodeAlign);
+    const pos = writer.pos;
+    writer.writeU8(1);
+    this.#writeNodeEntries(writer, pos, entries, keyResolvers, valueResolvers, g);
+    writer.padTo(pos + g.lesserNodesOffset);
+
+    // lesser_nodes[i] is the child closed just before entry i was pulled;
+    // missing children are the invalid sentinel (RelPtr::emplace_invalid).
+    for (let i = 0; i < this.#E; i++) {
+      const ptrPos = writer.reserveRelPtr();
+      const lesser = i < items.length ? items[i].lesser : null;
+      if (lesser === null) {
+        writer.writeInvalidPtrAt(ptrPos);
+      } else {
+        writer.writeRelPtrAt(ptrPos, lesser);
+      }
+    }
+    const greaterPtrPos = writer.reserveRelPtr();
+    if (greaterPos === null) {
+      writer.writeInvalidPtrAt(greaterPtrPos);
+    } else {
+      writer.writeRelPtrAt(greaterPtrPos, greaterPos);
+    }
+    writer.padTo(pos + g.innerNodeSize);
+    return pos;
+  }
+
+  /**
+   * Literal port of rkyv's `serialize_from_ordered_iter` streaming builder:
+   * entries fill an open leaf; on leaf close, one entry is pulled up into the
+   * deepest non-full open inner node; the last tree level holds exactly
+   * `llEntries` entries, with a "transition" close of the deepest inner when
+   * that budget is exhausted. Inner nodes always hold exactly E entries.
+   */
+  archive(writer: RkyvWriter, value: Map<K, V>): BTreeResolver {
+    const E = this.#E;
+    const B = E + 1;
+    if (value.size === 0) {
+      return { rootPos: 0, len: 0 };
+    }
+    const g = this.#nodeGeometry(writer.format);
+
+    const entries = [...value.entries()].sort((a, b) => this.#compare(a[0], b[0]));
+    const len = entries.length;
+
+    // height = 1 + ilog_B(len); llEntries = len - (B^(height-1) - 1)
+    let height = 1;
+    for (let p = B; p <= len; p *= B) {
+      height++;
+    }
+    let fullAbove = 1;
+    for (let i = 1; i < height; i++) {
+      fullAbove *= B;
+    }
+    const llEntries = len - (fullAbove - 1);
+
+    const openInners: InnerItem<K, V>[][] = [];
+    for (let i = 0; i < height - 1; i++) {
+      openInners.push([]);
+    }
+    let openLeaf: [K, V][] = [];
+    let childPos: number | null = null;
+    let leafEntries = 0;
+    let idx = 0;
+
+    while (idx < len) {
+      openLeaf.push(entries[idx++]);
+      leafEntries++;
+
+      if (leafEntries === llEntries || openLeaf.length === E) {
+        childPos = this.#writeLeaf(writer, openLeaf, g);
+        openLeaf = [];
+
+        // On the transition node, fill and close the deepest open inner.
+        if (leafEntries === llEntries) {
+          const inner = openInners.pop();
+          if (inner !== undefined) {
+            while (inner.length < E && idx < len) {
+              inner.push({ entry: entries[idx++], lesser: childPos });
+              childPos = null;
             }
+            childPos = this.#writeInner(writer, inner, childPos, g);
           }
-        } else {
-          stack.pop();
+        }
+
+        // Add the closed node to an open inner.
+        let popped = 0;
+        while (openInners.length > 0) {
+          const last = openInners[openInners.length - 1];
+          if (last.length === E) {
+            childPos = this.#writeInner(writer, last, childPos, g);
+            openInners.pop();
+            popped++;
+          } else {
+            last.push({ entry: entries[idx++], lesser: childPos });
+            childPos = null;
+            for (let i = 0; i < popped; i++) {
+              openInners.push([]);
+            }
+            break;
+          }
         }
       }
     }
 
-    return result;
-  };
+    if (openLeaf.length > 0) {
+      childPos = this.#writeLeaf(writer, openLeaf, g);
+    }
+    for (let inner = openInners.pop(); inner !== undefined; inner = openInners.pop()) {
+      childPos = this.#writeInner(writer, inner, childPos, g);
+    }
 
-  return {
-    size: 8, // relptr (4) + len (4)
-    align: 4,
+    return { rootPos: childPos as number, len };
+  }
 
-    access(reader, offset) {
-      return this.decode(reader, offset);
-    },
-
-    decode(reader, offset) {
-      const rootRelOffset = reader.readI32(offset);
-      const len = reader.readU32(offset + 4);
-
-      if (len === 0) {
-        return new Map<K, V>();
-      }
-
-      const rootOffset = offset + rootRelOffset;
-      return collectEntries(reader, rootOffset, len);
-    },
-
-    _archive(writer, value) {
-      if (value.size === 0) {
-        return { pos: 0, rootPos: 0, len: 0 };
-      }
-
-      // Sort entries by key for B-tree ordering
-      const entries = Array.from(value.entries());
-      // Note: We assume keys are comparable. For complex keys, this may need adjustment.
-
-      const len = entries.length;
-
-      // For simplicity, we'll serialize as a single leaf if len <= E
-      // Otherwise, build a proper B-tree structure
-
-      if (len <= E) {
-        // Single leaf node
-        // First, archive all keys and values
-        const resolvers: Array<{ keyResolver: Resolver; valueResolver: Resolver }> = [];
-        for (const [k, v] of entries) {
-          resolvers.push({
-            keyResolver: keyCodec._archive(writer, k),
-            valueResolver: valueCodec._archive(writer, v),
-          });
-        }
-
-        // Write leaf node
-        writer.align(nodeAlign);
-        const leafPos = writer.pos;
-
-        // kind
-        writer.writeU8(NODE_KIND_LEAF);
-
-        // Pad to keys
-        writer.padTo(leafPos + keysOffset);
-
-        // keys
-        for (let i = 0; i < E; i++) {
-          writer.align(keyCodec.align);
-          if (i < len) {
-            keyCodec._resolve(writer, entries[i][0], resolvers[i].keyResolver);
-          } else {
-            // Padding for unused slots
-            for (let j = 0; j < keyCodec.size; j++) writer.writeU8(0);
-          }
-        }
-
-        // Pad to values
-        writer.padTo(leafPos + valuesOffset);
-
-        // values
-        for (let i = 0; i < E; i++) {
-          writer.align(valueCodec.align);
-          if (i < len) {
-            valueCodec._resolve(writer, entries[i][1], resolvers[i].valueResolver);
-          } else {
-            for (let j = 0; j < valueCodec.size; j++) writer.writeU8(0);
-          }
-        }
-
-        // Pad to len field
-        writer.padTo(leafPos + leafLenOffset);
-        writer.writeU32(len);
-
-        // Pad to full leaf size
-        writer.padTo(leafPos + leafNodeSize);
-
-        return { pos: leafPos, rootPos: leafPos, len };
-      }
-
-      // For larger maps, build a B-tree bottom-up following rkyv's algorithm
-      // 
-      // The tree is built by:
-      // 1. Creating leaf nodes that hold up to E entries each
-      // 2. Creating inner nodes that hold E keys and E+1 child pointers
-      // 
-      // We'll use a simpler approach: serialize all entries into leaf nodes,
-      // then build inner nodes to connect them.
-
-      type NodeInfo = { pos: number };
-
-      // Helper to write a leaf node
-      const writeLeaf = (leafEntries: Array<[K, V]>): NodeInfo => {
-        const resolvers: Array<{ keyResolver: Resolver; valueResolver: Resolver }> = [];
-        for (const [k, v] of leafEntries) {
-          resolvers.push({
-            keyResolver: keyCodec._archive(writer, k),
-            valueResolver: valueCodec._archive(writer, v),
-          });
-        }
-
-        writer.align(nodeAlign);
-        const leafPos = writer.pos;
-
-        writer.writeU8(NODE_KIND_LEAF);
-        writer.padTo(leafPos + keysOffset);
-
-        for (let i = 0; i < E; i++) {
-          writer.align(keyCodec.align);
-          if (i < leafEntries.length) {
-            keyCodec._resolve(writer, leafEntries[i][0], resolvers[i].keyResolver);
-          } else {
-            for (let j = 0; j < keyCodec.size; j++) writer.writeU8(0);
-          }
-        }
-
-        writer.padTo(leafPos + valuesOffset);
-
-        for (let i = 0; i < E; i++) {
-          writer.align(valueCodec.align);
-          if (i < leafEntries.length) {
-            valueCodec._resolve(writer, leafEntries[i][1], resolvers[i].valueResolver);
-          } else {
-            for (let j = 0; j < valueCodec.size; j++) writer.writeU8(0);
-          }
-        }
-
-        writer.padTo(leafPos + leafLenOffset);
-        writer.writeU32(leafEntries.length);
-        writer.padTo(leafPos + leafNodeSize);
-
-        return { pos: leafPos };
-      };
-
-      // Helper to write an inner node
-      const writeInner = (
-        innerEntries: Array<[K, V]>,
-        childNodes: NodeInfo[],
-      ): NodeInfo => {
-        const resolvers: Array<{ keyResolver: Resolver; valueResolver: Resolver }> = [];
-        for (const [k, v] of innerEntries) {
-          resolvers.push({
-            keyResolver: keyCodec._archive(writer, k),
-            valueResolver: valueCodec._archive(writer, v),
-          });
-        }
-
-        writer.align(nodeAlign);
-        const innerPos = writer.pos;
-
-        writer.writeU8(NODE_KIND_INNER);
-        writer.padTo(innerPos + keysOffset);
-
-        // keys
-        for (let i = 0; i < E; i++) {
-          writer.align(keyCodec.align);
-          if (i < innerEntries.length) {
-            keyCodec._resolve(writer, innerEntries[i][0], resolvers[i].keyResolver);
-          } else {
-            for (let j = 0; j < keyCodec.size; j++) writer.writeU8(0);
-          }
-        }
-
-        writer.padTo(innerPos + valuesOffset);
-
-        // values
-        for (let i = 0; i < E; i++) {
-          writer.align(valueCodec.align);
-          if (i < innerEntries.length) {
-            valueCodec._resolve(writer, innerEntries[i][1], resolvers[i].valueResolver);
-          } else {
-            for (let j = 0; j < valueCodec.size; j++) writer.writeU8(0);
-          }
-        }
-
-        writer.padTo(innerPos + lesserNodesOffset);
-
-        // lesser_nodes - relative pointers to first E children
-        for (let i = 0; i < E; i++) {
-          const ptrPos = writer.pos;
-          if (i < childNodes.length - 1) {
-            writer.writeI32(childNodes[i].pos - ptrPos);
-          } else {
-            writer.writeI32(0); // Invalid/null pointer
-          }
-        }
-
-        // greater_node - relative pointer to last child
-        const greaterPtrPos = writer.pos;
-        if (childNodes.length > 0) {
-          writer.writeI32(childNodes[childNodes.length - 1].pos - greaterPtrPos);
-        } else {
-          writer.writeI32(0);
-        }
-
-        writer.padTo(innerPos + innerNodeSize);
-
-        return { pos: innerPos };
-      };
-
-      // Build the tree bottom-up
-      // First, create all leaf nodes
-      const leaves: NodeInfo[] = [];
-      for (let i = 0; i < len; i += E) {
-        const leafEntries = entries.slice(i, Math.min(i + E, len));
-        leaves.push(writeLeaf(leafEntries));
-      }
-
-      // If only one leaf, it's the root
-      if (leaves.length === 1) {
-        return { pos: leaves[0].pos, rootPos: leaves[0].pos, len };
-      }
-
-      // Build inner nodes level by level until we have a single root
-      // Each inner node holds E keys and connects E+1 children
-      // The keys come from the "separator" entries between children
-      let currentLevel = leaves;
-
-      while (currentLevel.length > 1) {
-        const nextLevel: NodeInfo[] = [];
-        let i = 0;
-
-        while (i < currentLevel.length) {
-          // Take up to E+1 children for this inner node
-          const childrenForNode = currentLevel.slice(i, i + E + 1);
-          
-          // We need E keys to separate E+1 children
-          // Use separator entries at the boundaries between children
-          const keysForNode: Array<[K, V]> = [];
-          for (let j = 0; j < childrenForNode.length - 1 && j < E; j++) {
-            const separatorIdx = Math.min((i + j + 1) * E - 1, len - 1);
-            if (separatorIdx >= 0 && separatorIdx < len) {
-              keysForNode.push(entries[separatorIdx]);
-            }
-          }
-
-          nextLevel.push(writeInner(keysForNode, childrenForNode));
-          i += E + 1;
-        }
-
-        currentLevel = nextLevel;
-      }
-
-      const root = currentLevel[0];
-      return { pos: root.pos, rootPos: root.pos, len };
-    },
-
-    _resolve(writer, _value, resolver) {
-      writer.align(4);
-      const structPos = writer.pos;
-      const r = resolver as unknown as { rootPos: number; len: number };
-
-      const ptrPos = writer.reserveRelPtr32();
-      writer.writeU32(r.len);
-
-      if (r.len > 0) {
-        writer.writeRelPtr32At(ptrPos, r.rootPos);
-      } else {
-        writer.writeRelPtr32At(ptrPos, 0);
-      }
-
-      return structPos;
-    },
-
-    encode(writer, value) {
-      const resolver = this._archive(writer, value);
-      return this._resolve(writer, value, resolver);
-    },
-  };
+  resolve(writer: RkyvWriter, _value: Map<K, V>, resolver: BTreeResolver): number {
+    const pos = writer.pos;
+    const ptrPos = writer.reserveRelPtr();
+    writer.writeUsize(resolver.len);
+    if (resolver.len > 0) {
+      writer.writeRelPtrAt(ptrPos, resolver.rootPos);
+    } else {
+      writer.writeInvalidPtrAt(ptrPos);
+    }
+    return pos;
+  }
 }
 
 /**
- * BTreeSet<T> - rkyv's B-tree set
+ * std::collections::BTreeMap<K, V>.
  *
- * Implemented as BTreeMap<T, ()> since BTreeSet is just a map with unit values.
- * The unit type has size 0, so the entry layout is just the key.
+ * `compare` orders keys like Rust's `Ord` for the key type; the default
+ * handles numbers, bigints, and strings (by code point = UTF-8 byte order).
  */
-export function btreeSet<T>(element: RkyvCodec<T>, E: number = 5): RkyvCodec<Set<T>> {
-  // Use BTreeMap<T, ()> internally
-  const mapCodec = btreeMap(element, unit, E);
+export function btreeMap<K extends AnyCodec, V extends AnyCodec>(
+  keyCodec: K,
+  valueCodec: V,
+  E: number = 5,
+  compare: (a: Infer<K>, b: Infer<K>) => number = defaultCompare,
+): Codec<Map<Infer<K>, Infer<V>>> {
+  return new BTreeMapCodec(keyCodec, valueCodec, E, compare);
+}
 
-  return {
-    size: mapCodec.size,
-    align: mapCodec.align,
-
-    access(reader, offset) {
-      return this.decode(reader, offset);
-    },
-
-    decode(reader, offset) {
-      const map = mapCodec.decode(reader, offset);
-      return new Set(map.keys());
-    },
-
-    _archive(writer, value) {
-      // Convert Set to Map with null values
-      const map = new Map<T, null>();
-      for (const item of value) {
-        map.set(item, null);
-      }
-      return mapCodec._archive(writer, map);
-    },
-
-    _resolve(writer, _value, resolver) {
-      return mapCodec._resolve(writer, new Map(), resolver);
-    },
-
-    encode(writer, value) {
-      const map = new Map<T, null>();
-      for (const item of value) {
-        map.set(item, null);
-      }
-      return mapCodec.encode(writer, map);
-    },
-  };
+/**
+ * std::collections::BTreeSet<T> — a thin wrapper over `BTreeMap<T, ()>`.
+ */
+export function btreeSet<E extends AnyCodec>(
+  element: E,
+  branching: number = 5,
+  compare: (a: Infer<E>, b: Infer<E>) => number = defaultCompare,
+): Codec<Set<Infer<E>>> {
+  return new SetOfMapCodec(new BTreeMapCodec<Infer<E>, null>(element, unit, branching, compare));
 }

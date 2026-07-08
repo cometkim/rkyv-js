@@ -23,75 +23,75 @@ const testChar = '🦀';
 const testStringShort = 'Hello';
 const testStringLong = 'Hello, World! This is a longer string that exceeds inline storage.';
 
-const u8Bytes = r.encode(r.u8, testU8);
-const i8Bytes = r.encode(r.i8, testI8);
-const u16Bytes = r.encode(r.u16, testU16);
-const i16Bytes = r.encode(r.i16, testI16);
-const u32Bytes = r.encode(r.u32, testU32);
-const i32Bytes = r.encode(r.i32, testI32);
-const u64Bytes = r.encode(r.u64, testU64);
-const i64Bytes = r.encode(r.i64, testI64);
-const f32Bytes = r.encode(r.f32, testF32);
-const f64Bytes = r.encode(r.f64, testF64);
-const boolBytes = r.encode(r.bool, testBool);
-const charBytes = r.encode(r.char, testChar);
-const stringShortBytes = r.encode(r.string, testStringShort);
-const stringLongBytes = r.encode(r.string, testStringLong);
+const u8Bytes = r.u8.encode(testU8);
+const i8Bytes = r.i8.encode(testI8);
+const u16Bytes = r.u16.encode(testU16);
+const i16Bytes = r.i16.encode(testI16);
+const u32Bytes = r.u32.encode(testU32);
+const i32Bytes = r.i32.encode(testI32);
+const u64Bytes = r.u64.encode(testU64);
+const i64Bytes = r.i64.encode(testI64);
+const f32Bytes = r.f32.encode(testF32);
+const f64Bytes = r.f64.encode(testF64);
+const boolBytes = r.bool.encode(testBool);
+const charBytes = r.char.encode(testChar);
+const stringShortBytes = r.string.encode(testStringShort);
+const stringLongBytes = r.string.encode(testStringLong);
 
 bench.add('primitives/decode - u8', () => {
-  do_not_optimize(r.decode(r.u8, u8Bytes));
+  do_not_optimize(r.u8.decode(u8Bytes));
 });
 
 bench.add('primitives/decode - i8', () => {
-  do_not_optimize(r.decode(r.i8, i8Bytes));
+  do_not_optimize(r.i8.decode(i8Bytes));
 });
 
 bench.add('primitives/decode - u16', () => {
-  do_not_optimize(r.decode(r.u16, u16Bytes));
+  do_not_optimize(r.u16.decode(u16Bytes));
 });
 
 bench.add('primitives/decode - i16', () => {
-  do_not_optimize(r.decode(r.i16, i16Bytes));
+  do_not_optimize(r.i16.decode(i16Bytes));
 });
 
 bench.add('primitives/decode - u32', () => {
-  do_not_optimize(r.decode(r.u32, u32Bytes));
+  do_not_optimize(r.u32.decode(u32Bytes));
 });
 
 bench.add('primitives/decode - i32', () => {
-  do_not_optimize(r.decode(r.i32, i32Bytes));
+  do_not_optimize(r.i32.decode(i32Bytes));
 });
 
 bench.add('primitives/decode - u64', () => {
-  do_not_optimize(r.decode(r.u64, u64Bytes));
+  do_not_optimize(r.u64.decode(u64Bytes));
 });
 
 bench.add('primitives/decode - i64', () => {
-  do_not_optimize(r.decode(r.i64, i64Bytes));
+  do_not_optimize(r.i64.decode(i64Bytes));
 });
 
 bench.add('primitives/decode - f32', () => {
-  do_not_optimize(r.decode(r.f32, f32Bytes));
+  do_not_optimize(r.f32.decode(f32Bytes));
 });
 
 bench.add('primitives/decode - f64', () => {
-  do_not_optimize(r.decode(r.f64, f64Bytes));
+  do_not_optimize(r.f64.decode(f64Bytes));
 });
 
 bench.add('primitives/decode - bool', () => {
-  do_not_optimize(r.decode(r.bool, boolBytes));
+  do_not_optimize(r.bool.decode(boolBytes));
 });
 
 bench.add('primitives/decode - char', () => {
-  do_not_optimize(r.decode(r.char, charBytes));
+  do_not_optimize(r.char.decode(charBytes));
 });
 
 bench.add('primitives/decode - string (short)', () => {
-  do_not_optimize(r.decode(r.string, stringShortBytes));
+  do_not_optimize(r.string.decode(stringShortBytes));
 });
 
 bench.add('primitives/decode - string (long)', () => {
-  do_not_optimize(r.decode(r.string, stringLongBytes));
+  do_not_optimize(r.string.decode(stringLongBytes));
 });
 
 await bench.run();

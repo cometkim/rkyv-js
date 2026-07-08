@@ -1,0 +1,27 @@
+{
+  "m": {
+    "$map": [
+      [
+        {
+          "id": 2,
+          "tag": "two"
+        },
+        200
+      ],
+      [
+        {
+          "id": 3,
+          "tag": "a considerably longer key tag string"
+        },
+        300
+      ],
+      [
+        {
+          "id": 1,
+          "tag": "one"
+        },
+        100
+      ]
+    ]
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "case": "hash_map_str_5000",
+  "class": "semantic",
+  "codec": "ArchivedHashMapStr",
+  "ordered": false,
+  "type": "HashMapStr"
+}

@@ -1,0 +1,21 @@
+{
+  "arr": [
+    1,
+    2,
+    3,
+    4
+  ],
+  "arr_str": [
+    "left",
+    "a rather long right side string"
+  ],
+  "pair": [
+    1,
+    2
+  ],
+  "tup": [
+    7,
+    "seven",
+    7.7
+  ]
+}

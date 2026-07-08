@@ -1,0 +1,10 @@
+{
+  "cases": 38,
+  "format": {
+    "aligned": true,
+    "endian": "little",
+    "pointerWidth": 32
+  },
+  "hasher": "siphasher13-zero-key (source map iteration order only)",
+  "rkyv": "0.8.14"
+}

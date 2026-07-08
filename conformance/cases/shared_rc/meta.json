@@ -1,0 +1,7 @@
+{
+  "case": "shared_rc",
+  "class": "semantic",
+  "codec": "ArchivedSharedRc",
+  "ordered": false,
+  "type": "SharedRc"
+}

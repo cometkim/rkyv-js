@@ -1,0 +1,7 @@
+{
+  "case": "pointers",
+  "class": "identical",
+  "codec": "ArchivedPointers",
+  "ordered": false,
+  "type": "Pointers"
+}

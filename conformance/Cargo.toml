@@ -1,0 +1,52 @@
+# JS↔Rust wire-format conformance suite.
+#
+# `generate` writes golden cases (data.bin + canonical data.json + meta.json)
+# under cases/; the JS test suite decodes them, re-encodes, and writes js.bin;
+# `verify` then proves the JS output against real rkyv: bytecheck validation,
+# deserialize + PartialEq against the expected value, archived-map key
+# lookups, and byte-identity for cases marked identical.
+#
+# rkyv is pinned exactly: wire bytes are the contract, and a patch bump can
+# legitimately change them. cases/manifest.json records the pinned version.
+
+[package]
+name = "conformance"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+rkyv-js-codegen = { path = "../rkyv-js-codegen" }
+rkyv = { version = "=0.8.14", features = [
+    "bytecheck",
+    "uuid-1",
+    "bytes-1",
+    "smol_str-0_2",
+    "thin-vec-0_2",
+    "arrayvec-0_7",
+    "smallvec-1",
+    "tinyvec-1",
+    "indexmap-2",
+    "triomphe-0_1",
+] }
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = "1"
+siphasher = "1"
+base64 = "0.22"
+uuid = { version = "1", features = ["serde"] }
+bytes = { version = "1", features = ["serde"] }
+smol_str = { version = "0.2", features = ["serde"] }
+thin-vec = { version = "0.2", features = ["serde"] }
+arrayvec = { version = "0.7", features = ["serde"] }
+smallvec = { version = "1", features = ["serde"] }
+tinyvec = { version = "1", features = ["serde", "alloc"] }
+indexmap = { version = "2", features = ["serde"] }
+triomphe = "0.1"
+
+[[bin]]
+name = "generate"
+path = "src/bin/generate.rs"
+
+[[bin]]
+name = "verify"
+path = "src/bin/verify.rs"

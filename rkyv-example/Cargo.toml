@@ -32,7 +32,3 @@ triomphe = "0.1"
 
 [build-dependencies]
 rkyv-js-codegen = { path = "../rkyv-js-codegen" }
-
-[[bin]]
-name = "generate-fixtures"
-path = "src/bin/generate_fixtures.rs"

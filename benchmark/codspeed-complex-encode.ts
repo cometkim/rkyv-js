@@ -13,7 +13,7 @@ const bench = withCodSpeed(new Bench({
 for (const spec of specs) {
   for (const [description, test] of spec.tests) {
     bench.add(`complex/encode - ${description}`, () => {
-      do_not_optimize(r.encode(spec.codec, test.input));
+      do_not_optimize(spec.codec.encode(test.input));
     });
   }
 }

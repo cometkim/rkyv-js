@@ -1,0 +1,8 @@
+{
+  "boxed": "boxed string, long enough to go out of line",
+  "boxed_int": {
+    "$bigint": "1234605616436508552"
+  },
+  "rc": "reference counted",
+  "weak_dead": null
+}

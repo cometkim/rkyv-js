@@ -1,21 +1,24 @@
 import * as r from 'rkyv-js';
+import { hashMap } from 'rkyv-js/lib/hashmap';
+import { indexMap } from 'rkyv-js/lib/indexmap';
+import { btreeMap } from 'rkyv-js/lib/btreemap';
 
 interface Spec<T = unknown> {
   description: string;
-  codec: r.RkyvCodec<T>,
+  codec: r.Codec<T>,
   tests: Array<[
-    description: string, 
+    description: string,
     test: { input: T, expected: Uint8Array },
   ]>;
 }
 
-export function spec<T>(description: string, codec: r.RkyvCodec<T>, inputs: [string, T][]): Spec<T> {
+export function spec<T>(description: string, codec: r.Codec<T>, inputs: [string, T][]): Spec<T> {
   return {
     description,
     codec,
     tests: inputs.map(([description, input]) => [
       description,
-      { input, expected: r.encode(codec, input) },
+      { input, expected: codec.encode(input) },
     ]),
   };
 }
@@ -299,5 +302,37 @@ export const specs: Spec[] = [
         },
       }],
     ],
-  )
+  ),
+
+  spec(
+    'Hash map (string keys)',
+    r.struct({ counts: hashMap(r.string, r.u32) }),
+    [
+      ['hashmap-str-50', { counts: new Map(Array.from({ length: 50 }, (_, i) => [`key_${i}`, i * 10])) }],
+    ],
+  ),
+
+  spec(
+    'Hash map (u32 keys)',
+    r.struct({ lookup: hashMap(r.u32, r.u32) }),
+    [
+      ['hashmap-u32-100', { lookup: new Map(Array.from({ length: 100 }, (_, i) => [i * 7 + 1, i])) }],
+    ],
+  ),
+
+  spec(
+    'Index map',
+    r.struct({ settings: indexMap(r.string, r.u32) }),
+    [
+      ['indexmap-50', { settings: new Map(Array.from({ length: 50 }, (_, i) => [`setting_${i}`, i])) }],
+    ],
+  ),
+
+  spec(
+    'BTree map',
+    r.struct({ sorted: btreeMap(r.string, r.u32) }),
+    [
+      ['btreemap-50', { sorted: new Map(Array.from({ length: 50 }, (_, i) => [`item_${String(i).padStart(3, '0')}`, i])) }],
+    ],
+  ),
 ];

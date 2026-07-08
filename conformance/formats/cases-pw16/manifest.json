@@ -1,0 +1,10 @@
+{
+  "codec": "ArchivedSmokeCase",
+  "format": {
+    "aligned": true,
+    "endian": "little",
+    "pointerWidth": 16
+  },
+  "profile": "pw16",
+  "rkyv": "0.8.14"
+}

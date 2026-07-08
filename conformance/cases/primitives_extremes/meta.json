@@ -1,0 +1,7 @@
+{
+  "case": "primitives_extremes",
+  "class": "identical",
+  "codec": "ArchivedPrimitives",
+  "ordered": false,
+  "type": "Primitives"
+}

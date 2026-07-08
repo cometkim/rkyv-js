@@ -32,9 +32,7 @@
   "main": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./codec": "./src/codec.ts",
-    "./reader": "./src/reader.ts",
-    "./writer": "./src/writer.ts",
+    "./core": "./src/core.ts",
     "./primitives": "./src/primitives.ts",
     "./lib/uuid": "./src/lib/uuid.ts",
     "./lib/bytes": "./src/lib/bytes.ts",
@@ -42,15 +40,17 @@
     "./lib/hashmap": "./src/lib/hashmap.ts",
     "./lib/indexmap": "./src/lib/indexmap.ts"
   },
+  "imports": {
+    "#src/*": "./src/*",
+    "#conformance/*": "./conformance/*"
+  },
   "publishConfig": {
     "access": "public",
     "main": "./dist/index.js",
     "types": "./dist/index.d.ts",
     "exports": {
       ".": "./dist/index.js",
-      "./codec": "./dist/codec.js",
-      "./reader": "./dist/reader.js",
-      "./writer": "./dist/writer.js",
+      "./core": "./dist/core.js",
       "./primitives": "./dist/primitives.js",
       "./lib/uuid": "./dist/lib/uuid.js",
       "./lib/bytes": "./dist/lib/bytes.js",
@@ -66,22 +66,33 @@
   ],
   "scripts": {
     "test": "node --test",
-    "fixtures": "cargo run --bin generate-fixtures",
+    "check": "tsc --noEmit && tsc -p tsconfig.src.json --noEmit",
+    "build": "node scripts/build.mjs",
+    "prepack": "yarn build",
+    "conformance:gen": "node scripts/conformance.mjs generate",
+    "conformance:verify": "node scripts/conformance.mjs verify",
     "bench:comparison": "node --expose-gc benchmark/comparison.ts",
     "bench:primitives": "node --expose-gc benchmark/primitives.ts",
     "bench:encode": "node --expose-gc benchmark/encode.ts",
     "bench:decode": "node --expose-gc benchmark/decode.ts"
   },
   "devDependencies": {
-    "@changesets/cli": "^2.29.8",
-    "@codspeed/tinybench-plugin": "^5.1.0",
+    "@changesets/cli": "^2.31.0",
+    "@codspeed/tinybench-plugin": "^5.7.1",
+    "@mitata/counters": "^0.0.8",
     "@types/node": "^22.0.0",
+    "amaro": "^1.1.10",
     "capnp-es": "^0.0.14",
-    "cbor-x": "^1.6.0",
+    "cbor-x": "^1.6.4",
+    "es-module-lexer": "^2.3.0",
     "mitata": "^1.0.34",
-    "protobufjs": "^8.0.0",
+    "oxc-transform": "^0.139.0",
+    "protobufjs": "^8.7.0",
     "tinybench": "^5.1.0",
-    "typescript": "^5.9.3"
+    "typescript": "^6.0.3"
   },
-  "packageManager": "yarn@4.12.0"
+  "engines": {
+    "node": ">=24"
+  },
+  "packageManager": "yarn@4.17.1"
 }

@@ -16,165 +16,168 @@ const testChar = '🦀';
 const testStringShort = 'Hello'; // inline (≤ 8 bytes)
 const testStringLong = 'Hello, World! This is a longer string that exceeds inline storage.';
 
-const u8Bytes = r.encode(r.u8, testU8);
-const i8Bytes = r.encode(r.i8, testI8);
-const u16Bytes = r.encode(r.u16, testU16);
-const i16Bytes = r.encode(r.i16, testI16);
-const u32Bytes = r.encode(r.u32, testU32);
-const i32Bytes = r.encode(r.i32, testI32);
-const u64Bytes = r.encode(r.u64, testU64);
-const i64Bytes = r.encode(r.i64, testI64);
-const f32Bytes = r.encode(r.f32, testF32);
-const f64Bytes = r.encode(r.f64, testF64);
-const boolBytes = r.encode(r.bool, testBool);
-const charBytes = r.encode(r.char, testChar);
-const stringShortBytes = r.encode(r.string, testStringShort);
-const stringLongBytes = r.encode(r.string, testStringLong);
+const u8Bytes = r.u8.encode(testU8);
+const i8Bytes = r.i8.encode(testI8);
+const u16Bytes = r.u16.encode(testU16);
+const i16Bytes = r.i16.encode(testI16);
+const u32Bytes = r.u32.encode(testU32);
+const i32Bytes = r.i32.encode(testI32);
+const u64Bytes = r.u64.encode(testU64);
+const i64Bytes = r.i64.encode(testI64);
+const f32Bytes = r.f32.encode(testF32);
+const f64Bytes = r.f64.encode(testF64);
+const boolBytes = r.bool.encode(testBool);
+const charBytes = r.char.encode(testChar);
+const stringShortBytes = r.string.encode(testStringShort);
+const stringLongBytes = r.string.encode(testStringLong);
 
 // Integer encode benchmarks
 group('primitives encode', () => {
   bench('u8', () => {
-    do_not_optimize(r.encode(r.u8, testU8));
+    do_not_optimize(r.u8.encode(testU8));
   }).gc('inner');
 
   bench('i8', () => {
-    do_not_optimize(r.encode(r.i8, testI8));
+    do_not_optimize(r.i8.encode(testI8));
   }).gc('inner');
 
   bench('u16', () => {
-    do_not_optimize(r.encode(r.u16, testU16));
+    do_not_optimize(r.u16.encode(testU16));
   }).gc('inner');
 
   bench('i16', () => {
-    do_not_optimize(r.encode(r.i16, testI16));
+    do_not_optimize(r.i16.encode(testI16));
   }).gc('inner');
 
   bench('u32', () => {
-    do_not_optimize(r.encode(r.u32, testU32));
+    do_not_optimize(r.u32.encode(testU32));
   }).gc('inner');
 
   bench('i32', () => {
-    do_not_optimize(r.encode(r.i32, testI32));
+    do_not_optimize(r.i32.encode(testI32));
   }).gc('inner');
 
   bench('u64', () => {
-    do_not_optimize(r.encode(r.u64, testU64));
+    do_not_optimize(r.u64.encode(testU64));
   }).gc('inner');
 
   bench('i64', () => {
-    do_not_optimize(r.encode(r.i64, testI64));
+    do_not_optimize(r.i64.encode(testI64));
   }).gc('inner');
 
   bench('f32', () => {
-    do_not_optimize(r.encode(r.f32, testF32));
+    do_not_optimize(r.f32.encode(testF32));
   }).gc('inner');
 
   bench('f64', () => {
-    do_not_optimize(r.encode(r.f64, testF64));
+    do_not_optimize(r.f64.encode(testF64));
   }).gc('inner');
 
   bench('bool', () => {
-    do_not_optimize(r.encode(r.bool, testBool));
+    do_not_optimize(r.bool.encode(testBool));
   }).gc('inner');
 
   bench('char', () => {
-    do_not_optimize(r.encode(r.char, testChar));
+    do_not_optimize(r.char.encode(testChar));
   }).gc('inner');
 
   bench('string (short, inline)', () => {
-    do_not_optimize(r.encode(r.string, testStringShort));
+    do_not_optimize(r.string.encode(testStringShort));
   }).gc('inner').baseline();
 
   bench('string (long, out-of-line)', () => {
-    do_not_optimize(r.encode(r.string, testStringLong));
+    do_not_optimize(r.string.encode(testStringLong));
   }).gc('inner');
 });
 
 // Integer decode benchmarks
 group('primitives decode', () => {
   bench('u8', () => {
-    do_not_optimize(r.decode(r.u8, u8Bytes));
+    do_not_optimize(r.u8.decode(u8Bytes));
   }).gc('inner');
 
   bench('i8', () => {
-    do_not_optimize(r.decode(r.i8, i8Bytes));
+    do_not_optimize(r.i8.decode(i8Bytes));
   }).gc('inner');
 
   bench('u16', () => {
-    do_not_optimize(r.decode(r.u16, u16Bytes));
+    do_not_optimize(r.u16.decode(u16Bytes));
   }).gc('inner');
 
   bench('i16', () => {
-    do_not_optimize(r.decode(r.i16, i16Bytes));
+    do_not_optimize(r.i16.decode(i16Bytes));
   }).gc('inner');
 
   bench('u32', () => {
-    do_not_optimize(r.decode(r.u32, u32Bytes));
+    do_not_optimize(r.u32.decode(u32Bytes));
   }).gc('inner');
 
   bench('i32', () => {
-    do_not_optimize(r.decode(r.i32, i32Bytes));
+    do_not_optimize(r.i32.decode(i32Bytes));
   }).gc('inner');
 
   bench('u64', () => {
-    do_not_optimize(r.decode(r.u64, u64Bytes));
+    do_not_optimize(r.u64.decode(u64Bytes));
   }).gc('inner');
 
   bench('i64', () => {
-    do_not_optimize(r.decode(r.i64, i64Bytes));
+    do_not_optimize(r.i64.decode(i64Bytes));
   }).gc('inner');
 
   bench('f32', () => {
-    do_not_optimize(r.decode(r.f32, f32Bytes));
+    do_not_optimize(r.f32.decode(f32Bytes));
   }).gc('inner');
 
   bench('f64', () => {
-    do_not_optimize(r.decode(r.f64, f64Bytes));
+    do_not_optimize(r.f64.decode(f64Bytes));
   }).gc('inner');
 
   bench('bool', () => {
-    do_not_optimize(r.decode(r.bool, boolBytes));
+    do_not_optimize(r.bool.decode(boolBytes));
   }).gc('inner');
 
   bench('char', () => {
-    do_not_optimize(r.decode(r.char, charBytes));
+    do_not_optimize(r.char.decode(charBytes));
   }).gc('inner');
 
   bench('string (short, inline)', () => {
-    do_not_optimize(r.decode(r.string, stringShortBytes));
+    do_not_optimize(r.string.decode(stringShortBytes));
   }).gc('inner');
 
   bench('string (long, out-of-line)', () => {
-    do_not_optimize(r.decode(r.string, stringLongBytes));
+    do_not_optimize(r.string.decode(stringLongBytes));
   }).gc('inner');
 });
 
 // Combined encode/decode roundtrip benchmarks
 group('Roundtrip (encode + decode)', () => {
   bench('u32', () => {
-    const bytes = r.encode(r.u32, testU32);
-    do_not_optimize(r.decode(r.u32, bytes));
+    const bytes = r.u32.encode(testU32);
+    do_not_optimize(r.u32.decode(bytes));
   }).gc('inner');
 
   bench('u64', () => {
-    const bytes = r.encode(r.u64, testU64);
-    do_not_optimize(r.decode(r.u64, bytes));
+    const bytes = r.u64.encode(testU64);
+    do_not_optimize(r.u64.decode(bytes));
   }).gc('inner');
 
   bench('f64', () => {
-    const bytes = r.encode(r.f64, testF64);
-    do_not_optimize(r.decode(r.f64, bytes));
+    const bytes = r.f64.encode(testF64);
+    do_not_optimize(r.f64.decode(bytes));
   }).gc('inner');
 
   bench('string (inline)', () => {
-    const bytes = r.encode(r.string, testStringShort);
-    do_not_optimize(r.decode(r.string, bytes));
+    const bytes = r.string.encode(testStringShort);
+    do_not_optimize(r.string.decode(bytes));
   }).gc('inner');
 
   bench('string (out-of-line)', () => {
-    const bytes = r.encode(r.string, testStringLong);
-    do_not_optimize(r.decode(r.string, bytes));
+    const bytes = r.string.encode(testStringLong);
+    do_not_optimize(r.string.decode(bytes));
   }).gc('inner');
 });
 
-await run();
+await run({
+  ...(process.env.NO_COLOR ? { colors: false } : {}),
+  ...(process.env.MITATA_FORMAT ? { format: process.env.MITATA_FORMAT as 'json' } : {}),
+});

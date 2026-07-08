@@ -1,0 +1,7 @@
+{
+  "case": "btree_map_u32",
+  "class": "identical",
+  "codec": "ArchivedBTreeMapU32",
+  "ordered": true,
+  "type": "BTreeMapU32"
+}

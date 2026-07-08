@@ -1,0 +1,7 @@
+{
+  "case": "options",
+  "class": "identical",
+  "codec": "ArchivedOptions",
+  "ordered": false,
+  "type": "Options"
+}

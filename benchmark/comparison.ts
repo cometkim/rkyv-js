@@ -45,9 +45,9 @@ const testPersonLarge: Person = {
   active: true,
 };
 
-const rkyvPointBytes = r.encode(ArchivedPoint, testPoint);
-const rkyvPersonBytes = r.encode(ArchivedPerson, testPerson);
-const rkyvPersonLargeBytes = r.encode(ArchivedPerson, testPersonLarge);
+const rkyvPointBytes = ArchivedPoint.encode(testPoint);
+const rkyvPersonBytes = ArchivedPerson.encode(testPerson);
+const rkyvPersonLargeBytes = ArchivedPerson.encode(testPersonLarge);
 
 function createCapnpPoint(point: Point): ArrayBuffer {
   const message = new capnp.Message();
@@ -93,15 +93,11 @@ const cborPointBytes = cborEncode(testPoint);
 const cborPersonBytes = cborEncode(testPerson);
 const cborPersonLargeBytes = cborEncode(testPersonLarge);
 
-const protoPointBytes = ProtoPoint.encode(ProtoPoint.fromObject(testPoint)).finish();
-const protoPersonBytes = ProtoPerson.encode(ProtoPerson.fromObject({
-  ...testPerson,
-  email: testPerson.email ?? undefined,
-})).finish();
-const protoPersonLargeBytes = ProtoPerson.encode(ProtoPerson.fromObject({
-  ...testPersonLarge,
-  email: testPersonLarge.email ?? undefined,
-})).finish();
+// protobufjs encodes plain objects directly (like rkyv-js, without validation);
+// the fromObject conversion helper is deliberately kept out of the measured path.
+const protoPointBytes = ProtoPoint.encode(testPoint).finish();
+const protoPersonBytes = ProtoPerson.encode(testPerson).finish();
+const protoPersonLargeBytes = ProtoPerson.encode(testPersonLarge).finish();
 
 console.log('Buffer sizes comparison:');
 console.log('  Point:');
@@ -131,7 +127,7 @@ summary(() => {
     }).gc('inner');
 
     bench('rkyv-js decode', () => {
-      r.decode(ArchivedPoint, rkyvPointBytes);
+      ArchivedPoint.decode(rkyvPointBytes);
     }).gc('inner').baseline();
 
     bench('cbor-x', () => {
@@ -159,7 +155,7 @@ summary(() => {
     }).gc('inner');
 
     bench('rkyv-js', () => {
-      r.encode(ArchivedPoint, testPoint);
+      ArchivedPoint.encode(testPoint);
     }).gc('inner').baseline();
 
     bench('cbor-x', () => {
@@ -167,7 +163,7 @@ summary(() => {
     }).gc('inner');
 
     bench('protobufjs', () => {
-      ProtoPoint.encode(ProtoPoint.fromObject(testPoint)).finish();
+      ProtoPoint.encode(testPoint).finish();
     }).gc('inner');
 
     bench('capnp-es', () => {
@@ -183,7 +179,7 @@ summary(() => {
     }).gc('inner');
 
     bench('rkyv-js decode', () => {
-      r.decode(ArchivedPerson, rkyvPersonBytes);
+      ArchivedPerson.decode(rkyvPersonBytes);
     }).gc('inner').baseline();
 
     bench('cbor-x', () => {
@@ -214,19 +210,15 @@ summary(() => {
     }).gc('inner');
 
     bench('rkyv-js', () => {
-      r.encode(ArchivedPerson, testPerson);
+      ArchivedPerson.encode(testPerson);
     }).gc('inner').baseline();
 
     bench('cbor-x', () => {
       cborEncode(testPerson);
     }).gc('inner');
 
-    const testPersonUndefined = {
-      ...testPerson,
-      email: testPerson.email ?? undefined,
-    };
     bench('protobufjs', () => {
-      ProtoPerson.encode(ProtoPerson.fromObject(testPersonUndefined)).finish();
+      ProtoPerson.encode(testPerson).finish();
     }).gc('inner');
 
     bench('capnp-es', () => {
@@ -242,11 +234,11 @@ summary(() => {
     }).gc('inner');
 
     bench('rkyv-js decode', () => {
-      r.decode(ArchivedPerson, rkyvPersonLargeBytes);
+      ArchivedPerson.decode(rkyvPersonLargeBytes);
     }).gc('inner').baseline();
 
     bench('rkyv-js access', () => {
-      r.access(ArchivedPerson, rkyvPersonLargeBytes);
+      ArchivedPerson.access(rkyvPersonLargeBytes);
     }).gc('inner');
 
     bench('cbor-x', () => {
@@ -277,19 +269,15 @@ summary(() => {
     }).gc('inner');
 
     bench('rkyv-js', () => {
-      r.encode(ArchivedPerson, testPersonLarge);
+      ArchivedPerson.encode(testPersonLarge);
     }).gc('inner').baseline();
 
     bench('cbor-x', () => {
       cborEncode(testPersonLarge);
     }).gc('inner');
 
-    const testPersonLargeUndefined = {
-      ...testPersonLarge,
-      email: testPersonLarge.email ?? undefined,
-    };
     bench('protobufjs', () => {
-      ProtoPerson.encode(ProtoPerson.fromObject(testPersonLargeUndefined)).finish();
+      ProtoPerson.encode(testPersonLarge).finish();
     }).gc('inner');
 
     bench('capnp-es', () => {
@@ -312,7 +300,7 @@ summary(() => {
     }).gc('inner');
 
     bench('rkyv-js decode', () => {
-      const person = r.decode(ArchivedPerson, rkyvPersonLargeBytes);
+      const person = ArchivedPerson.decode(rkyvPersonLargeBytes);
       for (let i = 0; i < iterations; i++) {
         void person.name;
         void person.age;
@@ -321,7 +309,7 @@ summary(() => {
     }).gc('inner').baseline();
 
     bench('rkyv-js access', () => {
-      const person = r.access(ArchivedPerson, rkyvPersonLargeBytes);
+      const person = ArchivedPerson.access(rkyvPersonLargeBytes);
       for (let i = 0; i < iterations; i++) {
         void person.name;
         void person.age;
@@ -368,13 +356,13 @@ summary(() => {
     }).gc('inner');
 
     bench('rkyv-js decode', () => {
-      const person = r.decode(ArchivedPerson, rkyvPersonLargeBytes);
+      const person = ArchivedPerson.decode(rkyvPersonLargeBytes);
       void person.name;
       void person.age;
     }).gc('inner');
 
     bench('rkyv-js access', () => {
-      const person = r.access(ArchivedPerson, rkyvPersonLargeBytes);
+      const person = ArchivedPerson.access(rkyvPersonLargeBytes);
       void person.name;
       void person.age;
     }).gc('inner').baseline();
@@ -411,17 +399,17 @@ summary(() => {
     }).gc('inner');
 
     bench('rkyv-js decode', () => {
-      const person = r.decode(ArchivedPerson, rkyvPersonLargeBytes);
-      void person.scores[0];
-      void person.scores[1];
-      void person.scores[2];
+      const person = ArchivedPerson.decode(rkyvPersonLargeBytes);
+      void person.scores.at(0);
+      void person.scores.at(1);
+      void person.scores.at(2);
     }).gc('inner');
 
     bench('rkyv-js access (lazy)', () => {
-      const person = r.access(ArchivedPerson, rkyvPersonLargeBytes);
-      void person.scores[0];
-      void person.scores[1];
-      void person.scores[2];
+      const person = ArchivedPerson.access(rkyvPersonLargeBytes);
+      void person.scores.at(0);
+      void person.scores.at(1);
+      void person.scores.at(2);
     }).gc('inner').baseline();
 
     bench('cbor-x', () => {
@@ -448,4 +436,7 @@ summary(() => {
   });
 });
 
-await run();
+await run({
+  ...(process.env.NO_COLOR ? { colors: false } : {}),
+  ...(process.env.MITATA_FORMAT ? { format: process.env.MITATA_FORMAT as 'json' } : {}),
+});

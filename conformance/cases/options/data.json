@@ -1,0 +1,8 @@
+{
+  "nested": 7,
+  "nested_none": null,
+  "none_int": null,
+  "none_str": null,
+  "some_int": 3735928559,
+  "some_str": "an optional out-of-line string"
+}

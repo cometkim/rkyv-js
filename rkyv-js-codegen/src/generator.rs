@@ -1,857 +1,923 @@
-//! TypeScript code generator for rkyv types.
+//! The TypeScript binding generator.
 
-use crate::registry::TypeRegistry;
-use crate::types::{generate_imports, EnumVariant, Import, TypeDef, UnionVariant};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::io::{self, Write};
 use std::path::Path;
 
-/// The kind-specific data for a type definition.
-#[derive(Debug, Clone)]
-pub(crate) enum TypeKind {
-    Struct(Vec<(String, TypeDef)>),
-    Enum(Vec<EnumVariant>),
-    Union(Vec<UnionVariant>),
-    Alias(TypeDef),
+use crate::error::{Diagnostic, DiagnosticKind, Error, SourceLocation};
+use crate::expr::{CodecExpr, generate_import_block};
+use crate::registry::{ExternalType, Registry, WithWrapper};
+
+/// How to handle a field whose type cannot be mapped to a codec.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum OnUnknown {
+    /// Aggregate a diagnostic and fail [`generate`](CodeGenerator::generate).
+    #[default]
+    Error,
+    /// Emit a `cargo:warning` and omit the containing type — and,
+    /// transitively, every type referencing it — from the output.
+    SkipContainingType,
 }
 
-/// A named type definition with optional archived name override.
+/// An enum variant for [`CodeGenerator::add_enum`].
 #[derive(Debug, Clone)]
-pub(crate) struct TypeEntry {
-    /// The original type name (e.g., `"Foo"`).
-    pub name: String,
-    /// Custom archived name from `#[rkyv(archived = Name)]`.
-    /// When `None`, the default `Archived{name}` convention is used.
-    pub archived_name: Option<String>,
-    /// The kind-specific data.
-    pub kind: TypeKind,
+pub enum EnumVariant {
+    /// A unit variant: `Name` — emitted as `Name: null`.
+    Unit(String),
+    /// A newtype (1-tuple) variant: `Name(T)` — emitted as a bare codec.
+    Newtype(String, CodecExpr),
+    /// An n-tuple variant (n >= 2): `Name(T0, T1)` — emitted as a record
+    /// with `_0..=_n` keys.
+    Tuple(String, Vec<CodecExpr>),
+    /// A struct variant: `Name { a: T }` — emitted as a record of codecs.
+    Struct(String, Vec<(String, CodecExpr)>),
 }
 
-impl TypeEntry {
-    fn new(name: String, kind: TypeKind) -> Self {
-        Self {
-            name,
-            archived_name: None,
-            kind,
+impl EnumVariant {
+    /// The variant name.
+    pub fn name(&self) -> &str {
+        match self {
+            EnumVariant::Unit(name)
+            | EnumVariant::Newtype(name, _)
+            | EnumVariant::Tuple(name, _)
+            | EnumVariant::Struct(name, _) => name,
         }
     }
+}
 
-    /// Return the archived name, using the custom name or the default convention.
-    fn archived_name(&self) -> String {
-        self.archived_name
-            .clone()
-            .unwrap_or_else(|| format!("Archived{}", self.name))
+/// The kind-specific payload of a generated type.
+#[derive(Debug, Clone)]
+pub(crate) enum TypeKind {
+    Struct(Vec<(String, CodecExpr)>),
+    Enum(Vec<EnumVariant>),
+    Alias(CodecExpr),
+}
+
+/// The non-default wire format configured via
+/// [`set_format`](CodeGenerator::set_format).
+#[derive(Debug, Clone)]
+struct FormatSpec {
+    endian: String,
+    pointer_width: u32,
+    aligned: bool,
+}
+
+impl FormatSpec {
+    fn is_default(&self) -> bool {
+        self.endian == "little" && self.pointer_width == 32 && self.aligned
+    }
+
+    /// The non-default keys as `r.format(...)` options.
+    fn options(&self) -> String {
+        let mut entries = Vec::new();
+        if self.endian != "little" {
+            entries.push(format!("endian: '{}'", self.endian));
+        }
+        if self.pointer_width != 32 {
+            entries.push(format!("pointerWidth: {}", self.pointer_width));
+        }
+        if !self.aligned {
+            entries.push("aligned: false".to_string());
+        }
+        entries.join(", ")
     }
 }
 
-/// Code generator that collects type definitions and outputs TypeScript code.
-///
-/// # Type registry
-///
-/// The generator includes a [`TypeRegistry`] that maps fully-qualified Rust
-/// type paths to TypeScript codec definitions. Built-in mappings for all
-/// rkyv-supported external crates are registered by default. You can customize
-/// the registry via [`register_type`](CodeGenerator::register_type) and
-/// [`unregister_type`](CodeGenerator::unregister_type).
+/// Collects type definitions — from Rust sources or programmatically — and
+/// generates TypeScript codec bindings for the `rkyv-js` runtime.
 ///
 /// # Example
 ///
 /// ```
-/// # fn main() {
-/// use rkyv_js_codegen::{CodeGenerator, TypeDef};
+/// use rkyv_js_codegen::{CodeGenerator, codec};
 ///
 /// let mut generator = CodeGenerator::new();
-///
-/// // Register a custom external type (use fully-qualified Rust path)
-/// generator.register_type("my_crate::MyVec",
-///     TypeDef::new("myVec({0})", "{0}[]")
-///         .with_import("my-pkg/codecs", "myVec"),
-/// );
-///
-/// // Add types and generate
-/// generator.add_struct("Config", &[
-///     ("name", TypeDef::string()),
-/// ]);
-/// let code = generator.generate();
-/// # }
+/// generator.add_struct("Point", [("x", codec::f64()), ("y", codec::f64())]);
+/// let code = generator.generate().unwrap();
+/// assert!(code.contains("export const ArchivedPoint = r.struct({"));
+/// assert!(code.contains("export type Point = r.Infer<typeof ArchivedPoint>;"));
 /// ```
 #[derive(Debug)]
 pub struct CodeGenerator {
-    /// All type definitions, keyed by type name.
-    types: BTreeMap<String, TypeEntry>,
-
-    /// Custom header comment
+    /// Successfully added types, keyed by Rust type name.
+    pub(crate) types: BTreeMap<String, TypeKind>,
+    /// Types whose extraction produced diagnostics, keyed by Rust type name.
+    pub(crate) failed: BTreeMap<String, Vec<Diagnostic>>,
+    /// Diagnostics recorded at add time (duplicate type names).
+    pub(crate) add_diagnostics: Vec<Diagnostic>,
+    /// `set_archived_name` overrides, applied at generate time.
+    overrides: BTreeMap<String, String>,
     header: Option<String>,
-
-    /// Whether to emit TypeScript-specific syntax (`export type`, `export interface`).
-    ///
-    /// When `true` (default), the output includes type aliases and interface
-    /// declarations that require a `.ts` file extension.  When `false`, only
-    /// plain JavaScript (`export const`) is emitted, making the output
-    /// compatible with `.js` / `.mjs` files.
     allow_typescript_syntax: bool,
-
-    /// Type registry for resolving external types
-    pub(crate) registry: TypeRegistry,
+    pub(crate) on_unknown: OnUnknown,
+    /// Derive paths that mark a type for extraction.
+    pub(crate) marker_paths: BTreeSet<String>,
+    pub(crate) registry: Registry,
+    format: Option<FormatSpec>,
 }
 
 impl Default for CodeGenerator {
     fn default() -> Self {
-        Self {
-            types: BTreeMap::new(),
-            header: None,
-            allow_typescript_syntax: true,
-            registry: TypeRegistry::with_builtins(),
-        }
+        Self::new()
     }
 }
 
 impl CodeGenerator {
-    /// Create a new code generator with built-in type mappings.
+    /// Create a generator with the built-in type and wrapper registrations.
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            types: BTreeMap::new(),
+            failed: BTreeMap::new(),
+            add_diagnostics: Vec::new(),
+            overrides: BTreeMap::new(),
+            header: None,
+            allow_typescript_syntax: true,
+            on_unknown: OnUnknown::Error,
+            marker_paths: BTreeSet::from(["rkyv::Archive".to_string()]),
+            registry: Registry::with_builtins(),
+            format: None,
+        }
     }
 
-    /// Set a custom header comment for the generated file.
+    /// Replace the header comment of the generated file.
     pub fn set_header(&mut self, header: impl Into<String>) -> &mut Self {
         self.header = Some(header.into());
         self
     }
 
-    /// Enable or disable TypeScript-specific syntax in the generated output.
-    ///
-    /// When `true` (the default), the output includes `export type` aliases
-    /// and `export interface` declarations.  When `false`, only plain
-    /// JavaScript (`export const`) is emitted, making the output compatible
-    /// with `.js` / `.mjs` files.
+    /// When `false`, `export type ... = r.Infer<...>` lines are dropped so
+    /// the output is valid plain JavaScript. Defaults to `true`.
     pub fn allow_typescript_syntax(&mut self, enabled: bool) -> &mut Self {
         self.allow_typescript_syntax = enabled;
         self
     }
 
-    /// Register a custom type in the type registry.
-    ///
-    /// This allows the code generator to handle custom external types when
-    /// parsing Rust source files. The `TypeDef` acts as a template — its
-    /// `generics` field describes how to parse type parameters from source,
-    /// and `resolve()` is called to fill in `type_params`.
-    ///
-    /// The `name` should be the fully-qualified Rust type path
-    /// (e.g., `"my_crate::CustomMap"`, `"chrono::NaiveDate"`).
-    ///
-    /// # Example
+    /// Configure how unmappable field types are handled. Defaults to
+    /// [`OnUnknown::Error`].
+    pub fn on_unknown_type(&mut self, mode: OnUnknown) -> &mut Self {
+        self.on_unknown = mode;
+        self
+    }
+
+    /// Register an additional derive path that marks types for extraction,
+    /// alongside the default `rkyv::Archive`.
+    pub fn add_marker_path(&mut self, path: impl Into<String>) -> &mut Self {
+        self.marker_paths.insert(path.into());
+        self
+    }
+
+    /// Register (or replace) an external type mapping for a fully-qualified
+    /// Rust path.
     ///
     /// ```
-    /// # fn main() {
-    /// use rkyv_js_codegen::{CodeGenerator, TypeDef};
+    /// use rkyv_js_codegen::{CodeGenerator, CodecExpr, ExternalType};
     ///
     /// let mut generator = CodeGenerator::new();
-    /// generator.register_type("my_crate::CustomMap",
-    ///     TypeDef::new("customMap({0}, {1})", "Map<{0}, {1}>")
-    ///         .with_import("my-package/codecs", "customMap"),
+    /// generator.register_external(
+    ///     "my_crate::MyVec",
+    ///     ExternalType::generic1(|t| {
+    ///         CodecExpr::call(CodecExpr::import_from("my-pkg/codecs", "myVec"), [t])
+    ///     }),
     /// );
-    /// # }
     /// ```
-    pub fn register_type(&mut self, name: impl Into<String>, typedef: TypeDef) -> &mut Self {
-        self.registry.register(name, typedef);
-        self
-    }
-
-    /// Remove a type mapping from the registry.
-    ///
-    /// This can be used to disable a built-in mapping.
-    pub fn unregister_type(&mut self, name: &str) -> &mut Self {
-        self.registry.unregister(name);
-        self
-    }
-
-    /// Get a reference to the type registry.
-    pub fn registry(&self) -> &TypeRegistry {
-        &self.registry
-    }
-
-    /// Set a custom archived name for a type.
-    ///
-    /// This corresponds to the Rust `#[rkyv(archived = Name)]` attribute.
-    /// By default, the archived name is `Archived{TypeName}`. This method
-    /// overrides that default.
-    ///
-    /// The type must already be added via [`add_struct`], [`add_enum`], etc.
-    /// If the type doesn't exist yet, the override is silently ignored.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use rkyv_js_codegen::{CodeGenerator, TypeDef};
-    ///
-    /// let mut codegen = CodeGenerator::new();
-    /// codegen.add_struct("Foo", &[("x", TypeDef::u32())]);
-    /// codegen.set_archived_name("Foo", "MyArchivedFoo");
-    /// let code = codegen.generate();
-    /// assert!(code.contains("export const MyArchivedFoo"));
-    /// ```
-    pub fn set_archived_name(
+    pub fn register_external(
         &mut self,
-        type_name: impl AsRef<str>,
-        archived_name: impl Into<String>,
+        path: impl Into<String>,
+        external: ExternalType,
     ) -> &mut Self {
-        if let Some(entry) = self.types.get_mut(type_name.as_ref()) {
-            entry.archived_name = Some(archived_name.into());
-        }
+        self.registry.register_type(path, external);
+        self
+    }
+
+    /// Register (or replace) a `#[rkyv(with = ...)]` wrapper handler.
+    pub fn register_with(&mut self, path: impl Into<String>, wrapper: WithWrapper) -> &mut Self {
+        self.registry.register_wrapper(path, wrapper);
+        self
+    }
+
+    /// Remove an external type mapping (e.g. to disable a builtin).
+    pub fn unregister_external(&mut self, path: &str) -> &mut Self {
+        self.registry.unregister_type(path);
         self
     }
 
     /// Add a struct definition.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use rkyv_js_codegen::{CodeGenerator, TypeDef};
-    ///
-    /// let mut generator = CodeGenerator::new();
-    /// generator.add_struct("Point", &[
-    ///     ("x", TypeDef::f64()),
-    ///     ("y", TypeDef::f64()),
-    /// ]);
-    /// ```
     pub fn add_struct(
         &mut self,
         name: impl Into<String>,
-        fields: &[(impl AsRef<str>, TypeDef)],
+        fields: impl IntoIterator<Item = (impl Into<String>, CodecExpr)>,
     ) -> &mut Self {
-        let name = name.into();
-        let fields: Vec<_> = fields
-            .iter()
-            .map(|(n, t)| (n.as_ref().to_string(), t.clone()))
+        let fields = fields
+            .into_iter()
+            .map(|(field, expr)| (field.into(), expr))
             .collect();
-        self.types
-            .insert(name.clone(), TypeEntry::new(name, TypeKind::Struct(fields)));
+        self.add_type(name.into(), TypeKind::Struct(fields), None);
         self
     }
 
     /// Add an enum definition.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use rkyv_js_codegen::{CodeGenerator, TypeDef, EnumVariant};
-    ///
-    /// let mut generator = CodeGenerator::new();
-    /// generator.add_enum("Status", &[
-    ///     EnumVariant::Unit("Pending".to_string()),
-    ///     EnumVariant::Unit("Active".to_string()),
-    ///     EnumVariant::Struct("Error".to_string(), vec![
-    ///         ("message".to_string(), TypeDef::string()),
-    ///     ]),
-    /// ]);
-    /// ```
-    pub fn add_enum(&mut self, name: impl Into<String>, variants: &[EnumVariant]) -> &mut Self {
-        let name = name.into();
-        self.types.insert(
-            name.clone(),
-            TypeEntry::new(name, TypeKind::Enum(variants.to_vec())),
-        );
+    pub fn add_enum(
+        &mut self,
+        name: impl Into<String>,
+        variants: impl IntoIterator<Item = EnumVariant>,
+    ) -> &mut Self {
+        let variants = variants.into_iter().collect();
+        self.add_type(name.into(), TypeKind::Enum(variants), None);
         self
     }
 
-    /// Add a type alias (newtype pattern).
-    pub fn add_alias(&mut self, name: impl Into<String>, target: TypeDef) -> &mut Self {
-        let name = name.into();
-        self.types
-            .insert(name.clone(), TypeEntry::new(name, TypeKind::Alias(target)));
+    /// Add a type alias: `export const Archived{name} = <expr>;`.
+    pub fn add_alias(&mut self, name: impl Into<String>, target: CodecExpr) -> &mut Self {
+        self.add_type(name.into(), TypeKind::Alias(target), None);
         self
     }
 
-    /// Add a union definition.
+    /// Record a type entry, diagnosing duplicate names.
+    pub(crate) fn add_type(
+        &mut self,
+        name: String,
+        kind: TypeKind,
+        location: Option<SourceLocation>,
+    ) {
+        if self.is_known_type(&name) {
+            self.add_diagnostics.push(
+                Diagnostic::new(DiagnosticKind::DuplicateType { name }).at(location),
+            );
+            return;
+        }
+        self.types.insert(name, kind);
+    }
+
+    /// Record a type whose extraction produced diagnostics.
+    pub(crate) fn add_failed_type(
+        &mut self,
+        name: String,
+        diagnostics: Vec<Diagnostic>,
+        location: Option<SourceLocation>,
+    ) {
+        if self.is_known_type(&name) {
+            self.add_diagnostics.push(
+                Diagnostic::new(DiagnosticKind::DuplicateType { name }).at(location),
+            );
+            return;
+        }
+        self.failed.insert(name, diagnostics);
+    }
+
+    fn is_known_type(&self, name: &str) -> bool {
+        self.types.contains_key(name) || self.failed.contains_key(name)
+    }
+
+    /// Override the archived (exported) name of a type, corresponding to
+    /// `#[rkyv(archived = Name)]`.
     ///
-    /// Unions are untagged - all variants occupy the same memory location.
-    /// This is used for Rust `#[repr(C)]` unions.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use rkyv_js_codegen::{CodeGenerator, TypeDef, UnionVariant};
-    ///
-    /// let mut generator = CodeGenerator::new();
-    /// generator.add_union("NumberUnion", &[
-    ///     UnionVariant::new("as_u32", TypeDef::u32()),
-    ///     UnionVariant::new("as_f32", TypeDef::f32()),
-    ///     UnionVariant::new("as_bytes", TypeDef::array(TypeDef::u8(), 4)),
-    /// ]);
-    /// ```
-    pub fn add_union(&mut self, name: impl Into<String>, variants: &[UnionVariant]) -> &mut Self {
-        let name = name.into();
-        self.types.insert(
-            name.clone(),
-            TypeEntry::new(name, TypeKind::Union(variants.to_vec())),
-        );
+    /// Order-independent: the target type may be added before or after this
+    /// call. A target that never materializes is reported as
+    /// [`DiagnosticKind::UnknownRenameTarget`] at generate time.
+    pub fn set_archived_name(
+        &mut self,
+        type_name: impl Into<String>,
+        archived_name: impl Into<String>,
+    ) -> &mut Self {
+        self.overrides.insert(type_name.into(), archived_name.into());
         self
     }
 
-    /// Build the archived name resolution map from all type entries.
-    ///
-    /// This maps type name → archived name for every type in the generator,
-    /// used by [`TypeDef::resolve_codec_expr`] to resolve named references.
-    fn build_archived_names(&self) -> HashMap<String, String> {
-        self.types
-            .values()
-            .map(|entry| (entry.name.clone(), entry.archived_name()))
-            .collect()
+    /// The archived (exported) name a type will be emitted under, or `None`
+    /// if no type with that name has been added.
+    pub fn archived_name_of(&self, type_name: &str) -> Option<String> {
+        if !self.is_known_type(type_name) {
+            return None;
+        }
+        Some(self.resolved_archived_name(type_name))
     }
 
-    /// Generate the TypeScript code as a string.
-    pub fn generate(&self) -> String {
-        let mut output = String::new();
-
-        // Header
-        if let Some(header) = &self.header {
-            output.push_str("/**\n");
-            for line in header.lines() {
-                output.push_str(" * ");
-                output.push_str(line);
-                output.push('\n');
-            }
-            output.push_str(" */\n\n");
-        } else {
-            output.push_str("/**\n");
-            output.push_str(" * Auto-generated by rkyv-js-codegen\n");
-            output.push_str(" * DO NOT EDIT MANUALLY\n");
-            output.push_str(" */\n\n");
-        }
-
-        let archived_names = self.build_archived_names();
-
-        // Imports
-        output.push_str(&self.generate_import_block());
-        output.push_str("\n\n");
-
-        // Get topologically sorted order for types
-        let sorted_types = self.topological_sort();
-
-        // Generate types in dependency order
-        for type_name in &sorted_types {
-            if let Some(entry) = self.types.get(type_name) {
-                let code = match &entry.kind {
-                    TypeKind::Alias(target) => self.generate_alias(entry, target, &archived_names),
-                    TypeKind::Struct(fields) => {
-                        self.generate_struct(entry, fields, &archived_names)
-                    }
-                    TypeKind::Enum(variants) => {
-                        self.generate_enum(entry, variants, &archived_names)
-                    }
-                    TypeKind::Union(variants) => {
-                        self.generate_union(entry, variants, &archived_names)
-                    }
-                };
-                output.push_str(&code);
-                output.push_str("\n\n");
-            }
-        }
-
-        output.trim_end().to_string() + "\n"
-    }
-
-    /// Perform topological sort to order types by dependencies.
-    fn topological_sort(&self) -> Vec<String> {
-        let mut deps: HashMap<String, HashSet<String>> = HashMap::new();
-        let all_types: HashSet<String> = self.types.keys().cloned().collect();
-
-        for (name, entry) in &self.types {
-            let type_deps = deps.entry(name.clone()).or_default();
-            match &entry.kind {
-                TypeKind::Struct(fields) => {
-                    for (_, ty) in fields {
-                        ty.collect_named_deps(type_deps);
-                    }
-                }
-                TypeKind::Enum(variants) => {
-                    for variant in variants {
-                        match variant {
-                            EnumVariant::Unit(_) => {}
-                            EnumVariant::Tuple(_, types) => {
-                                for ty in types {
-                                    ty.collect_named_deps(type_deps);
-                                }
-                            }
-                            EnumVariant::Struct(_, fields) => {
-                                for (_, ty) in fields {
-                                    ty.collect_named_deps(type_deps);
-                                }
-                            }
-                        }
-                    }
-                }
-                TypeKind::Union(variants) => {
-                    for variant in variants {
-                        variant.ty.collect_named_deps(type_deps);
-                    }
-                }
-                TypeKind::Alias(ty) => {
-                    ty.collect_named_deps(type_deps);
-                }
-            }
-            type_deps.retain(|d| all_types.contains(d));
-        }
-
-        // Kahn's algorithm for topological sort
-        let mut in_degree: HashMap<String, usize> = HashMap::new();
-        for name in &all_types {
-            in_degree.insert(name.clone(), 0);
-        }
-        for type_deps in deps.values() {
-            for dep in type_deps {
-                *in_degree.get_mut(dep).unwrap() += 1;
-            }
-        }
-
-        let mut result = Vec::new();
-        let mut queue: Vec<String> = all_types
-            .iter()
-            .filter(|n| deps.get(*n).map(|d| d.is_empty()).unwrap_or(true))
+    fn resolved_archived_name(&self, type_name: &str) -> String {
+        self.overrides
+            .get(type_name)
             .cloned()
-            .collect();
-        queue.sort();
-
-        let mut visited = HashSet::new();
-        while let Some(name) = queue.pop() {
-            if visited.contains(&name) {
-                continue;
-            }
-            visited.insert(name.clone());
-            result.push(name.clone());
-
-            for (other, other_deps) in &deps {
-                if other_deps.contains(&name) && !visited.contains(other) {
-                    let all_deps_met = other_deps.iter().all(|d| visited.contains(d));
-                    if all_deps_met {
-                        queue.push(other.clone());
-                    }
-                }
-            }
-            queue.sort();
-            queue.reverse();
-        }
-
-        for name in &all_types {
-            if !visited.contains(name) {
-                result.push(name.clone());
-            }
-        }
-
-        result
+            .unwrap_or_else(|| format!("Archived{type_name}"))
     }
 
-    /// Write the generated code to a file.
-    pub fn write_to_file(&self, path: impl AsRef<Path>) -> io::Result<()> {
-        let code = self.generate();
-        fs::write(path, code)
+    /// Configure the rkyv wire format of the generated bindings.
+    ///
+    /// When the format differs from the default (`little`/32/aligned), the
+    /// output declares `const FORMAT = r.format({ ... })` with the
+    /// non-default keys and wraps every exported codec in
+    /// `r.withFormat(<expr>, FORMAT)`.
+    pub fn set_format(&mut self, endian: &str, pointer_width: u32, aligned: bool) -> &mut Self {
+        self.format = Some(FormatSpec {
+            endian: endian.to_string(),
+            pointer_width,
+            aligned,
+        });
+        self
     }
 
-    /// Write the generated code to a writer.
-    pub fn write_to<W: Write>(&self, mut writer: W) -> io::Result<()> {
-        let code = self.generate();
-        writer.write_all(code.as_bytes())
+    /// The active non-default format, if any.
+    fn nondefault_format(&self) -> Option<&FormatSpec> {
+        self.format.as_ref().filter(|spec| !spec.is_default())
     }
 
-    fn generate_import_block(&self) -> String {
-        let mut lib_imports: HashSet<Import> = HashSet::new();
-
-        for entry in self.types.values() {
-            match &entry.kind {
-                TypeKind::Struct(fields) => {
-                    for (_, ty) in fields {
-                        ty.collect_imports(&mut lib_imports);
-                    }
-                }
-                TypeKind::Enum(variants) => {
-                    for variant in variants {
-                        match variant {
-                            EnumVariant::Unit(_) => {}
-                            EnumVariant::Tuple(_, types) => {
-                                for ty in types {
-                                    ty.collect_imports(&mut lib_imports);
-                                }
+    /// Every codec expression of a type, labelled with its `Type.field`
+    /// provenance for diagnostics.
+    fn exprs_with_context<'a>(
+        type_name: &str,
+        kind: &'a TypeKind,
+    ) -> Vec<(String, &'a CodecExpr)> {
+        match kind {
+            TypeKind::Struct(fields) => fields
+                .iter()
+                .map(|(field, expr)| (format!("{type_name}.{field}"), expr))
+                .collect(),
+            TypeKind::Enum(variants) => {
+                let mut out = Vec::new();
+                for variant in variants {
+                    match variant {
+                        EnumVariant::Unit(_) => {}
+                        EnumVariant::Newtype(vname, expr) => {
+                            out.push((format!("{type_name}::{vname}"), expr));
+                        }
+                        EnumVariant::Tuple(vname, exprs) => {
+                            for (i, expr) in exprs.iter().enumerate() {
+                                out.push((format!("{type_name}::{vname}.{i}"), expr));
                             }
-                            EnumVariant::Struct(_, fields) => {
-                                for (_, ty) in fields {
-                                    ty.collect_imports(&mut lib_imports);
-                                }
+                        }
+                        EnumVariant::Struct(vname, fields) => {
+                            for (field, expr) in fields {
+                                out.push((format!("{type_name}::{vname}.{field}"), expr));
                             }
                         }
                     }
                 }
-                TypeKind::Union(variants) => {
-                    for variant in variants {
-                        variant.ty.collect_imports(&mut lib_imports);
+                out
+            }
+            TypeKind::Alias(expr) => vec![(type_name.to_string(), expr)],
+        }
+    }
+
+    /// Generate the TypeScript bindings.
+    ///
+    /// Validation runs first; every problem is aggregated into a single
+    /// [`Error::Codegen`].
+    pub fn generate(&self) -> Result<String, Error> {
+        let mut diagnostics: Vec<Diagnostic> = self.add_diagnostics.clone();
+
+        // Rename overrides must target a type that materialized.
+        for target in self.overrides.keys() {
+            if !self.is_known_type(target) {
+                diagnostics.push(Diagnostic::new(DiagnosticKind::UnknownRenameTarget {
+                    type_name: target.clone(),
+                }));
+            }
+        }
+
+        // Extraction failures: hard errors, or skipped with a warning.
+        let mut skipped: BTreeSet<String> = BTreeSet::new();
+        match self.on_unknown {
+            OnUnknown::Error => {
+                for failure_diagnostics in self.failed.values() {
+                    diagnostics.extend(failure_diagnostics.iter().cloned());
+                }
+            }
+            OnUnknown::SkipContainingType => {
+                for (name, failure_diagnostics) in &self.failed {
+                    skipped.insert(name.clone());
+                    for diagnostic in failure_diagnostics {
+                        eprintln!(
+                            "cargo:warning=rkyv-js-codegen: skipping `{name}`: {diagnostic}"
+                        );
                     }
                 }
-                TypeKind::Alias(ty) => {
-                    ty.collect_imports(&mut lib_imports);
+            }
+        }
+
+        // Validate type references.
+        match self.on_unknown {
+            OnUnknown::Error => {
+                for (name, kind) in &self.types {
+                    for (context, expr) in Self::exprs_with_context(name, kind) {
+                        let mut refs = BTreeSet::new();
+                        expr.collect_type_refs(&mut refs);
+                        for reference in refs {
+                            if !self.is_known_type(&reference) {
+                                diagnostics.push(
+                                    Diagnostic::new(DiagnosticKind::UnresolvedTypeRef {
+                                        name: reference,
+                                    })
+                                    .referenced_by(context.clone()),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+            OnUnknown::SkipContainingType => {
+                // Transitively omit types referencing skipped or missing types.
+                loop {
+                    let mut newly_skipped = Vec::new();
+                    for (name, kind) in &self.types {
+                        if skipped.contains(name) {
+                            continue;
+                        }
+                        let broken = Self::exprs_with_context(name, kind).iter().any(
+                            |(_, expr)| {
+                                let mut refs = BTreeSet::new();
+                                expr.collect_type_refs(&mut refs);
+                                refs.iter().any(|reference| {
+                                    skipped.contains(reference)
+                                        || !self.types.contains_key(reference)
+                                })
+                            },
+                        );
+                        if broken {
+                            newly_skipped.push(name.clone());
+                        }
+                    }
+                    if newly_skipped.is_empty() {
+                        break;
+                    }
+                    for name in newly_skipped {
+                        eprintln!(
+                            "cargo:warning=rkyv-js-codegen: skipping `{name}`: it references \
+                             a type that was omitted or never added"
+                        );
+                        skipped.insert(name);
+                    }
                 }
             }
         }
 
-        let mut output = String::new();
-        output.push_str("import * as r from 'rkyv-js';\n");
-        output.push_str(&generate_imports(&lib_imports));
-        output.trim_end().to_string()
+        // The set of types actually emitted, in stable order.
+        let emitted: BTreeMap<&String, &TypeKind> = self
+            .types
+            .iter()
+            .filter(|(name, _)| !skipped.contains(*name))
+            .collect();
+
+        // Import conflicts across everything emitted.
+        let all_exprs: Vec<&CodecExpr> = emitted
+            .iter()
+            .flat_map(|(name, kind)| Self::exprs_with_context(name, kind))
+            .map(|(_, expr)| expr)
+            .collect();
+        let import_block = match generate_import_block(all_exprs.iter().copied()) {
+            Ok(block) => block,
+            Err(conflicts) => {
+                diagnostics.extend(conflicts.into_iter().map(Diagnostic::new));
+                String::new()
+            }
+        };
+
+        if !diagnostics.is_empty() {
+            return Err(Error::Codegen(diagnostics));
+        }
+
+        // Topological sort (Kahn's) so dependencies emit before dependents;
+        // ties resolve in BTreeMap (name) order.
+        let order = Self::topological_sort(&emitted);
+
+        let archived_names: BTreeMap<String, String> = emitted
+            .keys()
+            .map(|name| ((*name).clone(), self.resolved_archived_name(name)))
+            .collect();
+
+        // Assemble the output.
+        let mut blocks: Vec<String> = Vec::new();
+
+        let header = self
+            .header
+            .as_deref()
+            .unwrap_or("Auto-generated by rkyv-js-codegen\nDO NOT EDIT MANUALLY");
+        let mut header_block = String::from("/**\n");
+        for line in header.lines() {
+            if line.is_empty() {
+                header_block.push_str(" *\n");
+            } else {
+                header_block.push_str(" * ");
+                header_block.push_str(line);
+                header_block.push('\n');
+            }
+        }
+        header_block.push_str(" */");
+        blocks.push(header_block);
+
+        blocks.push(import_block.trim_end().to_string());
+
+        if let Some(spec) = self.nondefault_format() {
+            blocks.push(format!("const FORMAT = r.format({{ {} }});", spec.options()));
+        }
+
+        for name in &order {
+            let kind = emitted.get(name).expect("ordered names come from emitted");
+            blocks.push(self.emit_type(name, kind, &archived_names));
+        }
+
+        Ok(blocks.join("\n\n") + "\n")
     }
 
-    fn generate_alias(
-        &self,
-        entry: &TypeEntry,
-        target: &TypeDef,
-        archived_names: &HashMap<String, String>,
-    ) -> String {
-        let name = &entry.name;
-        let archived = entry.archived_name();
-        let mut output = format!("// Type alias: {name}\n");
-        if self.allow_typescript_syntax {
-            output.push_str(&format!("export type {name} = {};\n", target.to_ts_type()));
+    fn topological_sort(emitted: &BTreeMap<&String, &TypeKind>) -> Vec<String> {
+        let mut deps: BTreeMap<&str, BTreeSet<String>> = BTreeMap::new();
+        for (name, kind) in emitted {
+            let mut refs = BTreeSet::new();
+            for (_, expr) in Self::exprs_with_context(name, kind) {
+                expr.collect_type_refs(&mut refs);
+            }
+            refs.retain(|reference| {
+                emitted.contains_key(reference) && reference != name.as_str()
+            });
+            deps.insert(name.as_str(), refs);
         }
-        output.push_str(&format!(
-            "export const {archived} = {};",
-            target.resolve_codec_expr(archived_names)
-        ));
-        output
-    }
 
-    fn generate_struct(
-        &self,
-        entry: &TypeEntry,
-        fields: &[(String, TypeDef)],
-        archived_names: &HashMap<String, String>,
-    ) -> String {
-        let name = &entry.name;
-        let archived = entry.archived_name();
-        let mut output = String::new();
-        output.push_str(&format!("export const {} = r.struct({{\n", archived));
-        for (field_name, field_type) in fields {
-            output.push_str(&format!(
-                "  {}: {},\n",
-                field_name,
-                field_type.resolve_codec_expr(archived_names)
-            ));
+        let mut dependents: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+        let mut in_degree: BTreeMap<&str, usize> = BTreeMap::new();
+        for (name, type_deps) in &deps {
+            in_degree.insert(name, type_deps.len());
+            for dep in type_deps {
+                dependents.entry(dep.as_str()).or_default().push(name);
+            }
         }
-        output.push_str("});");
-        if self.allow_typescript_syntax {
-            output.push_str(&format!(
-                "\n\nexport type {} = r.Infer<typeof {}>;",
-                name, archived
-            ));
-        }
-        output
-    }
 
-    fn generate_enum(
-        &self,
-        entry: &TypeEntry,
-        variants: &[EnumVariant],
-        archived_names: &HashMap<String, String>,
-    ) -> String {
-        let name = &entry.name;
-        let archived = entry.archived_name();
-        let mut output = String::new();
-        output.push_str(&format!("export const {} = r.taggedEnum({{\n", archived));
-        for variant in variants {
-            match variant {
-                EnumVariant::Unit(vname) => {
-                    output.push_str(&format!("  {}: r.unit,\n", vname));
-                }
-                EnumVariant::Tuple(vname, types) => {
-                    let fields: Vec<_> = types
-                        .iter()
-                        .enumerate()
-                        .map(|(i, t)| format!("_{}: {}", i, t.resolve_codec_expr(archived_names)))
-                        .collect();
-                    output.push_str(&format!(
-                        "  {}: r.struct({{ {} }}),\n",
-                        vname,
-                        fields.join(", ")
-                    ));
-                }
-                EnumVariant::Struct(vname, fields) => {
-                    let field_defs: Vec<_> = fields
-                        .iter()
-                        .map(|(n, t)| format!("{}: {}", n, t.resolve_codec_expr(archived_names)))
-                        .collect();
-                    output.push_str(&format!(
-                        "  {}: r.struct({{ {} }}),\n",
-                        vname,
-                        field_defs.join(", ")
-                    ));
+        let mut ready: BTreeSet<&str> = in_degree
+            .iter()
+            .filter(|(_, degree)| **degree == 0)
+            .map(|(name, _)| *name)
+            .collect();
+        let mut order: Vec<String> = Vec::new();
+        let mut done: BTreeSet<&str> = BTreeSet::new();
+
+        while let Some(name) = ready.pop_first() {
+            order.push(name.to_string());
+            done.insert(name);
+            if let Some(children) = dependents.get(name) {
+                for child in children {
+                    let degree = in_degree.get_mut(child).unwrap();
+                    *degree -= 1;
+                    if *degree == 0 {
+                        ready.insert(child);
+                    }
                 }
             }
         }
-        output.push_str("});");
-        if self.allow_typescript_syntax {
-            output.push_str(&format!(
-                "\n\nexport type {} = r.Infer<typeof {}>;",
-                name, archived
-            ));
+
+        // Cycles (only possible through user-provided Raw/TypeRef loops):
+        // append the remaining names in stable order.
+        for name in deps.keys() {
+            if !done.contains(name) {
+                order.push((*name).to_string());
+            }
         }
-        output
+
+        order
     }
 
-    fn generate_union(
+    fn emit_type(
         &self,
-        entry: &TypeEntry,
-        variants: &[UnionVariant],
-        archived_names: &HashMap<String, String>,
+        name: &str,
+        kind: &TypeKind,
+        archived_names: &BTreeMap<String, String>,
     ) -> String {
-        let name = &entry.name;
-        let archived = entry.archived_name();
-        let mut output = String::new();
-        if self.allow_typescript_syntax {
-            output.push_str(&format!("export interface {}Variants {{\n", name));
-            for variant in variants {
-                output.push_str(&format!(
-                    "  {}: {};\n",
-                    variant.name,
-                    variant.ty.to_ts_type()
-                ));
+        let archived = archived_names
+            .get(name)
+            .expect("emitted types have archived names")
+            .clone();
+        let render = |expr: &CodecExpr| -> String {
+            expr.render(archived_names)
+                .expect("type references are validated before emission")
+        };
+
+        let codec_expr = match kind {
+            TypeKind::Struct(fields) => {
+                if fields.is_empty() {
+                    "r.struct({})".to_string()
+                } else {
+                    let mut body = String::from("r.struct({\n");
+                    for (field, expr) in fields {
+                        body.push_str(&format!("  {}: {},\n", field, render(expr)));
+                    }
+                    body.push_str("})");
+                    body
+                }
             }
-            output.push_str("}\n\n");
-        }
-        output.push_str(&format!(
-            "// Union codec for {}\n// Note: You need to provide a discriminate function based on your data format\n",
-            name
-        ));
-        output.push_str(&format!(
-            "export const {} = r.union(\n  // discriminate: (reader, offset) => keyof {}Variants\n  (reader, offset) => {{ throw new Error('Discriminate function not implemented for {}'); }},\n  {{\n",
-            archived, name, name
-        ));
-        for variant in variants {
-            output.push_str(&format!(
-                "    {}: {},\n",
-                variant.name,
-                variant.ty.resolve_codec_expr(archived_names)
-            ));
-        }
-        output.push_str("  }\n);");
+            TypeKind::Enum(variants) => {
+                if variants.is_empty() {
+                    "r.taggedEnum({})".to_string()
+                } else {
+                    let mut body = String::from("r.taggedEnum({\n");
+                    for variant in variants {
+                        let value = match variant {
+                            EnumVariant::Unit(_) => "null".to_string(),
+                            EnumVariant::Newtype(_, expr) => render(expr),
+                            EnumVariant::Tuple(_, exprs) => {
+                                let record = CodecExpr::object(
+                                    exprs
+                                        .iter()
+                                        .enumerate()
+                                        .map(|(i, expr)| (format!("_{i}"), expr.clone())),
+                                );
+                                render(&record)
+                            }
+                            EnumVariant::Struct(_, fields) => {
+                                let record = CodecExpr::object(fields.iter().cloned());
+                                render(&record)
+                            }
+                        };
+                        body.push_str(&format!("  {}: {},\n", variant.name(), value));
+                    }
+                    body.push_str("})");
+                    body
+                }
+            }
+            TypeKind::Alias(expr) => render(expr),
+        };
+
+        let codec_expr = match self.nondefault_format() {
+            Some(_) => format!("r.withFormat({codec_expr}, FORMAT)"),
+            None => codec_expr,
+        };
+
+        let mut block = format!("export const {archived} = {codec_expr};");
         if self.allow_typescript_syntax {
-            output.push_str(&format!(
-                "\n\nexport type {} = r.Infer<typeof {}>;",
-                name, archived
+            block.push_str(&format!(
+                "\n\nexport type {name} = r.Infer<typeof {archived}>;"
             ));
         }
-        output
+        block
+    }
+
+    /// Generate the bindings and write them to `path`.
+    pub fn write_to_file(&self, path: impl AsRef<Path>) -> Result<(), Error> {
+        let code = self.generate()?;
+        fs::write(path, code)?;
+        Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::expr::codec;
 
-    #[test]
-    fn test_generate_simple_struct() {
-        let mut codegen = CodeGenerator::new();
-        codegen.add_struct("Point", &[("x", TypeDef::f64()), ("y", TypeDef::f64())]);
-
-        let code = codegen.generate();
-        assert!(code.contains("import * as r from 'rkyv-js';\n"));
-        assert!(code.contains("export const ArchivedPoint = r.struct({"));
-        assert!(code.contains("x: r.f64"));
-        assert!(code.contains("y: r.f64"));
-        assert!(code.contains("export type Point = r.Infer<typeof ArchivedPoint>;"));
+    fn diagnostics(error: Error) -> Vec<Diagnostic> {
+        match error {
+            Error::Codegen(diagnostics) => diagnostics,
+            other => panic!("expected Error::Codegen, got {other:?}"),
+        }
     }
 
     #[test]
-    fn test_generate_enum() {
-        let mut codegen = CodeGenerator::new();
-        codegen.add_enum(
-            "Status",
-            &[
-                EnumVariant::Unit("Pending".to_string()),
-                EnumVariant::Unit("Active".to_string()),
-            ],
+    fn struct_emission_snapshot() {
+        let mut generator = CodeGenerator::new();
+        generator.add_struct("Point", [("x", codec::f64()), ("y", codec::f64())]);
+        let code = generator.generate().unwrap();
+        assert_eq!(
+            code,
+            "/**\n\
+             \x20* Auto-generated by rkyv-js-codegen\n\
+             \x20* DO NOT EDIT MANUALLY\n\
+             \x20*/\n\
+             \n\
+             import * as r from 'rkyv-js';\n\
+             \n\
+             export const ArchivedPoint = r.struct({\n\
+             \x20 x: r.f64,\n\
+             \x20 y: r.f64,\n\
+             });\n\
+             \n\
+             export type Point = r.Infer<typeof ArchivedPoint>;\n"
         );
-
-        let code = codegen.generate();
-        assert!(code.contains("export const ArchivedStatus = r.taggedEnum({"));
-        assert!(code.contains("Pending: r.unit"));
-        assert!(code.contains("Active: r.unit"));
-        assert!(code.contains("export type Status = r.Infer<typeof ArchivedStatus>;"));
     }
 
     #[test]
-    fn test_generate_nested_types() {
-        let mut codegen = CodeGenerator::new();
-        codegen.add_struct(
-            "Person",
-            &[
-                ("name", TypeDef::string()),
-                ("age", TypeDef::u32()),
-                ("scores", TypeDef::vec(TypeDef::u32())),
-                ("email", TypeDef::option(TypeDef::string())),
-            ],
-        );
-
-        let code = codegen.generate();
-        assert!(code.contains("name: r.string"));
-        assert!(code.contains("age: r.u32"));
-        assert!(code.contains("scores: r.vec(r.u32)"));
-        assert!(code.contains("email: r.option(r.string)"));
-    }
-
-    #[test]
-    fn test_generate_union() {
-        let mut codegen = CodeGenerator::new();
-        codegen.add_union(
-            "NumberUnion",
-            &[
-                UnionVariant::new("asU32", TypeDef::u32()),
-                UnionVariant::new("asF32", TypeDef::f32()),
-                UnionVariant::new("asBytes", TypeDef::array(TypeDef::u8(), 4)),
-            ],
-        );
-
-        let code = codegen.generate();
-        assert!(code.contains("export interface NumberUnionVariants"));
-        assert!(code.contains("asU32: number"));
-        assert!(code.contains("asF32: number"));
-        assert!(code.contains("asBytes: number[]"));
-        assert!(code.contains("export const ArchivedNumberUnion = r.union("));
-        assert!(code.contains("asU32: r.u32"));
-    }
-
-    #[test]
-    fn test_generate_enum_with_data() {
-        let mut codegen = CodeGenerator::new();
-        codegen.add_enum(
-            "Message",
-            &[
-                EnumVariant::Unit("Quit".to_string()),
+    fn enum_emission_snapshot() {
+        let mut generator = CodeGenerator::new();
+        generator.add_enum(
+            "MixedAlign",
+            [
                 EnumVariant::Struct(
-                    "Move".to_string(),
-                    vec![
-                        ("x".to_string(), TypeDef::i32()),
-                        ("y".to_string(), TypeDef::i32()),
-                    ],
+                    "V".to_string(),
+                    vec![("a".to_string(), codec::u8()), ("b".to_string(), codec::u32())],
                 ),
-                EnumVariant::Tuple("Write".to_string(), vec![TypeDef::string()]),
+                EnumVariant::Newtype("X".to_string(), codec::u64()),
+                EnumVariant::Tuple("Color".to_string(), vec![codec::u8(), codec::u8()]),
+                EnumVariant::Unit("Y".to_string()),
             ],
         );
-
-        let code = codegen.generate();
-        assert!(code.contains("Quit: r.unit"));
-        assert!(code.contains("Move: r.struct({ x: r.i32, y: r.i32 })"));
-        assert!(code.contains("Write: r.struct({ _0: r.string })"));
+        let code = generator.generate().unwrap();
+        assert!(code.contains(
+            "export const ArchivedMixedAlign = r.taggedEnum({\n\
+             \x20 V: { a: r.u8, b: r.u32 },\n\
+             \x20 X: r.u64,\n\
+             \x20 Color: { _0: r.u8, _1: r.u8 },\n\
+             \x20 Y: null,\n\
+             });"
+        ));
+        assert!(code.contains("export type MixedAlign = r.Infer<typeof ArchivedMixedAlign>;"));
     }
 
-    // ── Archived name override tests ──────────────────────────────────
+    #[test]
+    fn alias_emission_snapshot() {
+        let mut generator = CodeGenerator::new();
+        generator.add_alias("UserId", codec::u32());
+        let code = generator.generate().unwrap();
+        assert!(code.contains("export const ArchivedUserId = r.u32;"));
+        assert!(code.contains("export type UserId = r.Infer<typeof ArchivedUserId>;"));
+    }
 
     #[test]
-    fn test_set_archived_name_struct() {
-        let mut codegen = CodeGenerator::new();
-        codegen.add_struct("Foo", &[("x", TypeDef::u32())]);
-        codegen.set_archived_name("Foo", "MyFoo");
-        let code = codegen.generate();
+    fn imports_are_collected_and_deduped() {
+        let mut generator = CodeGenerator::new();
+        generator.add_struct(
+            "A",
+            [
+                (
+                    "m",
+                    CodecExpr::call(
+                        CodecExpr::import_from("rkyv-js/lib/hashmap", "hashMap"),
+                        [codec::string(), codec::u32()],
+                    ),
+                ),
+                (
+                    "s",
+                    CodecExpr::call(
+                        CodecExpr::import_from("rkyv-js/lib/hashmap", "hashSet"),
+                        [codec::string()],
+                    ),
+                ),
+            ],
+        );
+        generator.add_struct(
+            "B",
+            [(
+                "s2",
+                CodecExpr::call(
+                    CodecExpr::import_from("rkyv-js/lib/hashmap", "hashSet"),
+                    [codec::u32()],
+                ),
+            )],
+        );
+        let code = generator.generate().unwrap();
+        assert!(code.contains("import { hashMap, hashSet } from 'rkyv-js/lib/hashmap';"));
+        assert_eq!(code.matches("hashSet }").count(), 1);
+    }
+
+    #[test]
+    fn import_conflict_is_reported() {
+        let mut generator = CodeGenerator::new();
+        generator.add_struct("A", [("x", CodecExpr::import_from("pkg-a", "codec"))]);
+        generator.add_struct("B", [("y", CodecExpr::import_from("pkg-b", "codec"))]);
+        let errors = diagnostics(generator.generate().unwrap_err());
+        assert!(errors.iter().any(|diagnostic| matches!(
+            &diagnostic.kind,
+            DiagnosticKind::ImportConflict { export, .. } if export == "codec"
+        )));
+    }
+
+    #[test]
+    fn topo_sort_handles_forward_references() {
+        let mut generator = CodeGenerator::new();
+        // "AOuter" sorts before "Inner" alphabetically, but references it.
+        generator.add_struct("AOuter", [("inner", codec::named("Inner"))]);
+        generator.add_struct("Inner", [("value", codec::u32())]);
+        let code = generator.generate().unwrap();
+        let inner_pos = code.find("export const ArchivedInner").unwrap();
+        let outer_pos = code.find("export const ArchivedAOuter").unwrap();
+        assert!(inner_pos < outer_pos, "dependency must be emitted first");
+        assert!(code.contains("inner: ArchivedInner,"));
+    }
+
+    #[test]
+    fn unresolved_type_ref_reports_referrer() {
+        let mut generator = CodeGenerator::new();
+        generator.add_struct("Outer", [("inner", codec::named("Missing"))]);
+        let errors = diagnostics(generator.generate().unwrap_err());
+        assert_eq!(errors.len(), 1);
+        assert!(matches!(
+            &errors[0].kind,
+            DiagnosticKind::UnresolvedTypeRef { name } if name == "Missing"
+        ));
+        assert_eq!(errors[0].referenced_by.as_deref(), Some("Outer.inner"));
+    }
+
+    #[test]
+    fn duplicate_type_is_reported_at_generate() {
+        let mut generator = CodeGenerator::new();
+        generator.add_struct("Point", [("x", codec::f64())]);
+        generator.add_struct("Point", [("y", codec::f64())]);
+        let errors = diagnostics(generator.generate().unwrap_err());
+        assert!(errors.iter().any(|diagnostic| matches!(
+            &diagnostic.kind,
+            DiagnosticKind::DuplicateType { name } if name == "Point"
+        )));
+    }
+
+    #[test]
+    fn set_archived_name_is_order_independent() {
+        // Before add.
+        let mut generator = CodeGenerator::new();
+        generator.set_archived_name("Foo", "MyFoo");
+        generator.add_struct("Foo", [("x", codec::u32())]);
+        let code = generator.generate().unwrap();
         assert!(code.contains("export const MyFoo = r.struct({"));
         assert!(code.contains("export type Foo = r.Infer<typeof MyFoo>;"));
         assert!(!code.contains("ArchivedFoo"));
+
+        // After add.
+        let mut generator = CodeGenerator::new();
+        generator.add_struct("Foo", [("x", codec::u32())]);
+        generator.set_archived_name("Foo", "MyFoo");
+        let code = generator.generate().unwrap();
+        assert!(code.contains("export const MyFoo = r.struct({"));
     }
 
     #[test]
-    fn test_set_archived_name_enum() {
-        let mut codegen = CodeGenerator::new();
-        codegen.add_enum("Status", &[EnumVariant::Unit("Active".to_string())]);
-        codegen.set_archived_name("Status", "MyStatus");
-        let code = codegen.generate();
-        assert!(code.contains("export const MyStatus = r.taggedEnum({"));
-        assert!(code.contains("export type Status = r.Infer<typeof MyStatus>;"));
-        assert!(!code.contains("ArchivedStatus"));
-    }
-
-    #[test]
-    fn test_archived_name_cross_reference() {
-        let mut codegen = CodeGenerator::new();
-        codegen.add_struct("Inner", &[("value", TypeDef::u32())]);
-        codegen.set_archived_name("Inner", "CustomInner");
-        codegen.add_struct("Outer", &[("inner", TypeDef::named("Inner"))]);
-        let code = codegen.generate();
-        // Inner should use the custom name
+    fn archived_rename_applies_to_cross_references() {
+        let mut generator = CodeGenerator::new();
+        generator.set_archived_name("Inner", "CustomInner");
+        generator.add_struct("Inner", [("value", codec::u32())]);
+        generator.add_struct("Outer", [("inner", codec::named("Inner"))]);
+        let code = generator.generate().unwrap();
         assert!(code.contains("export const CustomInner = r.struct({"));
-        // Outer should reference CustomInner, not ArchivedInner
-        assert!(code.contains("inner: CustomInner"));
+        assert!(code.contains("inner: CustomInner,"));
         assert!(!code.contains("ArchivedInner"));
     }
 
     #[test]
-    fn test_archived_name_default_when_not_set() {
-        let mut codegen = CodeGenerator::new();
-        codegen.add_struct("Point", &[("x", TypeDef::f64())]);
-        // No set_archived_name call
-        let code = codegen.generate();
+    fn unknown_rename_target_is_a_diagnostic() {
+        let mut generator = CodeGenerator::new();
+        generator.add_struct("Foo", [("x", codec::u32())]);
+        generator.set_archived_name("Nope", "MyNope");
+        let errors = diagnostics(generator.generate().unwrap_err());
+        assert!(errors.iter().any(|diagnostic| matches!(
+            &diagnostic.kind,
+            DiagnosticKind::UnknownRenameTarget { type_name } if type_name == "Nope"
+        )));
+    }
+
+    #[test]
+    fn archived_name_of_accessor() {
+        let mut generator = CodeGenerator::new();
+        generator.add_struct("Foo", [("x", codec::u32())]);
+        assert_eq!(generator.archived_name_of("Foo").as_deref(), Some("ArchivedFoo"));
+        generator.set_archived_name("Foo", "MyFoo");
+        assert_eq!(generator.archived_name_of("Foo").as_deref(), Some("MyFoo"));
+        assert_eq!(generator.archived_name_of("Bar"), None);
+    }
+
+    #[test]
+    fn js_mode_omits_type_lines() {
+        let mut generator = CodeGenerator::new();
+        generator.allow_typescript_syntax(false);
+        generator.add_struct("Point", [("x", codec::f64())]);
+        generator.add_alias("UserId", codec::u32());
+        let code = generator.generate().unwrap();
         assert!(code.contains("export const ArchivedPoint = r.struct({"));
-        assert!(code.contains("export type Point = r.Infer<typeof ArchivedPoint>;"));
-    }
-
-    // ── JavaScript-compatible output tests ─────────────────────────────
-
-    #[test]
-    fn test_js_mode_struct_omits_type() {
-        let mut codegen = CodeGenerator::new();
-        codegen.allow_typescript_syntax(false);
-        codegen.add_struct("Point", &[("x", TypeDef::f64()), ("y", TypeDef::f64())]);
-        let code = codegen.generate();
-        assert!(code.contains("export const ArchivedPoint = r.struct({"));
-        assert!(!code.contains("export type"));
-        assert!(!code.contains("r.Infer"));
-    }
-
-    #[test]
-    fn test_js_mode_enum_omits_type() {
-        let mut codegen = CodeGenerator::new();
-        codegen.allow_typescript_syntax(false);
-        codegen.add_enum(
-            "Status",
-            &[
-                EnumVariant::Unit("Pending".to_string()),
-                EnumVariant::Unit("Active".to_string()),
-            ],
-        );
-        let code = codegen.generate();
-        assert!(code.contains("export const ArchivedStatus = r.taggedEnum({"));
-        assert!(!code.contains("export type"));
-        assert!(!code.contains("r.Infer"));
-    }
-
-    #[test]
-    fn test_js_mode_union_omits_interface_and_type() {
-        let mut codegen = CodeGenerator::new();
-        codegen.allow_typescript_syntax(false);
-        codegen.add_union(
-            "NumberUnion",
-            &[
-                UnionVariant::new("asU32", TypeDef::u32()),
-                UnionVariant::new("asF32", TypeDef::f32()),
-            ],
-        );
-        let code = codegen.generate();
-        assert!(code.contains("export const ArchivedNumberUnion = r.union("));
-        assert!(!code.contains("export interface"));
-        assert!(!code.contains("export type"));
-        assert!(!code.contains("r.Infer"));
-    }
-
-    #[test]
-    fn test_js_mode_alias_omits_type() {
-        let mut codegen = CodeGenerator::new();
-        codegen.allow_typescript_syntax(false);
-        codegen.add_alias("UserId", TypeDef::u32());
-        let code = codegen.generate();
         assert!(code.contains("export const ArchivedUserId = r.u32;"));
         assert!(!code.contains("export type"));
+        assert!(!code.contains("r.Infer"));
     }
 
     #[test]
-    fn test_ts_mode_is_default() {
-        let mut codegen = CodeGenerator::new();
-        codegen.add_struct("Point", &[("x", TypeDef::f64())]);
-        let code = codegen.generate();
-        // Default should include TypeScript syntax
-        assert!(code.contains("export type Point = r.Infer<typeof ArchivedPoint>;"));
+    fn set_format_default_is_a_no_op() {
+        let mut generator = CodeGenerator::new();
+        generator.set_format("little", 32, true);
+        generator.add_struct("Point", [("x", codec::f64())]);
+        let code = generator.generate().unwrap();
+        assert!(!code.contains("FORMAT"));
+        assert!(!code.contains("withFormat"));
+    }
+
+    #[test]
+    fn set_format_nondefault_wraps_exports() {
+        let mut generator = CodeGenerator::new();
+        generator.set_format("big", 64, false);
+        generator.add_struct("Point", [("x", codec::f64())]);
+        generator.add_alias("UserId", codec::u32());
+        let code = generator.generate().unwrap();
+        assert!(code.contains(
+            "const FORMAT = r.format({ endian: 'big', pointerWidth: 64, aligned: false });"
+        ));
+        assert!(code.contains("export const ArchivedPoint = r.withFormat(r.struct({\n"));
+        assert!(code.contains("}), FORMAT);"));
+        assert!(code.contains("export const ArchivedUserId = r.withFormat(r.u32, FORMAT);"));
+    }
+
+    #[test]
+    fn set_format_emits_only_nondefault_keys() {
+        let mut generator = CodeGenerator::new();
+        generator.set_format("little", 16, true);
+        generator.add_struct("Point", [("x", codec::f64())]);
+        let code = generator.generate().unwrap();
+        assert!(code.contains("const FORMAT = r.format({ pointerWidth: 16 });"));
+    }
+
+    #[test]
+    fn custom_header_replaces_default() {
+        let mut generator = CodeGenerator::new();
+        generator.set_header("Custom header\nsecond line");
+        generator.add_struct("Point", [("x", codec::f64())]);
+        let code = generator.generate().unwrap();
+        assert!(code.starts_with("/**\n * Custom header\n * second line\n */\n"));
+        assert!(!code.contains("Auto-generated by rkyv-js-codegen"));
     }
 }

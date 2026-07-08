@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  js:
+    name: Typecheck & test (JS)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: yarn
+      - run: yarn install --immutable
+      - run: yarn check
+      - run: yarn test
+
+  rust:
+    name: Test & lint (Rust)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace
+      - run: cargo clippy --workspace -- -D warnings
+      # Gate crates.io packaging validity (actual publish is manual).
+      - run: cargo publish -p rkyv-js-codegen --dry-run
+
+  conformance:
+    name: JS↔Rust conformance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: yarn
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            conformance/formats/be
+            conformance/formats/pw16
+            conformance/formats/pw64
+            conformance/formats/unaligned
+      - run: yarn install --immutable
+      # Goldens are committed; regenerating must be a no-op, so any
+      # wire-format change surfaces as a reviewable diff.
+      - run: yarn conformance:gen
+      - run: git diff --exit-code conformance
+      # JS side decodes goldens and writes js.bin for the Rust verifier.
+      - run: yarn test
+      - run: yarn conformance:verify

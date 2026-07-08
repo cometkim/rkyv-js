@@ -1,0 +1,7 @@
+{
+  "case": "vecs",
+  "class": "identical",
+  "codec": "ArchivedVecs",
+  "ordered": false,
+  "type": "Vecs"
+}

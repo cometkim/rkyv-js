@@ -1,0 +1,7 @@
+{
+  "case": "strings",
+  "class": "identical",
+  "codec": "ArchivedStrings",
+  "ordered": false,
+  "type": "Strings"
+}

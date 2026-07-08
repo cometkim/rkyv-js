@@ -1,320 +1,523 @@
-//! Type registry for mapping Rust type paths to TypeScript codec definitions.
+//! Registries mapping Rust paths to codec templates.
 //!
-//! The registry provides a data-driven way to teach the code generator how to
-//! handle external crate types. Built-in mappings for rkyv's supported crates
-//! are registered automatically, and users can add custom mappings.
+//! Two registries drive source extraction:
+//!
+//! - [`ExternalType`] maps a fully-qualified Rust *type* path (e.g.
+//!   `uuid::Uuid`, `std::collections::HashMap`) to a [`CodecExpr`] template.
+//! - [`WithWrapper`] maps a `#[rkyv(with = ...)]` *wrapper* path (e.g.
+//!   `rkyv::with::AsBox`) to a transformation of the underlying field codec.
+//!
+//! Both are keyed by fully-qualified path strings. Unknown-path lookups
+//! produce a did-you-mean suggestion when a registered key shares the last
+//! path segment.
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
-use crate::types::TypeDef;
+use crate::error::DiagnosticKind;
+use crate::expr::{CodecExpr, codec};
 
-/// A registry of fully-qualified Rust type path -> `TypeDef` template associations.
+/// A codec template for an external Rust type.
 ///
-/// The `TypeRegistry` is the central place where the code generator learns how
-/// to handle external types. It ships with built-in mappings for all types
-/// supported by rkyv's feature flags.
-///
-/// Each entry is a `TypeDef` template — the number of type parameters is inferred
-/// from the placeholder count in the template (e.g., `{0}`, `{1}`), and
-/// `resolve()` is called to produce a concrete `TypeDef` with `type_params` filled in.
-///
-/// # Built-in mappings
-///
-/// The following types are registered by default (via [`TypeRegistry::with_builtins`]):
-///
-/// | Rust type | Codec expression | Import |
-/// |-----------|-----------------|--------|
-/// | `uuid::Uuid` | `uuid` | `rkyv-js/lib/uuid` |
-/// | `bytes::Bytes` | `bytes` | `rkyv-js/lib/bytes` |
-/// | `smol_str::SmolStr` | `r.string` | none |
-/// | `std::collections::VecDeque<T>` | `r.vec({0})` | none |
-/// | `thin_vec::ThinVec<T>` | `r.vec({0})` | none |
-/// | `arrayvec::ArrayVec<T, N>` | `r.vec({0})` | none |
-/// | `smallvec::SmallVec<[T; N]>` | `r.vec({0})` | none |
-/// | `tinyvec::TinyVec<[T; N]>` | `r.vec({0})` | none |
-/// | `std::collections::BTreeMap<K, V>` | `btreeMap({0}, {1})` | `rkyv-js/lib/btreemap` |
-/// | `std::collections::BTreeSet<T>` | `btreeSet({0})` | `rkyv-js/lib/btreemap` |
-/// | `std::collections::HashMap<K, V>` | `hashMap({0}, {1})` | `rkyv-js/lib/hashmap` |
-/// | `std::collections::HashSet<T>` | `hashSet({0})` | `rkyv-js/lib/hashmap` |
-/// | `hashbrown::HashMap<K, V>` | `hashMap({0}, {1})` | `rkyv-js/lib/hashmap` |
-/// | `hashbrown::HashSet<T>` | `hashSet({0})` | `rkyv-js/lib/hashmap` |
-/// | `indexmap::IndexMap<K, V>` | `indexMap({0}, {1})` | `rkyv-js/lib/indexmap` |
-/// | `indexmap::IndexSet<T>` | `indexSet({0})` | `rkyv-js/lib/indexmap` |
-/// | `std::rc::Rc<T>` / `std::sync::Arc<T>` / `triomphe::Arc<T>` | `r.rc({0})` | none |
-/// | `std::rc::Weak<T>` / `std::sync::Weak<T>` | `r.weak({0})` | none |
-///
-/// # Custom mappings
-///
-/// ```
-/// # fn main() {
-/// use rkyv_js_codegen::{CodeGenerator, TypeDef};
-///
-/// let mut generator = CodeGenerator::new();
-/// generator.register_type("my_crate::MyCustomVec",
-///     TypeDef::new("myVec({0})", "{0}[]")
-///         .with_import("my-package/codecs", "myVec"),
-/// );
-/// # }
-/// ```
+/// Templates are built once at registration time; type arguments are filled
+/// in per use site via [`CodecExpr::Param`] placeholders.
 #[derive(Debug, Clone)]
-pub struct TypeRegistry {
-    mappings: HashMap<String, TypeDef>,
+pub struct ExternalType {
+    arity: usize,
+    allow_trailing: bool,
+    template: CodecExpr,
 }
 
-impl TypeRegistry {
-    /// Create an empty registry with no mappings.
-    pub fn new() -> Self {
+impl ExternalType {
+    /// A type with no type parameters (e.g. `uuid::Uuid`).
+    pub fn leaf(expr: CodecExpr) -> Self {
         Self {
-            mappings: HashMap::new(),
+            arity: 0,
+            allow_trailing: false,
+            template: expr,
         }
     }
 
-    /// Create a registry pre-populated with all built-in rkyv type mappings.
-    pub fn with_builtins() -> Self {
-        let mut registry = Self::new();
-        registry.register_builtins();
-        registry
+    /// A type with one type parameter. The closure runs **once** with
+    /// `Param(0)` to build the template.
+    pub fn generic1(build: impl FnOnce(CodecExpr) -> CodecExpr) -> Self {
+        Self::generic(1, |params| build(params[0].clone()))
     }
 
-    /// Register all built-in rkyv type mappings.
-    pub fn register_builtins(&mut self) {
-        // uuid::Uuid
-        self.register(
-            "uuid::Uuid",
-            TypeDef::new("uuid", "string").with_import("rkyv-js/lib/uuid", "uuid"),
-        );
-
-        // bytes::Bytes
-        self.register(
-            "bytes::Bytes",
-            TypeDef::new("bytes", "Uint8Array").with_import("rkyv-js/lib/bytes", "bytes"),
-        );
-
-        // smol_str::SmolStr -> same as r.string
-        self.register("smol_str::SmolStr", TypeDef::new("r.string", "string"));
-
-        // std::collections::VecDeque<T> -> same as r.vec(T)
-        self.register(
-            "std::collections::VecDeque",
-            TypeDef::new("r.vec({0})", "{0}[]"),
-        );
-
-        // thin_vec::ThinVec<T> -> same as r.vec(T)
-        self.register("thin_vec::ThinVec", TypeDef::new("r.vec({0})", "{0}[]"));
-
-        // arrayvec::ArrayVec<T, CAP> -> same as r.vec(T)
-        self.register("arrayvec::ArrayVec", TypeDef::new("r.vec({0})", "{0}[]"));
-
-        // smallvec::SmallVec<[T; N]> -> same as r.vec(T)
-        self.register("smallvec::SmallVec", TypeDef::new("r.vec({0})", "{0}[]"));
-
-        // tinyvec::TinyVec<[T; N]> -> same as r.vec(T)
-        self.register("tinyvec::TinyVec", TypeDef::new("r.vec({0})", "{0}[]"));
-
-        // std::collections::BTreeMap<K, V>
-        self.register(
-            "std::collections::BTreeMap",
-            TypeDef::new("btreeMap({0}, {1})", "Map<{0}, {1}>")
-                .with_import("rkyv-js/lib/btreemap", "btreeMap"),
-        );
-
-        // std::collections::BTreeSet<T>
-        self.register(
-            "std::collections::BTreeSet",
-            TypeDef::new("btreeSet({0})", "Set<{0}>")
-                .with_import("rkyv-js/lib/btreemap", "btreeSet"),
-        );
-
-        // std::collections::HashMap<K, V>
-        self.register(
-            "std::collections::HashMap",
-            TypeDef::new("hashMap({0}, {1})", "Map<{0}, {1}>")
-                .with_import("rkyv-js/lib/hashmap", "hashMap"),
-        );
-
-        // std::collections::HashSet<T>
-        self.register(
-            "std::collections::HashSet",
-            TypeDef::new("hashSet({0})", "Set<{0}>")
-                .with_import("rkyv-js/lib/hashmap", "hashSet"),
-        );
-
-        // hashbrown::HashMap<K, V> -> same as std HashMap
-        self.register(
-            "hashbrown::HashMap",
-            TypeDef::new("hashMap({0}, {1})", "Map<{0}, {1}>")
-                .with_import("rkyv-js/lib/hashmap", "hashMap"),
-        );
-
-        // hashbrown::HashSet<T> -> same as std HashSet
-        self.register(
-            "hashbrown::HashSet",
-            TypeDef::new("hashSet({0})", "Set<{0}>")
-                .with_import("rkyv-js/lib/hashmap", "hashSet"),
-        );
-
-        // indexmap::IndexMap<K, V>
-        self.register(
-            "indexmap::IndexMap",
-            TypeDef::new("indexMap({0}, {1})", "Map<{0}, {1}>")
-                .with_import("rkyv-js/lib/indexmap", "indexMap"),
-        );
-
-        // indexmap::IndexSet<T>
-        self.register(
-            "indexmap::IndexSet",
-            TypeDef::new("indexSet({0})", "Set<{0}>")
-                .with_import("rkyv-js/lib/indexmap", "indexSet"),
-        );
-
-        // triomphe::Arc<T>
-        self.register("triomphe::Arc", TypeDef::new("r.rc({0})", "{0}"));
-
-        // std::sync::Arc<T>
-        self.register("std::sync::Arc", TypeDef::new("r.rc({0})", "{0}"));
-
-        // std::rc::Rc<T>
-        self.register("std::rc::Rc", TypeDef::new("r.rc({0})", "{0}"));
-
-        // std::rc::Weak<T>
-        self.register("std::rc::Weak", TypeDef::new("r.weak({0})", "{0} | null"));
-
-        // std::sync::Weak<T>
-        self.register(
-            "std::sync::Weak",
-            TypeDef::new("r.weak({0})", "{0} | null"),
-        );
+    /// A type with two type parameters. The closure runs **once** with
+    /// `Param(0)` and `Param(1)`.
+    pub fn generic2(build: impl FnOnce(CodecExpr, CodecExpr) -> CodecExpr) -> Self {
+        Self::generic(2, |params| build(params[0].clone(), params[1].clone()))
     }
 
-    /// Register a type for a fully-qualified Rust type path.
+    /// A type with `arity` type parameters. The closure runs **once** with
+    /// `[Param(0), ..., Param(arity - 1)]`.
     ///
-    /// The name should be the full module path of the type
-    /// (e.g., `"uuid::Uuid"`, `"std::collections::HashMap"`).
-    /// If a mapping already exists for this path, it is replaced.
-    pub fn register(&mut self, name: impl Into<String>, typedef: TypeDef) {
-        self.mappings.insert(name.into(), typedef);
+    /// # Panics
+    ///
+    /// Panics if the produced template references a `Param` index `>= arity`.
+    pub fn generic(arity: usize, build: impl FnOnce(&[CodecExpr]) -> CodecExpr) -> Self {
+        let params: Vec<CodecExpr> = (0..arity).map(CodecExpr::Param).collect();
+        let template = build(&params);
+        if let Some(max) = template.max_param()
+            && max >= arity
+        {
+            panic!(
+                "ExternalType::generic template references Param({max}), but the declared \
+                 arity is {arity}"
+            );
+        }
+        Self {
+            arity,
+            allow_trailing: false,
+            template,
+        }
     }
 
-    /// Look up the type definition template for a fully-qualified Rust type path.
-    pub fn get(&self, name: &str) -> Option<&TypeDef> {
-        self.mappings.get(name)
+    /// Accept (and ignore) extra trailing type arguments beyond the declared
+    /// arity — e.g. the hasher parameter of `HashMap<K, V, S>`.
+    pub fn allow_trailing_args(mut self) -> Self {
+        self.allow_trailing = true;
+        self
     }
 
-    /// Check if a type path is registered.
-    pub fn contains(&self, name: &str) -> bool {
-        self.mappings.contains_key(name)
+    /// The number of type parameters the template consumes.
+    pub(crate) fn arity(&self) -> usize {
+        self.arity
     }
 
-    /// Remove a type mapping.
-    pub fn unregister(&mut self, name: &str) -> Option<TypeDef> {
-        self.mappings.remove(name)
+    /// Whether extra trailing type arguments are tolerated.
+    pub(crate) fn allows_trailing(&self) -> bool {
+        self.allow_trailing
+    }
+
+    /// Fill in the template with concrete type arguments.
+    ///
+    /// The argument count must match the declared arity exactly, unless
+    /// [`allow_trailing_args`](ExternalType::allow_trailing_args) was set, in
+    /// which case extra trailing arguments are ignored.
+    ///
+    /// The `rust_path` of a returned [`DiagnosticKind::GenericArity`] is left
+    /// empty; the caller fills it in with the use-site path.
+    pub(crate) fn instantiate(&self, args: Vec<CodecExpr>) -> Result<CodecExpr, DiagnosticKind> {
+        let acceptable = args.len() == self.arity || (self.allow_trailing && args.len() > self.arity);
+        if !acceptable {
+            return Err(DiagnosticKind::GenericArity {
+                rust_path: String::new(),
+                expected: self.arity,
+                found: args.len(),
+            });
+        }
+        Ok(self.template.substitute(&args[..self.arity]))
     }
 }
 
-impl Default for TypeRegistry {
-    fn default() -> Self {
-        Self::with_builtins()
+/// The behavior of a with-wrapper.
+#[derive(Debug, Clone)]
+enum WithWrapperKind {
+    /// Emit a fixed expression, ignoring the underlying field type.
+    Replace(CodecExpr),
+    /// Transform the underlying field codec (template with `Param(0)`).
+    Map(CodecExpr),
+    /// Use the underlying field codec unchanged.
+    Identity,
+    /// Omit the field from the generated bindings entirely.
+    Skip,
+}
+
+/// A handler for a `#[rkyv(with = W)]` field wrapper.
+#[derive(Debug, Clone)]
+pub struct WithWrapper {
+    kind: WithWrapperKind,
+}
+
+impl WithWrapper {
+    /// Emit `expr` for the field, ignoring the underlying Rust type
+    /// (e.g. an `AsJson` wrapper backed by a custom codec).
+    pub fn replace(expr: CodecExpr) -> Self {
+        Self {
+            kind: WithWrapperKind::Replace(expr),
+        }
+    }
+
+    /// Transform the underlying field codec. The closure runs **once** with
+    /// `Param(0)` standing in for the underlying codec expression.
+    pub fn map(build: impl FnOnce(CodecExpr) -> CodecExpr) -> Self {
+        Self {
+            kind: WithWrapperKind::Map(build(CodecExpr::Param(0))),
+        }
+    }
+
+    /// Use the underlying field codec unchanged (e.g. `rkyv::with::Inline`).
+    pub fn identity() -> Self {
+        Self {
+            kind: WithWrapperKind::Identity,
+        }
+    }
+
+    /// Omit the field entirely (`rkyv::with::Skip`).
+    pub fn skip() -> Self {
+        Self {
+            kind: WithWrapperKind::Skip,
+        }
+    }
+
+    /// Whether this wrapper needs the underlying field type resolved.
+    pub(crate) fn needs_underlying(&self) -> bool {
+        matches!(
+            self.kind,
+            WithWrapperKind::Map(_) | WithWrapperKind::Identity
+        )
+    }
+
+    /// Apply the wrapper. `underlying` is only consulted for
+    /// [`map`](WithWrapper::map) and [`identity`](WithWrapper::identity)
+    /// wrappers; `None` is returned for [`skip`](WithWrapper::skip).
+    pub(crate) fn apply(&self, underlying: Option<CodecExpr>) -> Option<CodecExpr> {
+        match &self.kind {
+            WithWrapperKind::Replace(expr) => Some(expr.clone()),
+            WithWrapperKind::Map(template) => {
+                let underlying = underlying.expect("map wrapper requires the underlying codec");
+                Some(template.substitute(&[underlying]))
+            }
+            WithWrapperKind::Identity => {
+                Some(underlying.expect("identity wrapper requires the underlying codec"))
+            }
+            WithWrapperKind::Skip => None,
+        }
+    }
+}
+
+/// The registries backing a [`CodeGenerator`](crate::CodeGenerator).
+#[derive(Debug, Clone)]
+pub(crate) struct Registry {
+    types: BTreeMap<String, ExternalType>,
+    wrappers: BTreeMap<String, WithWrapper>,
+}
+
+impl Registry {
+    /// An empty registry.
+    pub(crate) fn empty() -> Self {
+        Self {
+            types: BTreeMap::new(),
+            wrappers: BTreeMap::new(),
+        }
+    }
+
+    /// A registry pre-populated with the built-in rkyv mappings.
+    pub(crate) fn with_builtins() -> Self {
+        let mut registry = Self::empty();
+
+        registry.register_type(
+            "uuid::Uuid",
+            ExternalType::leaf(CodecExpr::import_from("rkyv-js/lib/uuid", "uuid")),
+        );
+        registry.register_type(
+            "bytes::Bytes",
+            ExternalType::leaf(CodecExpr::import_from("rkyv-js/lib/bytes", "bytes")),
+        );
+        registry.register_type("smol_str::SmolStr", ExternalType::leaf(codec::string()));
+
+        // Vec-shaped containers.
+        registry.register_type(
+            "std::collections::VecDeque",
+            ExternalType::generic1(codec::vec),
+        );
+        registry.register_type("thin_vec::ThinVec", ExternalType::generic1(codec::vec));
+        // `ArrayVec<T, N>`: the const-generic capacity is skipped during
+        // argument collection, but tolerate it anyway.
+        registry.register_type(
+            "arrayvec::ArrayVec",
+            ExternalType::generic1(codec::vec).allow_trailing_args(),
+        );
+        // `SmallVec<[T; N]>` / `TinyVec<[T; N]>`: the array argument is
+        // unwrapped to `T` during argument collection.
+        registry.register_type("smallvec::SmallVec", ExternalType::generic1(codec::vec));
+        registry.register_type("tinyvec::TinyVec", ExternalType::generic1(codec::vec));
+
+        // BTree collections.
+        registry.register_type(
+            "std::collections::BTreeMap",
+            ExternalType::generic2(|k, v| {
+                CodecExpr::call(CodecExpr::import_from("rkyv-js/lib/btreemap", "btreeMap"), [k, v])
+            }),
+        );
+        registry.register_type(
+            "std::collections::BTreeSet",
+            ExternalType::generic1(|t| {
+                CodecExpr::call(CodecExpr::import_from("rkyv-js/lib/btreemap", "btreeSet"), [t])
+            }),
+        );
+
+        // Hash collections (trailing hasher parameter allowed).
+        for path in ["std::collections::HashMap", "hashbrown::HashMap"] {
+            registry.register_type(
+                path,
+                ExternalType::generic2(|k, v| {
+                    CodecExpr::call(CodecExpr::import_from("rkyv-js/lib/hashmap", "hashMap"), [k, v])
+                })
+                .allow_trailing_args(),
+            );
+        }
+        for path in ["std::collections::HashSet", "hashbrown::HashSet"] {
+            registry.register_type(
+                path,
+                ExternalType::generic1(|t| {
+                    CodecExpr::call(CodecExpr::import_from("rkyv-js/lib/hashmap", "hashSet"), [t])
+                })
+                .allow_trailing_args(),
+            );
+        }
+
+        // Index collections (trailing hasher parameter allowed).
+        registry.register_type(
+            "indexmap::IndexMap",
+            ExternalType::generic2(|k, v| {
+                CodecExpr::call(CodecExpr::import_from("rkyv-js/lib/indexmap", "indexMap"), [k, v])
+            })
+            .allow_trailing_args(),
+        );
+        registry.register_type(
+            "indexmap::IndexSet",
+            ExternalType::generic1(|t| {
+                CodecExpr::call(CodecExpr::import_from("rkyv-js/lib/indexmap", "indexSet"), [t])
+            })
+            .allow_trailing_args(),
+        );
+
+        // Shared pointers.
+        for path in ["std::rc::Rc", "std::sync::Arc", "triomphe::Arc"] {
+            registry.register_type(path, ExternalType::generic1(codec::rc));
+        }
+        for path in ["std::rc::Weak", "std::sync::Weak"] {
+            registry.register_type(path, ExternalType::generic1(codec::weak));
+        }
+
+        // Built-in with-wrappers.
+        registry.register_wrapper("rkyv::with::AsBox", WithWrapper::map(codec::boxed));
+        registry.register_wrapper("rkyv::with::Inline", WithWrapper::identity());
+        registry.register_wrapper("rkyv::with::InlineAsBox", WithWrapper::map(codec::boxed));
+        registry.register_wrapper("rkyv::with::Skip", WithWrapper::skip());
+
+        registry
+    }
+
+    pub(crate) fn register_type(&mut self, path: impl Into<String>, external: ExternalType) {
+        self.types.insert(path.into(), external);
+    }
+
+    pub(crate) fn unregister_type(&mut self, path: &str) {
+        self.types.remove(path);
+    }
+
+    pub(crate) fn get_type(&self, path: &str) -> Option<&ExternalType> {
+        self.types.get(path)
+    }
+
+    pub(crate) fn register_wrapper(&mut self, path: impl Into<String>, wrapper: WithWrapper) {
+        self.wrappers.insert(path.into(), wrapper);
+    }
+
+    pub(crate) fn get_wrapper(&self, path: &str) -> Option<&WithWrapper> {
+        self.wrappers.get(path)
+    }
+
+    /// A registered type path sharing the last segment with `path`, if any.
+    pub(crate) fn suggest_type(&self, path: &str) -> Option<String> {
+        let last = path.rsplit("::").next()?;
+        self.types
+            .keys()
+            .find(|key| key.rsplit("::").next() == Some(last))
+            .cloned()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeMap as Map;
 
-    #[test]
-    fn test_registry_with_builtins() {
-        let registry = TypeRegistry::with_builtins();
-        assert!(registry.contains("uuid::Uuid"));
-        assert!(registry.contains("bytes::Bytes"));
-        assert!(registry.contains("smol_str::SmolStr"));
-        assert!(registry.contains("std::collections::VecDeque"));
-        assert!(registry.contains("std::collections::HashMap"));
-        assert!(registry.contains("triomphe::Arc"));
-        assert!(registry.contains("std::sync::Arc"));
-        assert!(!registry.contains("NonExistent"));
+    fn render(expr: &CodecExpr) -> String {
+        expr.render(&Map::new()).unwrap()
     }
 
     #[test]
-    fn test_registry_custom_type() {
-        let mut registry = TypeRegistry::new();
-        registry.register(
-            "my_crate::MyType",
-            TypeDef::new("myCodec({0})", "MyType<{0}>").with_import("my-pkg/codecs", "myCodec"),
-        );
-
-        let template = registry.get("my_crate::MyType").unwrap();
-        let td = template.resolve(vec![TypeDef::string()]);
-        assert_eq!(td.to_codec_expr(), "myCodec(r.string)");
-        assert_eq!(td.to_ts_type(), "MyType<string>");
+    fn leaf_instantiates_with_no_args() {
+        let uuid = ExternalType::leaf(CodecExpr::import_from("rkyv-js/lib/uuid", "uuid"));
+        let expr = uuid.instantiate(vec![]).unwrap();
+        assert_eq!(render(&expr), "uuid");
     }
 
     #[test]
-    fn test_registry_override_builtin() {
-        let mut registry = TypeRegistry::with_builtins();
-        registry.register(
+    fn generic1_builds_once_with_param0() {
+        let vec_like = ExternalType::generic1(codec::vec);
+        let expr = vec_like.instantiate(vec![codec::u32()]).unwrap();
+        assert_eq!(render(&expr), "r.vec(r.u32)");
+    }
+
+    #[test]
+    fn generic2_instantiates_in_order() {
+        let map_like = ExternalType::generic2(|k, v| {
+            CodecExpr::call(CodecExpr::import_from("m", "pair"), [k, v])
+        });
+        let expr = map_like
+            .instantiate(vec![codec::string(), codec::u32()])
+            .unwrap();
+        assert_eq!(render(&expr), "pair(r.string, r.u32)");
+    }
+
+    #[test]
+    fn too_few_args_is_an_arity_error() {
+        let map_like = ExternalType::generic2(|k, v| {
+            CodecExpr::call(CodecExpr::runtime("pair"), [k, v])
+        });
+        let err = map_like.instantiate(vec![codec::string()]).unwrap_err();
+        assert!(matches!(
+            err,
+            DiagnosticKind::GenericArity {
+                expected: 2,
+                found: 1,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn too_many_args_is_an_arity_error_without_trailing() {
+        let set_like = ExternalType::generic1(codec::vec);
+        let err = set_like
+            .instantiate(vec![codec::u8(), codec::u16()])
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            DiagnosticKind::GenericArity {
+                expected: 1,
+                found: 2,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn trailing_args_are_ignored_when_allowed() {
+        let map_like = ExternalType::generic2(|k, v| {
+            CodecExpr::call(CodecExpr::import_from("m", "hashMap"), [k, v])
+        })
+        .allow_trailing_args();
+        let expr = map_like
+            .instantiate(vec![codec::string(), codec::u32(), codec::u8()])
+            .unwrap();
+        assert_eq!(render(&expr), "hashMap(r.string, r.u32)");
+        // Too few args still fail even with trailing allowed.
+        assert!(map_like.instantiate(vec![codec::string()]).is_err());
+    }
+
+    #[test]
+    #[should_panic(expected = "references Param(1)")]
+    fn generic_panics_on_out_of_range_param() {
+        let _ = ExternalType::generic(1, |_| {
+            CodecExpr::call(CodecExpr::runtime("x"), [CodecExpr::Param(1)])
+        });
+    }
+
+    #[test]
+    fn wrapper_replace_ignores_underlying() {
+        let wrapper = WithWrapper::replace(CodecExpr::import_from("./coord.ts", "Coord"));
+        assert!(!wrapper.needs_underlying());
+        let expr = wrapper.apply(None).unwrap();
+        assert_eq!(render(&expr), "Coord");
+    }
+
+    #[test]
+    fn wrapper_map_transforms_underlying() {
+        let wrapper = WithWrapper::map(codec::boxed);
+        assert!(wrapper.needs_underlying());
+        let expr = wrapper.apply(Some(codec::string())).unwrap();
+        assert_eq!(render(&expr), "r.box(r.string)");
+    }
+
+    #[test]
+    fn wrapper_identity_passes_through() {
+        let wrapper = WithWrapper::identity();
+        let expr = wrapper.apply(Some(codec::u32())).unwrap();
+        assert_eq!(render(&expr), "r.u32");
+    }
+
+    #[test]
+    fn wrapper_skip_omits() {
+        let wrapper = WithWrapper::skip();
+        assert!(!wrapper.needs_underlying());
+        assert!(wrapper.apply(None).is_none());
+    }
+
+    #[test]
+    fn builtins_are_registered() {
+        let registry = Registry::with_builtins();
+        for path in [
             "uuid::Uuid",
-            TypeDef::new("customUuid", "CustomUuid").with_import("my-pkg/uuid", "customUuid"),
+            "bytes::Bytes",
+            "smol_str::SmolStr",
+            "std::collections::VecDeque",
+            "thin_vec::ThinVec",
+            "arrayvec::ArrayVec",
+            "smallvec::SmallVec",
+            "tinyvec::TinyVec",
+            "std::collections::BTreeMap",
+            "std::collections::BTreeSet",
+            "std::collections::HashMap",
+            "std::collections::HashSet",
+            "hashbrown::HashMap",
+            "hashbrown::HashSet",
+            "indexmap::IndexMap",
+            "indexmap::IndexSet",
+            "std::rc::Rc",
+            "std::sync::Arc",
+            "triomphe::Arc",
+            "std::rc::Weak",
+            "std::sync::Weak",
+        ] {
+            assert!(registry.get_type(path).is_some(), "missing builtin {path}");
+        }
+        for path in [
+            "rkyv::with::AsBox",
+            "rkyv::with::Inline",
+            "rkyv::with::InlineAsBox",
+            "rkyv::with::Skip",
+        ] {
+            assert!(registry.get_wrapper(path).is_some(), "missing wrapper {path}");
+        }
+    }
+
+    #[test]
+    fn hashmap_accepts_trailing_hasher() {
+        let registry = Registry::with_builtins();
+        let map = registry.get_type("std::collections::HashMap").unwrap();
+        let expr = map
+            .instantiate(vec![codec::string(), codec::u32(), CodecExpr::raw("S")])
+            .unwrap();
+        assert_eq!(render(&expr), "hashMap(r.string, r.u32)");
+    }
+
+    #[test]
+    fn btreemap_rejects_trailing_args() {
+        let registry = Registry::with_builtins();
+        let map = registry.get_type("std::collections::BTreeMap").unwrap();
+        let err = map
+            .instantiate(vec![codec::string(), codec::u32(), CodecExpr::raw("S")])
+            .unwrap_err();
+        assert!(matches!(err, DiagnosticKind::GenericArity { .. }));
+    }
+
+    #[test]
+    fn suggestion_matches_last_segment() {
+        let registry = Registry::with_builtins();
+        assert_eq!(
+            registry.suggest_type("collections::HashMap"),
+            Some("hashbrown::HashMap".to_string()),
         );
-
-        let template = registry.get("uuid::Uuid").unwrap();
-        let td = template.resolve(vec![]);
-        assert_eq!(td.to_codec_expr(), "customUuid");
-    }
-
-    #[test]
-    fn test_registry_unregister() {
-        let mut registry = TypeRegistry::with_builtins();
-        assert!(registry.contains("uuid::Uuid"));
-        registry.unregister("uuid::Uuid");
-        assert!(!registry.contains("uuid::Uuid"));
-    }
-
-    #[test]
-    fn test_builtin_uuid() {
-        let registry = TypeRegistry::with_builtins();
-        let td = registry.get("uuid::Uuid").unwrap().resolve(vec![]);
-        assert_eq!(td.to_codec_expr(), "uuid");
-        assert_eq!(td.to_ts_type(), "string");
-    }
-
-    #[test]
-    fn test_builtin_hashmap() {
-        let registry = TypeRegistry::with_builtins();
-        let td = registry
-            .get("std::collections::HashMap")
-            .unwrap()
-            .resolve(vec![TypeDef::string(), TypeDef::u32()]);
-        assert_eq!(td.to_codec_expr(), "hashMap(r.string, r.u32)");
-        assert_eq!(td.to_ts_type(), "Map<string, number>");
-    }
-
-    #[test]
-    fn test_builtin_hashbrown_hashmap() {
-        let registry = TypeRegistry::with_builtins();
-        let td = registry
-            .get("hashbrown::HashMap")
-            .unwrap()
-            .resolve(vec![TypeDef::string(), TypeDef::u32()]);
-        assert_eq!(td.to_codec_expr(), "hashMap(r.string, r.u32)");
-        assert_eq!(td.to_ts_type(), "Map<string, number>");
-    }
-
-    #[test]
-    fn test_builtin_hashbrown_hashset() {
-        let registry = TypeRegistry::with_builtins();
-        let td = registry
-            .get("hashbrown::HashSet")
-            .unwrap()
-            .resolve(vec![TypeDef::string()]);
-        assert_eq!(td.to_codec_expr(), "hashSet(r.string)");
-        assert_eq!(td.to_ts_type(), "Set<string>");
-    }
-
-    #[test]
-    fn test_builtin_smolstr() {
-        let registry = TypeRegistry::with_builtins();
-        let td = registry.get("smol_str::SmolStr").unwrap().resolve(vec![]);
-        assert_eq!(td.to_codec_expr(), "r.string");
-        assert_eq!(td.to_ts_type(), "string");
+        assert_eq!(
+            registry.suggest_type("other::Uuid"),
+            Some("uuid::Uuid".to_string()),
+        );
+        assert_eq!(registry.suggest_type("chrono::NaiveDate"), None);
     }
 }

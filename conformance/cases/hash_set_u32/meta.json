@@ -1,0 +1,7 @@
+{
+  "case": "hash_set_u32",
+  "class": "semantic",
+  "codec": "ArchivedHashSetU32",
+  "ordered": false,
+  "type": "HashSetU32"
+}

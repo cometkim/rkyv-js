@@ -19,34 +19,37 @@ const testPersonLarge: Person = {
   active: true,
 };
 
-const rkyvPersonLargeBytes = r.encode(ArchivedPerson, testPersonLarge);
+const rkyvPersonLargeBytes = ArchivedPerson.encode(testPersonLarge);
 
 summary(() => {
   group('rkyv-js: access vs decode (Person large)', () => {
     bench('decode (eager, full object)', () => {
-      void r.decode(ArchivedPerson, rkyvPersonLargeBytes);
+      void ArchivedPerson.decode(rkyvPersonLargeBytes);
     }).baseline();
 
     bench('access (lazy)', () => {
-      void r.access(ArchivedPerson, rkyvPersonLargeBytes);
+      void ArchivedPerson.access(rkyvPersonLargeBytes);
     });
 
     bench('access + read 1 field', () => {
-      const p = r.access(ArchivedPerson, rkyvPersonLargeBytes);
+      const p = ArchivedPerson.access(rkyvPersonLargeBytes);
       void p.name;
     });
 
     bench('access + read all fields', () => {
-      const p = r.access(ArchivedPerson, rkyvPersonLargeBytes);
+      const p = ArchivedPerson.access(rkyvPersonLargeBytes);
       void p.name;
       void p.age;
       void p.email;
       void p.active;
       for (let i = 0; i < p.scores.length; i++) {
-        void p.scores[i];
+        void p.scores.at(i);
       }
     });
   });
 });
 
-await run();
+await run({
+  ...(process.env.NO_COLOR ? { colors: false } : {}),
+  ...(process.env.MITATA_FORMAT ? { format: process.env.MITATA_FORMAT as 'json' } : {}),
+});

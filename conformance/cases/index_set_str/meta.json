@@ -1,0 +1,7 @@
+{
+  "case": "index_set_str",
+  "class": "identical",
+  "codec": "ArchivedIndexSetStr",
+  "ordered": true,
+  "type": "IndexSetStr"
+}

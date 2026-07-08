@@ -1,0 +1,7 @@
+{
+  "case": "sip_hashed_map",
+  "class": "semantic",
+  "codec": "ArchivedSipHashedMap",
+  "ordered": false,
+  "type": "SipHashedMap"
+}

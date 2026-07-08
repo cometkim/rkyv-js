@@ -1,8 +1,9 @@
-use rkyv_js_codegen::CodeGenerator;
 use std::env;
 use std::path::PathBuf;
 
-fn main() {
+use rkyv_js_codegen::{CodeGenerator, CodecExpr, Error, WithWrapper};
+
+fn main() -> Result<(), Error> {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
 
@@ -13,23 +14,22 @@ fn main() {
          These types match the Rust structs in src/lib.rs",
     );
 
-    // Automatically extract all types annotated with #[derive(TypeScript)]
-    codegen
-        .add_source_file(manifest_dir.join("src/lib.rs"))
-        .expect("Failed to parse source file");
+    // `#[rkyv(with = AsJson)]` fields are backed by the hand-written JSON
+    // string codec next to the generated bindings (generated/coord.ts).
+    codegen.register_with(
+        "AsJson",
+        WithWrapper::replace(CodecExpr::import_from("./coord.ts", "Coord")),
+    );
 
-    // Write to OUT_DIR (standard cargo location)
-    codegen
-        .write_to_file(out_dir.join("bindings.ts"))
-        .expect("Failed to write bindings");
+    // Extract every type annotated with #[derive(Archive)].
+    codegen.add_source_file(manifest_dir.join("src/lib.rs"))?;
 
-    // Also write to a more accessible location during development
-    let dev_bindings = manifest_dir.join("generated/bindings.ts");
-    if let Some(parent) = dev_bindings.parent() {
-        std::fs::create_dir_all(parent).ok();
-    }
-    codegen.write_to_file(&dev_bindings).ok();
+    // Write to OUT_DIR (standard cargo location) and to the in-tree copy
+    // consumed by the TypeScript workspace.
+    codegen.write_to_file(out_dir.join("bindings.ts"))?;
+    codegen.write_to_file(manifest_dir.join("generated/bindings.ts"))?;
 
     println!("cargo:rerun-if-changed=src/lib.rs");
     println!("cargo:rerun-if-changed=build.rs");
+    Ok(())
 }

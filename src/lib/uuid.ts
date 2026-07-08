@@ -5,9 +5,15 @@
  * @see https://docs.rs/uuid/1
  */
 
-import type { RkyvCodec } from 'rkyv-js/codec';
-import type { RkyvReader } from 'rkyv-js/reader';
-import type { RkyvWriter } from 'rkyv-js/writer';
+import {
+  Codec,
+  type Layout,
+  type RkyvFormat,
+  type RkyvHasher,
+  type RkyvTextEncoder,
+  type RkyvReader,
+  type RkyvWriter,
+} from 'rkyv-js/core';
 
 /**
  * Convert bytes to a formatted UUID string.
@@ -36,53 +42,36 @@ function uuidToBytes(uuid: string): Uint8Array {
   return bytes;
 }
 
+const UUID_ALIGNED: Layout = { size: 16, align: 1 };
+
+class UuidCodec extends Codec<string, undefined> {
+  constructor() {
+    super({ inline: true, hashable: true });
+  }
+
+  computeLayout(_fmt: RkyvFormat): Layout {
+    // [u8; 16] — alignment 1 under every format.
+    return UUID_ALIGNED;
+  }
+
+  read(reader: RkyvReader, offset: number): string {
+    return bytesToUuid(reader.readBytes(offset, 16));
+  }
+
+  resolve(writer: RkyvWriter, value: string, _resolver: undefined): number {
+    return writer.writeBytes(uuidToBytes(value));
+  }
+
+  // Uuid is a newtype over [u8; 16]; arrays hash as slices: length prefix,
+  // then (for u8 elements) the raw bytes.
+  hash(hasher: RkyvHasher, value: string, _encoder: RkyvTextEncoder): void {
+    hasher.writeUsize(16);
+    hasher.writeBytes(uuidToBytes(value));
+  }
+}
+
 /**
- * uuid::Uuid - 128-bit UUID
- *
- * Archived as a fixed 16-byte array `[u8; 16]`.
- * Decoded as a formatted UUID string (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).
- *
- * @example
- * ```typescript
- * import * as r from 'rkyv-js';
- * import { uuid } from 'rkyv-js/lib/uuid';
- *
- * const UserCodec = r.struct({
- *   id: uuid,
- *   name: r.string,
- * });
- *
- * const user = r.decode(UserCodec, bytes);
- * console.log(user.id); // "550e8400-e29b-41d4-a716-446655440000"
- * ```
+ * uuid::Uuid — 128-bit UUID, archived as `[u8; 16]` and decoded as a
+ * formatted string (`xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`).
  */
-export const uuid: RkyvCodec<string> = {
-  size: 16,
-  align: 1,
-
-  access(reader: RkyvReader, offset: number): string {
-    return bytesToUuid(reader.readBytes(offset, 16));
-  },
-
-  decode(reader: RkyvReader, offset: number): string {
-    return bytesToUuid(reader.readBytes(offset, 16));
-  },
-
-  _archive(_writer: RkyvWriter, _value: string) {
-    return { pos: 0 };
-  },
-
-  _resolve(writer: RkyvWriter, value: string, _resolver) {
-    writer.align(1);
-    const pos = writer.pos;
-    const bytes = uuidToBytes(value);
-    for (let i = 0; i < 16; i++) {
-      writer.writeU8(bytes[i]);
-    }
-    return pos;
-  },
-
-  encode(writer: RkyvWriter, value: string): number {
-    return this._resolve(writer, value, this._archive(writer, value));
-  },
-};
+export const uuid: Codec<string> = new UuidCodec();

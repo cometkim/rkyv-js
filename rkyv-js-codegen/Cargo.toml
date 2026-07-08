@@ -1,6 +1,6 @@
 [package]
 name = "rkyv-js-codegen"
-version = "0.0.1"
+version.workspace = true
 edition = "2024"
 license = "MIT"
 description = "TypeScript code generator for rkyv types"
@@ -9,8 +9,7 @@ keywords = ["rkyv", "typescript", "codegen", "serialization"]
 categories = ["development-tools::ffi", "encoding"]
 
 [dependencies]
+proc-macro2 = { version = "1", features = ["span-locations"] }
+quote = "1"
 syn = { version = "2.0", features = ["full", "parsing", "extra-traits"] }
 walkdir = "2.5"
-
-[dev-dependencies]
-rkyv = { version = "0.8", features = ["bytecheck"] }

@@ -1,0 +1,51 @@
+{
+  "in_option": {
+    "tag": "V",
+    "value": {
+      "a": 1,
+      "b": 2
+    }
+  },
+  "mixed_v": {
+    "tag": "V",
+    "value": {
+      "a": 170,
+      "b": 3735928559
+    }
+  },
+  "mixed_w": {
+    "tag": "W",
+    "value": {
+      "a": 305419896,
+      "b": {
+        "$bigint": "1234605616436508552"
+      }
+    }
+  },
+  "mixed_x": {
+    "tag": "X",
+    "value": {
+      "$bigint": "18446744073709551615"
+    }
+  },
+  "mixed_y": {
+    "tag": "Y",
+    "value": null
+  },
+  "tuple_variant": {
+    "tag": "Color",
+    "value": {
+      "_0": 255,
+      "_1": 128,
+      "_2": 0
+    }
+  },
+  "unit": {
+    "tag": "B",
+    "value": null
+  },
+  "wrap": {
+    "tag": "Wrap",
+    "value": "a wrapped out-of-line string value"
+  }
+}

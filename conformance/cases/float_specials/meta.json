@@ -1,0 +1,7 @@
+{
+  "case": "float_specials",
+  "class": "identical",
+  "codec": "ArchivedFloatSpecials",
+  "ordered": false,
+  "type": "FloatSpecials"
+}

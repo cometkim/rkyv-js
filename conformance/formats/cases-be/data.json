@@ -1,0 +1,66 @@
+{
+  "a": 170,
+  "b": 48059,
+  "boxed": {
+    "$bigint": "72623859790382856"
+  },
+  "c": 3435973836,
+  "d": {
+    "$bigint": "15987178197214944733"
+  },
+  "e": -12345,
+  "e_v": {
+    "tag": "V",
+    "value": {
+      "a": 7,
+      "b": 3735928559
+    }
+  },
+  "e_w": {
+    "tag": "W",
+    "value": {
+      "a": 305419896,
+      "b": {
+        "$bigint": "1234605616436508552"
+      }
+    }
+  },
+  "f": 1.5,
+  "g": -2.25,
+  "h": true,
+  "imap": {
+    "$map": [
+      [
+        "first",
+        1
+      ],
+      [
+        "second",
+        2
+      ],
+      [
+        "third",
+        3
+      ]
+    ]
+  },
+  "map": {
+    "$map": [
+      [
+        "key",
+        42
+      ]
+    ]
+  },
+  "opt_none": null,
+  "opt_some": "optional",
+  "s_inline": "hi",
+  "s_long": "a string long enough to be out of line at every pointer width",
+  "xs": [
+    1,
+    2,
+    3,
+    4,
+    5
+  ]
+}

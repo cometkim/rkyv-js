@@ -1,260 +1,138 @@
 /**
- * Swiss Table implementation for rkyv-js
+ * Swiss table builder for rkyv-js.
  *
- * This implements the same Swiss Table format that rkyv uses for HashMap,
- * IndexMap, HashSet, and IndexSet.
- */
-
-import type { RkyvWriter } from 'rkyv-js/writer';
-
-// FxHash64 constants
-const ROTATE = 5n;
-const SEED = 0x517cc1b727220a95n;
-const MASK64 = 0xFFFFFFFFFFFFFFFFn;
-
-function rotateLeft64(value: bigint, bits: bigint): bigint {
-  const v = value & MASK64;
-  return ((v << bits) | (v >> (64n - bits))) & MASK64;
-}
-
-function hashWord(hash: bigint, word: bigint): bigint {
-  const rotated = rotateLeft64(hash, ROTATE);
-  const xored = rotated ^ (word & MASK64);
-  return (xored * SEED) & MASK64;
-}
-
-/**
- * Hash bytes using FxHasher64 algorithm
- */
-export function fxHashBytes(bytes: Uint8Array): bigint {
-  const len = bytes.length;
-  let hash = 0n;
-
-  // Process 8 bytes at a time
-  for (let i = 0; i < Math.floor(len / 8); i++) {
-    const offset = i * 8;
-    let word = 0n;
-    for (let j = 0; j < 8; j++) {
-      word |= BigInt(bytes[offset + j]) << (BigInt(j) * 8n);
-    }
-    hash = hashWord(hash, word);
-  }
-
-  // 4-byte chunk: offset = len & ~7
-  if ((len & 4) !== 0) {
-    const offset = len & ~7;
-    let word = 0n;
-    for (let j = 0; j < 4; j++) {
-      word |= BigInt(bytes[offset + j]) << (BigInt(j) * 8n);
-    }
-    hash = hashWord(hash, word);
-  }
-
-  // 2-byte chunk: offset = len & ~3
-  if ((len & 2) !== 0) {
-    const offset = len & ~3;
-    let word = 0n;
-    for (let j = 0; j < 2; j++) {
-      word |= BigInt(bytes[offset + j]) << (BigInt(j) * 8n);
-    }
-    hash = hashWord(hash, word);
-  }
-
-  // 1-byte chunk: last byte
-  if ((len & 1) !== 0) {
-    const byte = BigInt(bytes[len - 1]);
-    hash = hashWord(hash, byte);
-  }
-
-  return hash;
-}
-
-/**
- * Hash a u8 value
- */
-export function fxHashU8(hash: bigint, value: number): bigint {
-  return hashWord(hash, BigInt(value));
-}
-
-/**
- * Hash a u32 value
- */
-export function fxHashU32(hash: bigint, value: number): bigint {
-  return hashWord(hash, BigInt(value));
-}
-
-/**
- * Hash a string using FxHash64 (same way Rust hashes strings)
+ * This is an exact port of `ArchivedHashTable::serialize_from_iter` from
+ * rkyv 0.8 (`src/collections/swiss_table/table.rs`), which backs the
+ * archived `HashMap`, `HashSet`, `IndexMap`, and `IndexSet` formats:
  *
- * Rust's str Hash implementation writes the bytes then a 0xFF terminator.
+ * - `capacity = max(len * 8 / 7, len + 1)` with integer (floor) division —
+ *   the `(7, 8)` load factor rkyv passes for all swiss-table collections.
+ * - Probing starts at `h1 % capacity` and scans one MAX_GROUP_WIDTH-wide
+ *   group of control bytes for the first EMPTY (0xff) byte; the insertion
+ *   index wraps modulo `capacity`.
+ * - On a full group, the sequence strides triangularly
+ *   (`stride += 16; pos = (pos + stride) & bucketMask`) where `bucketMask`
+ *   is `nextPow2(controlCount) - 1`, skipping positions >= probeCapacity.
+ * - Control bytes near the start are mirrored past `capacity` so lookups can
+ *   read full groups without wrapping.
+ *
+ * Any deviation from this algorithm produces tables that Rust-side `get()`
+ * cannot search correctly, even though iteration still works.
  */
-export function hashString(writer: RkyvWriter, s: string): bigint {
-  const bytes = writer.encodeText(s);
-  let hash = fxHashBytes(bytes);
-  hash = fxHashU8(hash, 0xff); // Terminator
-  return hash;
+
+import type { RkyvHasher } from 'rkyv-js/core';
+
+export const MAX_GROUP_WIDTH = 16;
+
+/** `h2` — the top 7 bits of a key digest, stored in control bytes. */
+export function digestH2(hi: number): number {
+  return hi >>> 25;
 }
 
 /**
- * Hash a u32 using FxHash64 (same way Rust hashes u32)
+ * `h1 % capacity` — the home slot of a key digest for a table with
+ * `capacity` buckets, computed exactly (base-2^16 Horner over the u32
+ * halves; no precision loss for any u32 capacity).
  */
-export function hashU32(n: number): bigint {
-  return hashWord(0n, BigInt(n));
+export function digestMod(hi: number, lo: number, capacity: number): number {
+  let r = (hi >>> 16) % capacity;
+  r = (r * 0x10000 + (hi & 0xffff)) % capacity;
+  r = (r * 0x10000 + (lo >>> 16)) % capacity;
+  r = (r * 0x10000 + (lo & 0xffff)) % capacity;
+  return r;
 }
 
-/**
- * h1 - primary hash (used for bucket selection)
- * In rkyv's implementation, h1 is just the full hash.
- */
-export function h1(hash: bigint): bigint {
-  return hash;
-}
-
-/**
- * h2 - secondary hash (stored in control bytes)
- * Top 7 bits of the hash, excluding the sign bit.
- */
-export function h2(hash: bigint): number {
-  return Number((hash >> 57n) & 0x7Fn);
-}
-
-const MAX_GROUP_WIDTH = 16;
-
-/**
- * Calculate capacity from length using rkyv's load factor (7/8)
- */
-export function capacityFromLen(len: number): number {
-  if (len === 0) return 0;
-  // capacity = ceil(len * 8 / 7) but at least len + 1
-  return Math.max(Math.ceil(len * 8 / 7), len + 1);
-}
-
-/**
- * Calculate probe capacity (rounded up to MAX_GROUP_WIDTH)
- */
-export function probeCap(capacity: number): number {
-  if (capacity === 0) return 0;
-  return Math.ceil(capacity / MAX_GROUP_WIDTH) * MAX_GROUP_WIDTH;
-}
-
-/**
- * Calculate control byte count
- */
-export function controlCount(probeCapacity: number): number {
-  if (probeCapacity === 0) return 0;
-  return probeCapacity + MAX_GROUP_WIDTH - 1;
-}
-
-/**
- * Calculate bucket mask for probing
- */
-export function bucketMask(probeCapacity: number): number {
-  if (probeCapacity === 0) return 0;
-  // Next power of 2 minus 1
-  let mask = 1;
-  while (mask < probeCapacity) {
-    mask *= 2;
-  }
-  return mask - 1;
-}
-
-/**
- * Swiss Table probe sequence
- */
-export class ProbeSeq {
-  pos: number;
-  stride: number;
-
-  constructor(hash: bigint, capacity: number) {
-    // Note: rkyv uses hash % capacity, not hash % probeCapacity
-    this.pos = Number(h1(hash) % BigInt(capacity));
-    this.stride = 0;
-  }
-
-  moveNext(mask: number): void {
-    this.stride += MAX_GROUP_WIDTH;
-    this.pos += this.stride;
-    this.pos &= mask;
-  }
-}
-
-/**
- * Find empty slots in control bytes group
- */
-function findEmptySlot(
-  controlBytes: Uint8Array,
-  startIndex: number,
-  probeCapacity: number,
-): number | null {
-  for (let i = 0; i < MAX_GROUP_WIDTH; i++) {
-    const idx = (startIndex + i) % probeCapacity;
-    if (controlBytes[idx] === 0xff) {
-      return idx;
-    }
-  }
-  return null;
-}
-
-export interface SwissTable {
-  controlBytes: Uint8Array;
-  bucketIndices: Uint32Array;
+export interface SwissTableLayout {
   capacity: number;
   probeCapacity: number;
+  controlCount: number;
+  bucketMask: number;
+}
+
+function nextPow2(n: number): number {
+  let p = 1;
+  while (p < n) p *= 2;
+  return p;
 }
 
 /**
- * Build a Swiss Table for the given hashes
+ * `capacity_from_len` + `probe_cap` + `control_count` + `bucket_mask` for a
+ * non-empty table.
  */
-export function buildSwissTable(hashes: bigint[]): SwissTable {
-  const len = hashes.length;
+export function swissTableLayout(len: number): SwissTableLayout {
+  const capacity = Math.max(Math.floor((len * 8) / 7), len + 1);
+  const probeCapacity = Math.ceil(capacity / MAX_GROUP_WIDTH) * MAX_GROUP_WIDTH;
+  const controlCount = probeCapacity + MAX_GROUP_WIDTH - 1;
+  return {
+    capacity,
+    probeCapacity,
+    controlCount,
+    bucketMask: nextPow2(controlCount) - 1,
+  };
+}
 
-  if (len === 0) {
-    return {
-      controlBytes: new Uint8Array(0),
-      bucketIndices: new Uint32Array(0),
-      capacity: 0,
-      probeCapacity: 0,
-    };
-  }
+export interface SwissTable extends SwissTableLayout {
+  /** Control bytes (0xff = empty, otherwise the key hash's h2). */
+  controlBytes: Uint8Array;
+  /** For each slot in 0..capacity: the item index placed there, or -1. */
+  slotToItem: Int32Array;
+}
 
-  const capacity = capacityFromLen(len);
-  const probeCapacity = probeCap(capacity);
-  const ctrlCount = controlCount(probeCapacity);
-  const mask = bucketMask(probeCapacity);
+/**
+ * Assign every item a slot exactly like rkyv's insertion loop. `hashItem`
+ * must feed the item's KEY to the hasher the way Rust's `Hash` impl would.
+ */
+export function buildSwissTable<T>(
+  items: readonly T[],
+  hasher: RkyvHasher,
+  hashItem: (hasher: RkyvHasher, item: T) => void,
+): SwissTable {
+  const layout = swissTableLayout(items.length);
+  const { capacity, probeCapacity, controlCount, bucketMask } = layout;
 
-  // Initialize control bytes to empty (0xFF)
-  const controlBytes = new Uint8Array(ctrlCount);
-  controlBytes.fill(0xff);
+  const controlBytes = new Uint8Array(controlCount).fill(0xff);
+  const slotToItem = new Int32Array(capacity).fill(-1);
 
-  // Initialize bucket indices
-  const bucketIndices = new Uint32Array(capacity);
+  for (let itemIndex = 0; itemIndex < items.length; itemIndex++) {
+    hasher.reset();
+    hashItem(hasher, items[itemIndex]);
+    hasher.finish();
+    const h2 = digestH2(hasher.hi);
+    let pos = digestMod(hasher.hi, hasher.lo, capacity);
+    let stride = 0;
 
-  // Insert each item
-  for (let itemIndex = 0; itemIndex < hashes.length; itemIndex++) {
-    const hash = hashes[itemIndex];
-    const h2Hash = h2(hash);
-    const probeSeq = new ProbeSeq(hash, probeCapacity);
-
-    while (true) {
-      const emptySlot = findEmptySlot(controlBytes, probeSeq.pos, probeCapacity);
-
-      if (emptySlot !== null) {
-        // Set control byte
-        controlBytes[emptySlot] = h2Hash;
-
-        // Mirror at end if in first (MAX_GROUP_WIDTH - 1) positions
-        if (emptySlot < MAX_GROUP_WIDTH - 1) {
-          controlBytes[probeCapacity + emptySlot] = h2Hash;
+    let placed = false;
+    // The triangular sequence over a power-of-two mask visits every group,
+    // and capacity > len guarantees an empty slot; bound the walk anyway so
+    // a bug can never spin forever or drop an item silently.
+    for (let attempt = 0; attempt <= controlCount; attempt++) {
+      let bit = -1;
+      for (let i = 0; i < MAX_GROUP_WIDTH; i++) {
+        if (controlBytes[pos + i] === 0xff) {
+          bit = i;
+          break;
         }
-
-        bucketIndices[emptySlot] = itemIndex;
+      }
+      if (bit >= 0) {
+        const index = (pos + bit) % capacity;
+        controlBytes[index] = h2;
+        // Mirror early control bytes past the end for wraparound reads.
+        if (index < controlCount - capacity) {
+          controlBytes[capacity + index] = h2;
+        }
+        slotToItem[index] = itemIndex;
+        placed = true;
         break;
       }
-
-      // Move to next probe position
-      probeSeq.moveNext(mask);
+      do {
+        stride += MAX_GROUP_WIDTH;
+        pos = (pos + stride) & bucketMask;
+      } while (pos >= probeCapacity);
+    }
+    if (!placed) {
+      throw new Error('swiss table insertion failed to find an empty slot (this is a bug in rkyv-js)');
     }
   }
 
-  return { controlBytes, bucketIndices, capacity, probeCapacity };
+  return { ...layout, controlBytes, slotToItem };
 }

@@ -1,0 +1,7 @@
+{
+  "case": "btree_set_str",
+  "class": "identical",
+  "codec": "ArchivedBTreeSetStr",
+  "ordered": true,
+  "type": "BTreeSetStr"
+}

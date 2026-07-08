@@ -1,0 +1,7 @@
+{
+  "case": "index_map_str",
+  "class": "identical",
+  "codec": "ArchivedIndexMapStr",
+  "ordered": true,
+  "type": "IndexMapStr"
+}

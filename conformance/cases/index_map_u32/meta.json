@@ -1,0 +1,7 @@
+{
+  "case": "index_map_u32",
+  "class": "identical",
+  "codec": "ArchivedIndexMapU32",
+  "ordered": true,
+  "type": "IndexMapU32"
+}

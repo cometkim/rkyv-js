@@ -1,0 +1,7 @@
+{
+  "case": "btree_map_str_100",
+  "class": "identical",
+  "codec": "ArchivedBTreeMapStr",
+  "ordered": true,
+  "type": "BTreeMapStr"
+}

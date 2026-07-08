@@ -1,0 +1,7 @@
+{
+  "case": "arrays_tuples",
+  "class": "identical",
+  "codec": "ArchivedArraysTuples",
+  "ordered": false,
+  "type": "ArraysTuples"
+}

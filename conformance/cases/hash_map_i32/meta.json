@@ -1,0 +1,7 @@
+{
+  "case": "hash_map_i32",
+  "class": "semantic",
+  "codec": "ArchivedHashMapI32",
+  "ordered": false,
+  "type": "HashMapI32"
+}

@@ -5,71 +5,66 @@
  * @see https://docs.rs/bytes/1
  */
 
-import type { RkyvCodec } from 'rkyv-js/codec';
-import type { RkyvReader } from 'rkyv-js/reader';
-import type { RkyvWriter } from 'rkyv-js/writer';
+import {
+  Codec,
+  type Layout,
+  type RkyvFormat,
+  type RkyvHasher,
+  type RkyvTextEncoder,
+  type RkyvReader,
+  type RkyvWriter,
+} from 'rkyv-js/core';
+
+interface BytesLayout extends Layout {
+  pb: 2 | 4 | 8;
+}
+
+interface BytesResolver {
+  pos: number;
+  len: number;
+}
+
+class BytesCodec extends Codec<Uint8Array, BytesResolver, BytesLayout> {
+  constructor() {
+    super({ inline: false, hashable: true });
+  }
+
+  computeLayout(fmt: RkyvFormat): BytesLayout {
+    const pb = (fmt.pointerWidth / 8) as 2 | 4 | 8;
+    return { size: pb * 2, align: fmt.aligned ? pb : 1, pb };
+  }
+
+  read(reader: RkyvReader, offset: number): Uint8Array {
+    const l = this.layout(reader.format);
+    const dataOffset = reader.readRelPtr(offset);
+    const length = reader.readUsize(offset + l.pb);
+    // Zero-copy: a view into the archive buffer.
+    return reader.readBytes(dataOffset, length);
+  }
+
+  archive(writer: RkyvWriter, value: Uint8Array): BytesResolver {
+    // Bytes are align-1; the current position is the data position even for
+    // empty values (mirroring ArchivedVec's always-real pointer).
+    return { pos: writer.writeBytes(value), len: value.length };
+  }
+
+  resolve(writer: RkyvWriter, _value: Uint8Array, resolver: BytesResolver): number {
+    const structPos = writer.pos;
+    const ptrPos = writer.reserveRelPtr();
+    writer.writeUsize(resolver.len);
+    writer.writeRelPtrAt(ptrPos, resolver.pos);
+    return structPos;
+  }
+
+  // Hash for Bytes derefs to [u8]: length prefix, then the raw bytes.
+  hash(hasher: RkyvHasher, value: Uint8Array, _encoder: RkyvTextEncoder): void {
+    hasher.writeUsize(value.length);
+    hasher.writeBytes(value);
+  }
+}
 
 /**
- * bytes::Bytes - A cheaply cloneable and sliceable chunk of contiguous memory
- *
- * Same archived layout as Vec<u8>: `{ ptr: RelPtr32, len: u32 }`
- * Decoded as Uint8Array instead of number[].
- *
- * This is more efficient than `r.vec(r.u8)` because it:
- * - Returns a Uint8Array directly (no array conversion)
- * - Uses a single buffer slice instead of element-by-element decoding
- *
- * @example
- * ```typescript
- * import { r } from 'rkyv-js';
- *
- * const MessageCodec = r.struct({
- *   payload: r.lib.bytes,
- * });
- *
- * const msg = r.decode(MessageCodec, data);
- * console.log(msg.payload); // Uint8Array
- * ```
+ * bytes::Bytes — a contiguous chunk of memory, archived like `Vec<u8>` and
+ * decoded as a zero-copy `Uint8Array` view into the archive buffer.
  */
-export const bytes: RkyvCodec<Uint8Array> = {
-  size: 8, // relptr (4) + len (4)
-  align: 4,
-
-  access(reader: RkyvReader, offset: number): Uint8Array {
-    return this.decode(reader, offset);
-  },
-
-  decode(reader: RkyvReader, offset: number): Uint8Array {
-    const dataOffset = reader.readRelPtr32(offset);
-    const length = reader.readU32(offset + 4);
-    return reader.readBytes(dataOffset, length);
-  },
-
-  _archive(writer: RkyvWriter, value: Uint8Array) {
-    if (value.length === 0) {
-      return { pos: writer.pos, len: 0 };
-    }
-    const pos = writer.writeBytes(value);
-    return { pos, len: value.length };
-  },
-
-  _resolve(writer: RkyvWriter, _value: Uint8Array, resolver) {
-    writer.align(4);
-    const structPos = writer.pos;
-    const ptrPos = writer.reserveRelPtr32();
-    const r = resolver as { pos: number; len: number };
-    writer.writeU32(r.len);
-
-    if (r.len > 0) {
-      writer.writeRelPtr32At(ptrPos, r.pos);
-    } else {
-      writer.writeRelPtr32At(ptrPos, 0);
-    }
-    return structPos;
-  },
-
-  encode(writer: RkyvWriter, value: Uint8Array): number {
-    const resolver = this._archive(writer, value);
-    return this._resolve(writer, value, resolver);
-  },
-};
+export const bytes: Codec<Uint8Array> = new BytesCodec();

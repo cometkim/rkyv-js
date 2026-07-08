@@ -1,0 +1,7 @@
+{
+  "case": "kitchen_sink",
+  "class": "semantic",
+  "codec": "ArchivedKitchenSink",
+  "ordered": false,
+  "type": "KitchenSink"
+}

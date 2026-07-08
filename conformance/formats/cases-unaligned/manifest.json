@@ -1,0 +1,10 @@
+{
+  "codec": "ArchivedSmokeCase",
+  "format": {
+    "aligned": false,
+    "endian": "little",
+    "pointerWidth": 32
+  },
+  "profile": "unaligned",
+  "rkyv": "0.8.14"
+}

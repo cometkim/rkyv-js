@@ -1,0 +1,7 @@
+{
+  "case": "external_types",
+  "class": "identical",
+  "codec": "ArchivedExternalTypes",
+  "ordered": false,
+  "type": "ExternalTypes"
+}

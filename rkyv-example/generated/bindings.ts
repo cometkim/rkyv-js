@@ -4,18 +4,12 @@
  */
 
 import * as r from 'rkyv-js';
+import { Coord } from './coord.ts';
 import { btreeMap, btreeSet } from 'rkyv-js/lib/btreemap';
 import { bytes } from 'rkyv-js/lib/bytes';
 import { hashMap, hashSet } from 'rkyv-js/lib/hashmap';
 import { indexMap, indexSet } from 'rkyv-js/lib/indexmap';
 import { uuid } from 'rkyv-js/lib/uuid';
-
-export const ArchivedVecDequeData = r.struct({
-  items: r.vec(r.u32),
-  name: r.string,
-});
-
-export type VecDequeData = r.Infer<typeof ArchivedVecDequeData>;
 
 export const ArchivedArcShared = r.struct({
   shared_data: r.rc(r.string),
@@ -81,10 +75,10 @@ export const ArchivedIndexSetTags = r.struct({
 export type IndexSetTags = r.Infer<typeof ArchivedIndexSetTags>;
 
 export const ArchivedMessage = r.taggedEnum({
-  Quit: r.unit,
-  Move: r.struct({ x: r.i32, y: r.i32 }),
-  Write: r.struct({ _0: r.string }),
-  ChangeColor: r.struct({ _0: r.u8, _1: r.u8, _2: r.u8 }),
+  Quit: null,
+  Move: { x: r.i32, y: r.i32 },
+  Write: r.string,
+  ChangeColor: { _0: r.u8, _1: r.u8, _2: r.u8 },
 });
 
 export type Message = r.Infer<typeof ArchivedMessage>;
@@ -117,7 +111,7 @@ export type GameState = r.Infer<typeof ArchivedGameState>;
 
 export const ArchivedRemoteEvent = r.struct({
   name: r.string,
-  location: ArchivedCoord,
+  location: Coord,
   priority: r.u32,
 });
 
@@ -159,3 +153,10 @@ export const ArchivedUuidRecord = r.struct({
 });
 
 export type UuidRecord = r.Infer<typeof ArchivedUuidRecord>;
+
+export const ArchivedVecDequeData = r.struct({
+  items: r.vec(r.u32),
+  name: r.string,
+});
+
+export type VecDequeData = r.Infer<typeof ArchivedVecDequeData>;
