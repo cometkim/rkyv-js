@@ -23,12 +23,12 @@
     "counts": {
       "$map": [
         [
-          "sword",
-          1
-        ],
-        [
           "shield",
           2
+        ],
+        [
+          "sword",
+          1
         ]
       ]
     },

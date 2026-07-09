@@ -9,8 +9,10 @@
 //! - non-finite floats → `{"$bits32"/"$bits64": "hex"}` (JSON has no NaN)
 //! - finite floats → plain numbers (shortest round-trip is exact)
 //! - byte strings → `{"$base64": "…"}`
-//! - maps → `{"$map": [[k, v], …]}` in iteration order (keys are values,
-//!   which plain JSON objects cannot express)
+//! - maps → `{"$map": [[k, v], …]}` (keys are values, which plain JSON
+//!   objects cannot express); UNORDERED hash containers must serialize
+//!   through [`sorted_map`]/[`sorted_set`] so golden order never depends on
+//!   source-map iteration order — see those helpers
 //! - enums → `{"tag": name, "value": …}`, matching the decoded JS shape:
 //!   unit variants get `null`, single-field variants the inner value,
 //!   multi-field tuple variants `{"_0": …, "_1": …}`
@@ -31,6 +33,55 @@ pub fn to_string_pretty<T: Serialize>(value: &T) -> String {
     let mut out = serde_json::to_string_pretty(&to_value(value)).expect("valid json");
     out.push('\n');
     out
+}
+
+/// serde `serialize_with` for unordered hash maps: entries sorted by the
+/// canonical JSON of their key.
+///
+/// Iteration order of a std `HashMap` depends on std's internal hashbrown
+/// table layout, which changes across Rust toolchains — even with the
+/// suite's pinned zero-key hasher. Goldens must not depend on it, so the
+/// order is canonicalized away here. Ordered containers (index maps,
+/// B-trees) carry semantic order and must NOT use this.
+// dead_code: the format-profile smoke crates include this module by path
+// but their reduced case sets carry no unordered hash containers.
+#[allow(dead_code)]
+pub fn sorted_map<K, V, H, S>(
+    map: &std::collections::HashMap<K, V, H>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    K: Serialize,
+    V: Serialize,
+    S: ser::Serializer,
+{
+    let mut entries: Vec<(String, (&K, &V))> = map
+        .iter()
+        .map(|(k, v)| (serde_json::to_string(&to_value(k)).expect("valid json"), (k, v)))
+        .collect();
+    entries.sort_by(|(a, _), (b, _)| a.cmp(b));
+    serializer.collect_map(entries.into_iter().map(|(_, kv)| kv))
+}
+
+/// serde `serialize_with` for unordered hash sets: elements sorted by their
+/// canonical JSON. Same rationale as [`sorted_map`].
+// dead_code: the format-profile smoke crates include this module by path
+// but their reduced case sets carry no unordered hash containers.
+#[allow(dead_code)]
+pub fn sorted_set<T, H, S>(
+    set: &std::collections::HashSet<T, H>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    T: Serialize,
+    S: ser::Serializer,
+{
+    let mut items: Vec<(String, &T)> = set
+        .iter()
+        .map(|item| (serde_json::to_string(&to_value(item)).expect("valid json"), item))
+        .collect();
+    items.sort_by(|(a, _), (b, _)| a.cmp(b));
+    serializer.collect_seq(items.into_iter().map(|(_, item)| item))
 }
 
 fn bigint(value: impl ToString) -> Value {

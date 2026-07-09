@@ -3,6 +3,13 @@
     "$map": [
       [
         {
+          "id": 1,
+          "tag": "one"
+        },
+        100
+      ],
+      [
+        {
           "id": 2,
           "tag": "two"
         },
@@ -14,13 +21,6 @@
           "tag": "a considerably longer key tag string"
         },
         300
-      ],
-      [
-        {
-          "id": 1,
-          "tag": "one"
-        },
-        100
       ]
     ]
   }

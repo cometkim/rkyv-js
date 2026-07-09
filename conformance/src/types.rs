@@ -5,13 +5,15 @@
 //! (macro-generated items are invisible to source-level extraction).
 //!
 //! Hash containers use a pinned, zero-key SipHasher13 so their iteration
-//! order — and therefore the golden `data.bin` bytes — are stable across
-//! Rust toolchains (std's `DefaultHasher` algorithm is explicitly not
-//! stable). The *archived* table placement is independent of this hasher
-//! (rkyv's derive/std impls always use FxHasher64); pinning only stabilizes
-//! insertion order. The one exception is [`SipKeyedMap`], which archives
-//! with a custom hasher on purpose to pin the JS side's pluggable-hasher
-//! support.
+//! order is process-stable (std's `DefaultHasher` is randomly seeded).
+//! Iteration order still varies with std's internal hashbrown layout
+//! across Rust toolchains, so the golden `data.json` never depends on it:
+//! unordered containers serialize through
+//! `canonical_json::sorted_map`/`sorted_set`. The archived `data.bin`
+//! placement is independent of iteration order and of this hasher (rkyv's
+//! derive/std impls always use FxHasher64 over the key set). The one
+//! exception is [`SipKeyedMap`], which archives with a custom hasher on
+//! purpose to pin the JS side's pluggable-hasher support.
 
 use std::hash::BuildHasherDefault;
 use std::rc::{Rc, Weak};
@@ -245,26 +247,31 @@ pub struct SharedRc {
 
 #[derive(Archive, Serialize, Deserialize, Debug, PartialEq, serde::Serialize)]
 pub struct HashMapStr {
+    #[serde(serialize_with = "crate::canonical_json::sorted_map")]
     pub m: HashMap<String, u32>,
 }
 
 #[derive(Archive, Serialize, Deserialize, Debug, PartialEq, serde::Serialize)]
 pub struct HashMapU32 {
+    #[serde(serialize_with = "crate::canonical_json::sorted_map")]
     pub m: HashMap<u32, u32>,
 }
 
 #[derive(Archive, Serialize, Deserialize, Debug, PartialEq, serde::Serialize)]
 pub struct HashMapU64 {
+    #[serde(serialize_with = "crate::canonical_json::sorted_map")]
     pub m: HashMap<u64, String>,
 }
 
 #[derive(Archive, Serialize, Deserialize, Debug, PartialEq, serde::Serialize)]
 pub struct HashMapI32 {
+    #[serde(serialize_with = "crate::canonical_json::sorted_map")]
     pub m: HashMap<i32, bool>,
 }
 
 #[derive(Archive, Serialize, Deserialize, Debug, PartialEq, serde::Serialize)]
 pub struct HashMapTupleKey {
+    #[serde(serialize_with = "crate::canonical_json::sorted_map")]
     pub m: HashMap<(String, u32), bool>,
 }
 
@@ -284,16 +291,19 @@ pub struct StructKey {
 
 #[derive(Archive, Serialize, Deserialize, Debug, PartialEq, serde::Serialize)]
 pub struct HashMapStructKey {
+    #[serde(serialize_with = "crate::canonical_json::sorted_map")]
     pub m: HashMap<StructKey, u32>,
 }
 
 #[derive(Archive, Serialize, Deserialize, Debug, PartialEq, serde::Serialize)]
 pub struct HashSetStr {
+    #[serde(serialize_with = "crate::canonical_json::sorted_set")]
     pub s: HashSet<String>,
 }
 
 #[derive(Archive, Serialize, Deserialize, Debug, PartialEq, serde::Serialize)]
 pub struct HashSetU32 {
+    #[serde(serialize_with = "crate::canonical_json::sorted_set")]
     pub s: HashSet<u32>,
 }
 
@@ -307,8 +317,9 @@ pub struct HashSetU32 {
 /// wire and archived `get()` both depend on `H`, so this pins the JS side's
 /// pluggable `hasher` option against real rkyv bytes.
 #[derive(Debug, PartialEq, serde::Serialize)]
-#[serde(transparent)]
-pub struct SipKeyedMap(pub HashMap<String, u32>);
+pub struct SipKeyedMap(
+    #[serde(serialize_with = "crate::canonical_json::sorted_map")] pub HashMap<String, u32>,
+);
 
 impl Archive for SipKeyedMap {
     type Archived = ArchivedHashMap<ArchivedString, Archived<u32>, SipHasher13>;
@@ -418,6 +429,7 @@ pub struct ExternalTypes {
 #[derive(Archive, Serialize, Deserialize, Debug, PartialEq, serde::Serialize)]
 pub struct Inventory {
     pub items: Vec<String>,
+    #[serde(serialize_with = "crate::canonical_json::sorted_map")]
     pub counts: HashMap<String, u32>,
 }
 
