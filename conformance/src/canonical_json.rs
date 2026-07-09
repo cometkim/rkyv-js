@@ -15,7 +15,7 @@
 //!   source-map iteration order — see those helpers
 //! - enums → `{"tag": name, "value": …}`, matching the decoded JS shape:
 //!   unit variants get `null`, single-field variants the inner value,
-//!   multi-field tuple variants `{"_0": …, "_1": …}`
+//!   multi-field tuple variants an array `[…, …]`
 //! - everything else structural (structs → objects, seqs/tuples → arrays,
 //!   Option → `null | value`, char → single-char string)
 
@@ -322,8 +322,8 @@ impl ser::SerializeTupleStruct for SeqSerializer {
     }
 }
 
-/// Multi-field tuple variants surface as `{tag, value: {"_0": …, "_1": …}}`
-/// — the shape the JS enum codec decodes tuple variants into.
+/// Multi-field tuple variants surface as `{tag, value: […, …]}` — the
+/// array shape the JS enum codec decodes tuple variants into.
 struct TupleVariantSerializer {
     variant: &'static str,
     items: Vec<Value>,
@@ -339,11 +339,7 @@ impl ser::SerializeTupleVariant for TupleVariantSerializer {
     }
 
     fn end(self) -> Result<Value, Error> {
-        let mut fields = Map::with_capacity(self.items.len());
-        for (i, item) in self.items.into_iter().enumerate() {
-            fields.insert(format!("_{i}"), item);
-        }
-        Ok(enum_value(self.variant, Value::Object(fields)))
+        Ok(enum_value(self.variant, Value::Array(self.items)))
     }
 }
 

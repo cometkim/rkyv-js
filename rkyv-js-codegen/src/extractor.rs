@@ -519,17 +519,24 @@ fn lookup_wrapper(
     None
 }
 
-fn extract_struct_fields(
+/// A struct's extracted shape: named fields form a record codec; unnamed
+/// (tuple-struct) fields are positional.
+enum StructShape {
+    Record(Vec<(String, CodecExpr)>),
+    Tuple(Vec<CodecExpr>),
+}
+
+fn extract_struct_shape(
     type_name: &str,
     fields: &Fields,
     codegen: &CodeGenerator,
     ctx: &SourceContext,
-) -> Result<Vec<(String, CodecExpr)>, Vec<Diagnostic>> {
-    let mut out = Vec::new();
+) -> Result<StructShape, Vec<Diagnostic>> {
     let mut diagnostics = Vec::new();
 
-    match fields {
+    let shape = match fields {
         Fields::Named(named) => {
+            let mut out = Vec::new();
             for field in &named.named {
                 let field_name = field
                     .ident
@@ -543,24 +550,39 @@ fn extract_struct_fields(
                     Err(diagnostic) => diagnostics.push(diagnostic),
                 }
             }
+            StructShape::Record(out)
         }
         Fields::Unnamed(unnamed) => {
+            let mut out = Vec::new();
             for (index, field) in unnamed.unnamed.iter().enumerate() {
                 let context = format!("{type_name}.{index}");
                 match field_expr(field, &context, codegen, ctx) {
-                    Ok(Some(expr)) => out.push((format!("_{}", out.len()), expr)),
+                    Ok(Some(expr)) => out.push(expr),
                     Ok(None) => {}
                     Err(diagnostic) => diagnostics.push(diagnostic),
                 }
             }
+            StructShape::Tuple(out)
         }
-        Fields::Unit => {}
-    }
+        Fields::Unit => StructShape::Record(Vec::new()),
+    };
 
     if diagnostics.is_empty() {
-        Ok(out)
+        Ok(shape)
     } else {
         Err(diagnostics)
+    }
+}
+
+/// The codec expression for a tuple struct: archived exactly like a tuple
+/// of its fields, so `struct Pair(A, B)` aliases `r.tuple(A, B)`. A
+/// single-field (newtype) struct is transparent — the inner codec — and a
+/// zero-field one degenerates to `r.unit`, both matching rkyv's layout.
+fn tuple_struct_expr(mut exprs: Vec<CodecExpr>) -> CodecExpr {
+    match exprs.len() {
+        0 => CodecExpr::runtime("unit"),
+        1 => exprs.pop().expect("len checked"),
+        _ => CodecExpr::call(CodecExpr::runtime("tuple"), exprs),
     }
 }
 
@@ -639,15 +661,7 @@ fn enum_expr(variants: Vec<EnumVariant>) -> CodecExpr {
     let entries = variants.into_iter().map(|variant| match variant {
         EnumVariant::Unit(name) => (name, CodecExpr::raw("null")),
         EnumVariant::Newtype(name, expr) => (name, expr),
-        EnumVariant::Tuple(name, exprs) => (
-            name,
-            CodecExpr::object(
-                exprs
-                    .into_iter()
-                    .enumerate()
-                    .map(|(i, expr)| (format!("_{i}"), expr)),
-            ),
-        ),
+        EnumVariant::Tuple(name, exprs) => (name, CodecExpr::array(exprs)),
         EnumVariant::Struct(name, fields) => (name, CodecExpr::object(fields)),
     });
     CodecExpr::call(
@@ -715,7 +729,10 @@ fn parse_source(
         let name = item.ident().to_string();
         let built = match item {
             TypeItem::Struct(s) => {
-                extract_struct_fields(&name, &s.fields, codegen, &ctx).map(struct_expr)
+                extract_struct_shape(&name, &s.fields, codegen, &ctx).map(|shape| match shape {
+                    StructShape::Record(fields) => struct_expr(fields),
+                    StructShape::Tuple(exprs) => tuple_struct_expr(exprs),
+                })
             }
             TypeItem::Enum(e) => {
                 extract_enum_variants(&name, &e.variants, codegen, &ctx).map(enum_expr)
@@ -759,7 +776,10 @@ fn parse_source(
         let location = Some(ctx.location(item.ident().span()));
         let extracted = match item {
             TypeItem::Struct(s) => {
-                extract_struct_fields(&name, &s.fields, codegen, &ctx).map(TypeKind::Struct)
+                extract_struct_shape(&name, &s.fields, codegen, &ctx).map(|shape| match shape {
+                    StructShape::Record(fields) => TypeKind::Struct(fields),
+                    StructShape::Tuple(exprs) => TypeKind::Alias(tuple_struct_expr(exprs)),
+                })
             }
             TypeItem::Enum(e) => {
                 extract_enum_variants(&name, &e.variants, codegen, &ctx).map(TypeKind::Enum)
@@ -909,7 +929,7 @@ mod tests {
              \x20 Quit: null,\n\
              \x20 Move: { x: r.i32, y: r.i32 },\n\
              \x20 Write: r.string,\n\
-             \x20 ChangeColor: { _0: r.u8, _1: r.u8, _2: r.u8 },\n\
+             \x20 ChangeColor: [r.u8, r.u8, r.u8],\n\
              });"
         ));
     }
@@ -923,7 +943,7 @@ mod tests {
             struct Pair(u32, String);
         "#,
         );
-        assert!(code.contains("export const ArchivedPair = r.struct({\n  _0: r.u32,\n  _1: r.string,\n});"));
+        assert!(code.contains("export const ArchivedPair = r.tuple(r.u32, r.string);"));
     }
 
     #[test]

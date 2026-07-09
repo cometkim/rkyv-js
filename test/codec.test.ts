@@ -162,7 +162,7 @@ describe('Codec API', () => {
       Quit: null,
       Move: { x: r.i32, y: r.i32 },
       Write: r.string,
-      ChangeColor: { _0: r.u8, _1: r.u8, _2: r.u8 },
+      ChangeColor: [r.u8, r.u8, r.u8],
     });
 
     it('roundtrips unit variant', () => {
@@ -180,12 +180,43 @@ describe('Codec API', () => {
       assert.deepStrictEqual(Message.decode(data), { tag: 'Write', value: 'hello out-of-line string!' });
     });
 
-    it('roundtrips tuple-style record variant', () => {
-      const data = Message.encode({ tag: 'ChangeColor', value: { _0: 255, _1: 128, _2: 0 } });
+    it('roundtrips tuple variant as an array', () => {
+      const data = Message.encode({ tag: 'ChangeColor', value: [255, 128, 0] });
       assert.deepStrictEqual(Message.decode(data), {
         tag: 'ChangeColor',
-        value: { _0: 255, _1: 128, _2: 0 },
+        value: [255, 128, 0],
       });
+    });
+
+    it('tuple variant bytes match the equivalent _N record definition', () => {
+      // The array form is surface sugar: the wire layout is the same
+      // flattened field list a `_N` record produces.
+      const Record = r.taggedEnum({
+        Quit: null,
+        Move: { x: r.i32, y: r.i32 },
+        Write: r.string,
+        ChangeColor: { _0: r.u8, _1: r.u8, _2: r.u8 },
+      });
+      const bytes = Record.encode({ tag: 'ChangeColor', value: { _0: 255, _1: 128, _2: 0 } });
+      assert.deepStrictEqual(
+        Message.encode({ tag: 'ChangeColor', value: [255, 128, 0] }),
+        bytes,
+      );
+      assert.deepStrictEqual(Message.decode(bytes), {
+        tag: 'ChangeColor',
+        value: [255, 128, 0],
+      });
+    });
+
+    it('single-element tuple variant is a newtype', () => {
+      const Wrapped = r.taggedEnum({
+        One: [r.string],
+        Two: [r.u8, r.u8],
+      });
+      const data = Wrapped.encode({ tag: 'One', value: 'inner' });
+      assert.deepStrictEqual(Wrapped.decode(data), { tag: 'One', value: 'inner' });
+      const bare = r.taggedEnum({ One: r.string, Two: [r.u8, r.u8] });
+      assert.deepStrictEqual(bare.encode({ tag: 'One', value: 'inner' }), data);
     });
 
     it('accepts struct codecs as variants (flattened layout, same value shape)', () => {

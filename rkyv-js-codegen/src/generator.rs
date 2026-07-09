@@ -26,8 +26,9 @@ pub enum EnumVariant {
     Unit(String),
     /// A newtype (1-tuple) variant: `Name(T)` — emitted as a bare codec.
     Newtype(String, CodecExpr),
-    /// An n-tuple variant (n >= 2): `Name(T0, T1)` — emitted as a record
-    /// with `_0..=_n` keys.
+    /// An n-tuple variant (n >= 2): `Name(T0, T1)` — emitted as an array
+    /// of codecs (`[t0, t1]`), decoded as an array value. The fields stay
+    /// flattened in the enum layout (this is NOT a nested `r.tuple` block).
     Tuple(String, Vec<CodecExpr>),
     /// A struct variant: `Name { a: T }` — emitted as a record of codecs.
     Struct(String, Vec<(String, CodecExpr)>),
@@ -675,13 +676,7 @@ impl CodeGenerator {
                             EnumVariant::Unit(_) => "null".to_string(),
                             EnumVariant::Newtype(_, expr) => render(expr),
                             EnumVariant::Tuple(_, exprs) => {
-                                let record = CodecExpr::object(
-                                    exprs
-                                        .iter()
-                                        .enumerate()
-                                        .map(|(i, expr)| (format!("_{i}"), expr.clone())),
-                                );
-                                render(&record)
+                                render(&CodecExpr::array(exprs.iter().cloned()))
                             }
                             EnumVariant::Struct(_, fields) => {
                                 let record = CodecExpr::object(fields.iter().cloned());
@@ -774,7 +769,7 @@ mod tests {
             "export const ArchivedMixedAlign = r.taggedEnum({\n\
              \x20 V: { a: r.u8, b: r.u32 },\n\
              \x20 X: r.u64,\n\
-             \x20 Color: { _0: r.u8, _1: r.u8 },\n\
+             \x20 Color: [r.u8, r.u8],\n\
              \x20 Y: null,\n\
              });"
         ));

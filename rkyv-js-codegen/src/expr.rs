@@ -56,8 +56,11 @@ pub enum CodecExpr {
     TypeRef(String),
     /// A call expression: `callee(args...)`.
     Call(Box<CodecExpr>, Vec<CodecExpr>),
-    /// An object literal `{ k: v, ... }` — used for enum variant records.
+    /// An object literal `{ k: v, ... }` — used for enum struct-variant
+    /// records.
     Object(Vec<(String, CodecExpr)>),
+    /// An array literal `[a, b, ...]` — used for enum tuple variants.
+    Array(Vec<CodecExpr>),
     /// An integer literal (array lengths).
     LitInt(u64),
     /// A placeholder inside registry templates, replaced by
@@ -96,6 +99,11 @@ impl CodecExpr {
         CodecExpr::Object(entries.into_iter().map(|(k, v)| (k.into(), v)).collect())
     }
 
+    /// An array literal `[a, b, ...]`.
+    pub fn array(elements: impl IntoIterator<Item = CodecExpr>) -> Self {
+        CodecExpr::Array(elements.into_iter().collect())
+    }
+
     /// Verbatim TypeScript. The generator never inspects the contents.
     pub fn raw(ts: impl Into<String>) -> Self {
         CodecExpr::Raw(ts.into())
@@ -118,6 +126,9 @@ impl CodecExpr {
                     .map(|(k, v)| (k.clone(), v.substitute(args)))
                     .collect(),
             ),
+            CodecExpr::Array(elements) => {
+                CodecExpr::Array(elements.iter().map(|e| e.substitute(args)).collect())
+            }
             other => other.clone(),
         }
     }
@@ -138,6 +149,11 @@ impl CodecExpr {
             CodecExpr::Object(entries) => {
                 for (_, v) in entries {
                     v.visit(f);
+                }
+            }
+            CodecExpr::Array(elements) => {
+                for element in elements {
+                    element.visit(f);
                 }
             }
             _ => {}
@@ -205,6 +221,13 @@ impl CodecExpr {
                     .map(|(k, v)| Ok(format!("{}: {}", k, v.render(archived_names)?)))
                     .collect::<Result<Vec<_>, DiagnosticKind>>()?;
                 Ok(format!("{{ {} }}", entries.join(", ")))
+            }
+            CodecExpr::Array(elements) => {
+                let elements = elements
+                    .iter()
+                    .map(|e| e.render(archived_names))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(format!("[{}]", elements.join(", ")))
             }
             CodecExpr::LitInt(n) => Ok(n.to_string()),
             CodecExpr::Param(i) => panic!(
@@ -425,6 +448,15 @@ mod tests {
         let expr = CodecExpr::object([("a", codec::u8()), ("b", codec::u32())]);
         assert_eq!(render(&expr), "{ a: r.u8, b: r.u32 }");
         assert_eq!(render(&CodecExpr::Object(Vec::new())), "{}");
+    }
+
+    #[test]
+    fn renders_array() {
+        let expr = CodecExpr::array([codec::u8(), codec::string()]);
+        assert_eq!(render(&expr), "[r.u8, r.string]");
+        assert_eq!(render(&CodecExpr::Array(Vec::new())), "[]");
+        let template = CodecExpr::array([CodecExpr::Param(0)]);
+        assert_eq!(render(&template.substitute(&[codec::u32()])), "[r.u32]");
     }
 
     #[test]

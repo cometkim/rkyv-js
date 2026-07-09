@@ -246,7 +246,7 @@ export const ArchivedHashMapStructKey = r.struct({
 export type HashMapStructKey = r.Infer<typeof ArchivedHashMapStructKey>;
 
 export const ArchivedTupleVariants = r.taggedEnum({
-  Color: { _0: r.u8, _1: r.u8, _2: r.u8 },
+  Color: [r.u8, r.u8, r.u8],
   Wrap: r.string,
   Empty: null,
 });

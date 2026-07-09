@@ -78,7 +78,7 @@ export const ArchivedMessage = r.taggedEnum({
   Quit: null,
   Move: { x: r.i32, y: r.i32 },
   Write: r.string,
-  ChangeColor: { _0: r.u8, _1: r.u8, _2: r.u8 },
+  ChangeColor: [r.u8, r.u8, r.u8],
 });
 
 export type Message = r.Infer<typeof ArchivedMessage>;

@@ -144,10 +144,12 @@ Sequences appear as `LazyList<E>` (`length`, `at`, iteration, `toArray`) rather 
 const ArchivedShape = r.taggedEnum({
   Circle: { radius: r.f64 },        // struct variant → record of codecs
   Wrap: r.string,                   // newtype variant → bare codec
-  Color: { _0: r.u8, _1: r.u8, _2: r.u8 },  // tuple variant → _N record
+  Color: [r.u8, r.u8, r.u8],        // tuple variant → array of codecs
   Empty: null,                      // unit variant
 });
-// value shape: { tag: 'Circle', value: { radius: 1.5 } } | { tag: 'Wrap', value: string } | …
+// value shape: { tag: 'Circle', value: { radius: 1.5 } }
+//            | { tag: 'Wrap', value: string }
+//            | { tag: 'Color', value: [number, number, number] } | …
 ```
 
 Enum variants are laid out exactly like rkyv's `repr(u8)` enums (fields flattened after the tag), and — matching rkyv's derive — at most 256 variants are supported.

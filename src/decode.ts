@@ -701,24 +701,34 @@ export function struct<F extends Record<string, AnyDecoder>>(
 /**
  * A tagged-enum variant definition:
  * - `null` — unit variant
+ * - an array of codecs — tuple variant (`Color: [r.u8, r.u8, r.u8]`),
+ *   decoded as an array; a single-element array is a newtype variant
  * - a record of codecs — struct variant (`Move: { x: r.i32, y: r.i32 }`)
  * - a struct codec — struct variant, fields flattened into the enum layout
  * - any other codec — newtype variant (`Write: r.string`), value is the
  *   inner value itself
  */
-export type EnumVariantDef = null | AnyDecoder | Record<string, AnyDecoder>;
+export type EnumVariantDef =
+  | null
+  | AnyDecoder
+  | readonly AnyDecoder[]
+  | Record<string, AnyDecoder>;
 
 export type EnumVariants = Record<string, EnumVariantDef>;
 
 export type EnumVariantValue<D> = D extends null
   ? null
-  : D extends StructDecoder<infer T>
-    ? T
-    : D extends BaseDecoder<infer T, any>
-      ? T
-      : D extends Record<string, AnyDecoder>
-        ? { [K in keyof D]: Infer<D[K]> }
-        : never;
+  : D extends readonly [AnyDecoder]
+    ? Infer<D[0]>
+    : D extends readonly AnyDecoder[]
+      ? { [K in keyof D]: Infer<D[K]> }
+      : D extends StructDecoder<infer T>
+        ? T
+        : D extends BaseDecoder<infer T, any>
+          ? T
+          : D extends Record<string, AnyDecoder>
+            ? { [K in keyof D]: Infer<D[K]> }
+            : never;
 
 /**
  * Tagged enum value: `{ tag, value }` discriminated union.
@@ -757,6 +767,10 @@ export class EnumDecoder<T> extends BaseDecoder<T, EnumLayout> {
     const variantFields: (readonly EnumVariantField[])[] = names.map((name) => {
       const def = variants[name];
       if (def === null) return [];
+      if (Array.isArray(def)) {
+        // Tuple variant: positional fields, decoded as an array value.
+        return def.map((codec) => ({ name: null, codec }));
+      }
       if (def instanceof StructDecoder) {
         return def.fields.map((f) => ({ name: f.name, codec: f.codec }));
       }
@@ -798,6 +812,16 @@ export class EnumDecoder<T> extends BaseDecoder<T, EnumLayout> {
       const codec = fields[0].codec;
       const fieldOffset = offset + offsets[0];
       const value = lazy ? codec.readLazy(reader, fieldOffset) : codec.read(reader, fieldOffset);
+      return { tag, value };
+    }
+    if (fields[0].name === null) {
+      // Tuple variant: positional fields decode into an array.
+      const value: unknown[] = new Array(fields.length);
+      for (let i = 0; i < fields.length; i++) {
+        const codec = fields[i].codec;
+        const fieldOffset = offset + offsets[i];
+        value[i] = lazy ? codec.readLazy(reader, fieldOffset) : codec.read(reader, fieldOffset);
+      }
       return { tag, value };
     }
     const value: Record<string, unknown> = {};

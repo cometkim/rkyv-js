@@ -283,6 +283,11 @@ function emitRead(ctx: EmitCtx<AnyDecoder>, codec: AnyDecoder, off: string): str
           const value = emitRead(ctx, v.fields[0].codec, addOffset('o', offsets[0]));
           return `    case ${disc}: return { tag: ${tag}, value: ${value} };`;
         }
+        if (v.fields[0].name === null) {
+          // Tuple variant: positional fields decode into an array.
+          const parts = v.fields.map((f, i) => emitRead(ctx, f.codec, addOffset('o', offsets[i])));
+          return `    case ${disc}: return { tag: ${tag}, value: [${parts.join(', ')}] };`;
+        }
         const parts = v.fields.map(
           (f, i) =>
             `${JSON.stringify(f.name)}: ${emitRead(ctx, f.codec, addOffset('o', offsets[i]))}`,

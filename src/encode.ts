@@ -746,24 +746,34 @@ export function struct<F extends Record<string, AnyEncoder>>(
 /**
  * A tagged-enum variant definition:
  * - `null` — unit variant
+ * - an array of codecs — tuple variant (`Color: [r.u8, r.u8, r.u8]`),
+ *   encoded from an array; a single-element array is a newtype variant
  * - a record of codecs — struct variant (`Move: { x: r.i32, y: r.i32 }`)
  * - a struct codec — struct variant, fields flattened into the enum layout
  * - any other codec — newtype variant (`Write: r.string`), value is the
  *   inner value itself
  */
-export type EnumVariantDef = null | AnyEncoder | Record<string, AnyEncoder>;
+export type EnumVariantDef =
+  | null
+  | AnyEncoder
+  | readonly AnyEncoder[]
+  | Record<string, AnyEncoder>;
 
 export type EnumVariants = Record<string, EnumVariantDef>;
 
 export type EnumVariantValue<D> = D extends null
   ? null
-  : D extends StructEncoder<infer T>
-    ? T
-    : D extends BaseEncoder<infer T, any, any>
-      ? T
-      : D extends Record<string, AnyEncoder>
-        ? { [K in keyof D]: Infer<D[K]> }
-        : never;
+  : D extends readonly [AnyEncoder]
+    ? Infer<D[0]>
+    : D extends readonly AnyEncoder[]
+      ? { [K in keyof D]: Infer<D[K]> }
+      : D extends StructEncoder<infer T>
+        ? T
+        : D extends BaseEncoder<infer T, any, any>
+          ? T
+          : D extends Record<string, AnyEncoder>
+            ? { [K in keyof D]: Infer<D[K]> }
+            : never;
 
 /**
  * Tagged enum value: `{ tag, value }` discriminated union.
@@ -782,6 +792,10 @@ export interface EnumEncodeVariantField {
 /** Normalize a variant definition to a flat field list. */
 function normalizeEnumVariant(def: EnumVariantDef): readonly EnumEncodeVariantField[] {
   if (def === null) return [];
+  if (Array.isArray(def)) {
+    // Tuple variant: positional fields, encoded from an array value.
+    return def.map((codec) => ({ name: null, codec: codec as AnyEncoder }));
+  }
   if (def instanceof StructEncoder) {
     return def.fields.map((f) => ({ name: f.name, codec: f.codec }));
   }
@@ -845,6 +859,8 @@ export class EnumEncoder<T> extends BaseEncoder<T, unknown[] | null, EnumLayout>
 
   #fieldValues(fields: readonly EnumEncodeVariantField[], value: unknown): unknown[] {
     if (fields.length === 1 && fields[0].name === null) return [value];
+    // Tuple variant: the value is already the positional array.
+    if (fields[0].name === null) return value as unknown[];
     const record = value as Record<string, unknown>;
     return fields.map((f) => record[f.name as string]);
   }

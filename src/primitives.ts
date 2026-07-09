@@ -513,24 +513,34 @@ export function struct<F extends Record<string, AnyCodec>>(
 /**
  * A tagged-enum variant definition:
  * - `null` — unit variant
+ * - an array of codecs — tuple variant (`Color: [r.u8, r.u8, r.u8]`),
+ *   valued as an array; a single-element array is a newtype variant
  * - a record of codecs — struct variant (`Move: { x: r.i32, y: r.i32 }`)
  * - a struct codec — struct variant, fields flattened into the enum layout
  * - any other codec — newtype variant (`Write: r.string`), value is the
  *   inner value itself
  */
-export type EnumVariantDef = null | AnyCodec | Record<string, AnyCodec>;
+export type EnumVariantDef =
+  | null
+  | AnyCodec
+  | readonly AnyCodec[]
+  | Record<string, AnyCodec>;
 
 export type EnumVariants = Record<string, EnumVariantDef>;
 
 export type EnumVariantValue<D> = D extends null
   ? null
-  : D extends StructCodec<infer T>
-    ? T
-    : D extends Codec<infer T, any, any>
-      ? T
-      : D extends Record<string, AnyCodec>
-        ? { [K in keyof D]: Infer<D[K]> }
-        : never;
+  : D extends readonly [AnyCodec]
+    ? Infer<D[0]>
+    : D extends readonly AnyCodec[]
+      ? { [K in keyof D]: Infer<D[K]> }
+      : D extends StructCodec<infer T>
+        ? T
+        : D extends Codec<infer T, any, any>
+          ? T
+          : D extends Record<string, AnyCodec>
+            ? { [K in keyof D]: Infer<D[K]> }
+            : never;
 
 /**
  * Tagged enum value: `{ tag, value }` discriminated union.
