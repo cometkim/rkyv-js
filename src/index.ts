@@ -12,6 +12,6 @@ export {
 } from './core/codec.ts';
 export { DEFAULT_FORMAT, format, type RkyvFormat } from './core/format.ts';
 export type { RkyvHasher, RkyvBuildHasher } from './core/hasher.ts';
-export * from './primitives.ts';
 export { RkyvReader } from './core/reader.ts';
 export { RkyvWriter } from './core/writer.ts';
+export * from './primitives.ts';

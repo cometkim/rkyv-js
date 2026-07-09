@@ -1,4 +1,4 @@
-import { run, bench, group, summary, do_not_optimize } from 'mitata';
+import { run, bench, group, summary } from 'mitata';
 import * as r from 'rkyv-js';
 
 const ArchivedPerson = r.struct({

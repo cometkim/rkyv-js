@@ -3,70 +3,51 @@
  *
  * Supports the `uuid-1` feature in rkyv.
  * @see https://docs.rs/uuid/1
+ *
+ * The logic lives once per direction: the full codec here EXTENDS the read
+ * class from `./uuid.decode.ts` and CONTAINS the encode class from
+ * `./uuid.encode.ts`, delegating `resolve`/`hash` to it. One-direction
+ * consumers import those modules directly instead.
  */
 
 import {
-  Codec,
-  type Layout,
+  DEFAULT_FORMAT,
+  encodeIntoWriter,
+  encodePooled,
+  type Codec,
   type RkyvFormat,
   type RkyvHasher,
   type RkyvTextEncoder,
-  type RkyvReader,
   type RkyvWriter,
 } from 'rkyv-js/core';
 
-/**
- * Convert bytes to a formatted UUID string.
- * Format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
- */
-function bytesToUuid(bytes: Uint8Array): string {
-  const hex = Array.from(bytes)
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
-}
+import { UuidDecoder } from './uuid.decode.ts';
+import { UuidEncoder } from './uuid.encode.ts';
 
-/**
- * Convert a UUID string to 16 bytes.
- * Accepts format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx or continuous hex
- */
-function uuidToBytes(uuid: string): Uint8Array {
-  const hex = uuid.replace(/-/g, '');
-  if (hex.length !== 32) {
-    throw new Error(`Invalid UUID: ${uuid}`);
-  }
-  const bytes = new Uint8Array(16);
-  for (let i = 0; i < 16; i++) {
-    bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-  }
-  return bytes;
-}
+export { UuidDecoder } from './uuid.decode.ts';
+export { UuidEncoder } from './uuid.encode.ts';
 
-const UUID_ALIGNED: Layout = { size: 16, align: 1 };
+export class UuidCodec extends UuidDecoder {
+  #write: UuidEncoder = new UuidEncoder();
 
-class UuidCodec extends Codec<string, undefined> {
-  constructor() {
-    super({ inline: true, hashable: true });
+  archive(writer: RkyvWriter, value: string): undefined {
+    return this.#write.archive(writer, value);
   }
 
-  computeLayout(_fmt: RkyvFormat): Layout {
-    // [u8; 16] — alignment 1 under every format.
-    return UUID_ALIGNED;
+  resolve(writer: RkyvWriter, value: string, resolver: undefined): number {
+    return this.#write.resolve(writer, value, resolver);
   }
 
-  read(reader: RkyvReader, offset: number): string {
-    return bytesToUuid(reader.readBytes(offset, 16));
+  hash(hasher: RkyvHasher, value: string, encoder: RkyvTextEncoder): void {
+    this.#write.hash(hasher, value, encoder);
   }
 
-  resolve(writer: RkyvWriter, value: string, _resolver: undefined): number {
-    return writer.writeBytes(uuidToBytes(value));
+  encode(value: string, format: RkyvFormat = DEFAULT_FORMAT): Uint8Array {
+    return encodePooled(this, value, format);
   }
 
-  // Uuid is a newtype over [u8; 16]; arrays hash as slices: length prefix,
-  // then (for u8 elements) the raw bytes.
-  hash(hasher: RkyvHasher, value: string, _encoder: RkyvTextEncoder): void {
-    hasher.writeUsize(16);
-    hasher.writeBytes(uuidToBytes(value));
+  encodeInto(writer: RkyvWriter, value: string): Uint8Array {
+    return encodeIntoWriter(this, writer, value);
   }
 }
 

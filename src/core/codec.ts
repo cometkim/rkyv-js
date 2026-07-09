@@ -1,52 +1,60 @@
+import type { Layout } from './base.ts';
 import { DEFAULT_FORMAT, type RkyvFormat } from './format.ts';
 import type { RkyvHasher } from './hasher.ts';
-import { RkyvReader } from './reader.ts';
-import { RkyvWriter, type RkyvTextEncoder } from './writer.ts';
+import { BaseDecoder, type Decoder, type Lazy } from './decoder.ts';
+import type { CodecMeta } from './meta.ts';
+import type { RkyvReader } from './reader.ts';
+import { encodeIntoWriter, encodePooled, type Encoder } from './encoder.ts';
+import type { RkyvWriter, RkyvTextEncoder } from './writer.ts';
 
-/**
- * Size and alignment of a codec's archived representation under a specific
- * wire format.
- */
-export interface Layout {
-  readonly size: number;
-  readonly align: number;
-}
-
-/**
- * Lazily-decoded shape of `T`, as returned by `Codec.access()`:
- * composite objects become memoized getter views, arrays become
- * {@link LazyList}, everything else decodes on demand.
- */
-export type Lazy<T> = T extends
-  | string
-  | number
-  | bigint
-  | boolean
-  | null
-  | undefined
-  | Uint8Array
-  ? T
-  : T extends Map<infer K, infer V>
-    ? Map<K, V>
-    : T extends Set<infer E>
-      ? Set<E>
-      : T extends readonly (infer E)[]
-        ? LazyList<E>
-        : T extends object
-          ? { readonly [K in keyof T]: Lazy<T[K]> }
-          : T;
-
-/**
- * Lazy view over an archived sequence. Elements decode on first access.
- * For full traversals of plain data, use `Codec.decode()` instead — it is
- * faster than walking a lazy view.
- */
-export interface LazyList<E> extends Iterable<Lazy<E>> {
-  readonly length: number;
-  at(index: number): Lazy<E> | undefined;
-  /** Eagerly decode the whole sequence into a plain array. */
-  toArray(): E[];
-}
+// codec.ts is the aggregation point for the codec class family: the
+// direction contracts (`Decoder`/`Encoder` interfaces) and their
+// implementation bases live in their own modules (so unidirectional bundles
+// can import exactly one side) and are re-exported here for the full surface.
+export { BaseCodec, alignOffset, type Infer, type Layout } from './base.ts';
+export type {
+  ArrayLayout,
+  EnumLayout,
+  OptionLayout,
+  StringLayout,
+  StructLayout,
+  VariantLayout,
+  VecLayout,
+} from './layout.ts';
+export {
+  BaseDecoder,
+  FormatBoundDecoder,
+  type AnyDecoder,
+  type Decoder,
+  type Lazy,
+  type LazyList,
+} from './decoder.ts';
+export {
+  BaseEncoder,
+  encodeIntoWriter,
+  encodePooled,
+  type AnyEncoder,
+  type Encoder,
+} from './encoder.ts';
+export {
+  Kind,
+  OPAQUE_META,
+  primitiveKindOf,
+  type PrimitiveKindTag,
+  type ArrayMeta,
+  type CodecMeta,
+  type CodecMetaField,
+  type CodecMetaVariant,
+  type CodecMetaVariantField,
+  type EnumMeta,
+  type OpaqueMeta,
+  type OptionMeta,
+  type PrimitiveMeta,
+  type StringMeta,
+  type StructMeta,
+  type TupleMeta,
+  type VecMeta,
+} from './meta.ts';
 
 /**
  * A rkyv codec: the value type `T`, the private resolver type `R` produced
@@ -78,51 +86,18 @@ export interface LazyList<E> extends Iterable<Lazy<E>> {
  * const person = ArchivedPerson.decode(bytes);
  * const lazy = ArchivedPerson.access(bytes);
  * ```
+ *
+ * A codec is a decoder combined with an encoder: the read half is inherited
+ * from {@link BaseDecoder}, and the write half declared here — the class
+ * satisfies both the {@link Decoder} and {@link Encoder} contracts (concrete
+ * codecs implement the write half directly or delegate to a contained
+ * encoder). One-direction consumers import from `rkyv-js/decode` /
+ * `rkyv-js/encode` instead.
  */
-export class Codec<T, R = any, L extends Layout = Layout> {
-  /** True when the archived form holds no relative pointers anywhere. */
-  readonly inline: boolean;
-  /** True when `hash` implements Rust-compatible key hashing. */
-  readonly hashable: boolean;
-
-  #lastFormat: RkyvFormat | null = null;
-  #lastLayout: L | null = null;
-
-  constructor(options: { inline: boolean; hashable: boolean }) {
-    this.inline = options.inline;
-    this.hashable = options.hashable;
-  }
-
-  /**
-   * Layout under `fmt`, memoized by format object identity (a single
-   * pointer compare on hot paths — one format per app in practice).
-   */
-  layout(fmt: RkyvFormat): L {
-    if (fmt !== this.#lastFormat) {
-      this.#lastLayout = this.computeLayout(fmt);
-      this.#lastFormat = fmt;
-    }
-    return this.#lastLayout as L;
-  }
-
-  /** Compute the layout for a format. Implemented by every codec. */
-  computeLayout(_fmt: RkyvFormat): L {
-    throw new Error(`${this.constructor.name} must implement computeLayout()`);
-  }
-
-  /** Eagerly decode the value at `offset`. Implemented by every codec. */
-  read(_reader: RkyvReader, _offset: number): T {
-    throw new Error(`${this.constructor.name} must implement read()`);
-  }
-
-  /**
-   * Lazily decode at `offset` — composite codecs return views. The base
-   * implementation decodes eagerly.
-   */
-  readLazy(reader: RkyvReader, offset: number): unknown {
-    return this.read(reader, offset);
-  }
-
+export class Codec<T, R = any, L extends Layout = Layout>
+  extends BaseDecoder<T, L>
+  implements Decoder<T, L>, Encoder<T, R, L>
+{
   /**
    * Serialize out-of-line dependencies and return the resolver for
    * `resolve`. Inline codecs keep the no-op base implementation.
@@ -140,7 +115,7 @@ export class Codec<T, R = any, L extends Layout = Layout> {
    * Feed the value to the hasher the way Rust's `Hash` impl would.
    * Only meaningful when `hashable` is true.
    *
-   * `encoder` is the writer-configured `TextEncoder` (string keys must be
+   * `encoder` is the writer-configured text encoder (string keys must be
    * hashed as their UTF-8 bytes); implementations without text content
    * simply ignore it.
    */
@@ -155,63 +130,14 @@ export class Codec<T, R = any, L extends Layout = Layout> {
    * on re-entrancy), so the returned buffer is always an independent copy.
    */
   encode(value: T, format: RkyvFormat = DEFAULT_FORMAT): Uint8Array {
-    if (pooledBusy || pooledFormat !== format) {
-      if (pooledBusy) {
-        // Re-entrant encode (e.g. inside a transform): use a fresh writer.
-        return this.encodeInto(new RkyvWriter({ format }), value);
-      }
-      pooledWriter = new RkyvWriter({ format });
-      pooledFormat = format;
-    }
-    const writer = pooledWriter as RkyvWriter;
-    pooledBusy = true;
-    try {
-      writer.reset();
-      return this.encodeInto(writer, value).slice();
-    } finally {
-      pooledBusy = false;
-    }
+    return encodePooled(this, value, format);
   }
 
   /** Encode using an existing writer (reusable via `writer.reset()`). */
   encodeInto(writer: RkyvWriter, value: T): Uint8Array {
-    const resolver = this.inline ? (undefined as R) : this.archive(writer, value);
-    writer.align(this.layout(writer.format).align);
-    this.resolve(writer, value, resolver);
-    return writer.finish();
-  }
-
-  /** Decode the root value into plain data. */
-  decode(bytes: Uint8Array | ArrayBuffer, format: RkyvFormat = DEFAULT_FORMAT): T {
-    const reader = new RkyvReader(bytes, { format });
-    return this.read(reader, reader.getRootPosition(this.layout(format).size));
-  }
-
-  /** Lazily access the root value; fields decode on first read. */
-  access(bytes: Uint8Array | ArrayBuffer, format: RkyvFormat = DEFAULT_FORMAT): Lazy<T> {
-    const reader = new RkyvReader(bytes, { format });
-    return this.readLazy(reader, reader.getRootPosition(this.layout(format).size)) as Lazy<T>;
+    return encodeIntoWriter(this, writer, value);
   }
 }
-
-// Single-slot writer pool for root `encode()` calls, keyed by format
-// identity. `encode` copies the result out, so reuse is safe.
-let pooledWriter: RkyvWriter | null = null;
-let pooledFormat: RkyvFormat | null = null;
-let pooledBusy = false;
-
-/**
- * Infer the TypeScript value type from a codec.
- *
- * Anchored on `read`'s return type (which is exactly `T`) rather than the
- * `Codec<infer T, …>` parent: inferring through the class collects
- * candidates from every position `T` appears in — including the deferred
- * `Lazy<T>` in `access` — which can leak view types into the result
- * depending on checker order.
- */
-export type Infer<C> = C extends { read(reader: RkyvReader, offset: number): infer T }
-  ? T
-  : never;
 
 /**
  * A codec of any value type (for generic containers of codecs).
@@ -229,6 +155,12 @@ export interface CodecSpec<T, R = unknown> {
   archive?(writer: RkyvWriter, value: T): R;
   resolve(writer: RkyvWriter, value: T, resolver: R): number;
   hash?(hasher: RkyvHasher, value: T, encoder: RkyvTextEncoder): void;
+  /**
+   * Optional shape descriptor — a behavioral promise that opts the codec
+   * into meta-driven consumers like JIT inlining (see {@link CodecMeta}).
+   * Defaults to opaque.
+   */
+  meta?: CodecMeta<AnyCodec>;
 }
 
 class SpecCodec<T, R> extends Codec<T, R> {
@@ -237,6 +169,7 @@ class SpecCodec<T, R> extends Codec<T, R> {
   constructor(spec: CodecSpec<T, R>) {
     super({ inline: spec.archive === undefined, hashable: spec.hash !== undefined });
     this.#spec = spec;
+    if (spec.meta !== undefined) this.meta = spec.meta;
   }
 
   computeLayout(fmt: RkyvFormat): Layout {
@@ -279,49 +212,49 @@ export function defineCodec<T, R = unknown>(spec: CodecSpec<T, R>): Codec<T, R> 
   return new SpecCodec(spec);
 }
 
-class FormatBoundCodec<T> extends Codec<T> {
-  #inner: Codec<T>;
-  #format: RkyvFormat;
+export class FormatBoundCodec<T> extends Codec<T> {
+  readonly inner: Codec<T, any, any>;
+  readonly format: RkyvFormat;
 
-  constructor(inner: Codec<T>, format: RkyvFormat) {
+  constructor(inner: Codec<T, any, any>, format: RkyvFormat) {
     super({ inline: inner.inline, hashable: inner.hashable });
-    this.#inner = inner;
-    this.#format = format;
+    this.inner = inner;
+    this.format = format;
   }
 
   computeLayout(fmt: RkyvFormat): Layout {
-    return this.#inner.layout(fmt);
+    return this.inner.layout(fmt);
   }
 
   read(reader: RkyvReader, offset: number): T {
-    return this.#inner.read(reader, offset);
+    return this.inner.read(reader, offset);
   }
 
   readLazy(reader: RkyvReader, offset: number): unknown {
-    return this.#inner.readLazy(reader, offset);
+    return this.inner.readLazy(reader, offset);
   }
 
   archive(writer: RkyvWriter, value: T): any {
-    return this.#inner.archive(writer, value);
+    return this.inner.archive(writer, value);
   }
 
   resolve(writer: RkyvWriter, value: T, resolver: any): number {
-    return this.#inner.resolve(writer, value, resolver);
+    return this.inner.resolve(writer, value, resolver);
   }
 
   hash(hasher: RkyvHasher, value: T, encoder: RkyvTextEncoder): void {
-    this.#inner.hash(hasher, value, encoder);
+    this.inner.hash(hasher, value, encoder);
   }
 
-  encode(value: T, format: RkyvFormat = this.#format): Uint8Array {
+  encode(value: T, format: RkyvFormat = this.format): Uint8Array {
     return super.encode(value, format);
   }
 
-  decode(bytes: Uint8Array | ArrayBuffer, format: RkyvFormat = this.#format): T {
+  decode(bytes: Uint8Array | ArrayBuffer, format: RkyvFormat = this.format): T {
     return super.decode(bytes, format);
   }
 
-  access(bytes: Uint8Array | ArrayBuffer, format: RkyvFormat = this.#format): Lazy<T> {
+  access(bytes: Uint8Array | ArrayBuffer, format: RkyvFormat = this.format): Lazy<T> {
     return super.access(bytes, format);
   }
 }
@@ -332,11 +265,4 @@ class FormatBoundCodec<T> extends Codec<T> {
  */
 export function withFormat<T>(codec: Codec<T>, format: RkyvFormat): Codec<T> {
   return new FormatBoundCodec(codec, format);
-}
-
-/**
- * Align an offset upward to the given alignment (a power of two).
- */
-export function alignOffset(offset: number, align: number): number {
-  return (offset + align - 1) & -align;
 }

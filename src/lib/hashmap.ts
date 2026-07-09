@@ -12,181 +12,69 @@
  * Key placement must reproduce rkyv's probing exactly (see
  * ./internal/swiss-table.ts), and key hashing must match Rust's `Hash`
  * impls, so the key codec is required to be hashable.
+ *
+ * The logic lives once per direction: the full codec here EXTENDS the read
+ * class from `./hashmap.decode.ts` and CONTAINS the encode class from
+ * `./hashmap.encode.ts`, delegating `archive`/`resolve`/`hash` to it.
+ * One-direction consumers import those modules directly instead.
  */
 
 import {
-  alignOffset,
-  Codec,
+  DEFAULT_FORMAT,
+  encodeIntoWriter,
+  encodePooled,
   type AnyCodec,
+  type Codec,
   type Infer,
-  type Layout,
   type RkyvBuildHasher,
   type RkyvFormat,
-  type RkyvReader,
+  type RkyvHasher,
+  type RkyvTextEncoder,
   type RkyvWriter,
 } from 'rkyv-js/core';
 import { unit } from 'rkyv-js/primitives';
 
-import { fxBuildHasher } from './internal/fx-hasher.ts';
+import { HashMapDecoder } from './hashmap.decode.ts';
+import {
+  HashMapEncoder,
+  type HashTableOptions,
+  type TableResolver,
+} from './hashmap.encode.ts';
 import { SetOfMapCodec } from './internal/map-set.ts';
-import { buildSwissTable } from './internal/swiss-table.ts';
 
-interface TableLayout extends Layout {
-  pb: 2 | 4 | 8;
-}
+export { HashMapDecoder } from './hashmap.decode.ts';
+export {
+  HashMapEncoder,
+  requireHashableKey,
+  type HashTableOptions,
+} from './hashmap.encode.ts';
 
-interface EntryGeometry {
-  entryAlign: number;
-  valueOffset: number;
-  entrySize: number;
-}
+export class HashMapCodec<K, V> extends HashMapDecoder<K, V> {
+  #write: HashMapEncoder<K, V>;
 
-interface TableResolver {
-  len: number;
-  capacity: number;
-  controlBytesPos: number;
-}
-
-export function requireHashableKey(keyCodec: Codec<unknown>, what: string): void {
-  if (!keyCodec.hashable) {
-    throw new Error(
-      `${what} requires a hashable key codec ` +
-        '(string, integer, bool, char, or structs/tuples of those)',
-    );
-  }
-}
-
-export interface HashTableOptions {
-  /**
-   * Hasher matching the Rust side's ARCHIVED hasher — the `H` parameter of
-   * `ArchivedHashMap<K, V, H>` — not the source map's `S`, which never
-   * affects the wire. rkyv 0.8's derive/std impls always archive with
-   * `FxHasher64` (the default); set this only for types archived through a
-   * manual `serialize_from_iter` impl with a custom `H`.
-   */
-  hasher?: RkyvBuildHasher;
-}
-
-class HashMapCodec<K, V> extends Codec<Map<K, V>, TableResolver, TableLayout> {
-  #key: Codec<K>;
-  #value: Codec<V>;
-  #buildHasher: RkyvBuildHasher;
-  #geometryFormat: RkyvFormat | null = null;
-  #geometry: EntryGeometry | null = null;
-
-  constructor(keyCodec: Codec<K>, valueCodec: Codec<V>, buildHasher: RkyvBuildHasher = fxBuildHasher) {
-    super({ inline: false, hashable: false });
-    requireHashableKey(keyCodec as Codec<unknown>, 'hashMap');
-    this.#key = keyCodec;
-    this.#value = valueCodec;
-    this.#buildHasher = buildHasher;
-  }
-
-  // Header layout never depends on the entry types (maps are valid recursion
-  // points in Rust); entry geometry is memoized separately and computed only
-  // at read/write time.
-  computeLayout(fmt: RkyvFormat): TableLayout {
-    const pb = (fmt.pointerWidth / 8) as 2 | 4 | 8;
-    return { size: pb * 3, align: fmt.aligned ? pb : 1, pb };
-  }
-
-  #entryGeometry(fmt: RkyvFormat): EntryGeometry {
-    if (fmt !== this.#geometryFormat) {
-      const k = this.#key.layout(fmt);
-      const v = this.#value.layout(fmt);
-      const entryAlign = Math.max(k.align, v.align);
-      const valueOffset = alignOffset(k.size, v.align);
-      this.#geometry = {
-        entryAlign,
-        valueOffset,
-        entrySize: alignOffset(valueOffset + v.size, entryAlign),
-      };
-      this.#geometryFormat = fmt;
-    }
-    return this.#geometry as EntryGeometry;
-  }
-
-  read(reader: RkyvReader, offset: number): Map<K, V> {
-    const l = this.layout(reader.format);
-    const result = new Map<K, V>();
-    const length = reader.readUsize(offset + l.pb);
-    if (length === 0) return result;
-
-    const g = this.#entryGeometry(reader.format);
-    const capacity = reader.readUsize(offset + l.pb * 2);
-    const controlBytesOffset = reader.readRelPtr(offset);
-
-    let remaining = length;
-    for (let slot = 0; slot < capacity && remaining > 0; slot++) {
-      if (reader.readU8(controlBytesOffset + slot) < 0x80) {
-        const entryOffset = controlBytesOffset - (slot + 1) * g.entrySize;
-        result.set(
-          this.#key.read(reader, entryOffset),
-          this.#value.read(reader, entryOffset + g.valueOffset),
-        );
-        remaining--;
-      }
-    }
-    return result;
+  constructor(keyCodec: Codec<K>, valueCodec: Codec<V>, buildHasher?: RkyvBuildHasher) {
+    super(keyCodec, valueCodec);
+    this.#write = new HashMapEncoder(keyCodec, valueCodec, buildHasher);
   }
 
   archive(writer: RkyvWriter, value: Map<K, V>): TableResolver {
-    const items = [...value.entries()];
-    if (items.length === 0) {
-      return { len: 0, capacity: 0, controlBytesPos: 0 };
-    }
-    const g = this.#entryGeometry(writer.format);
-
-    const key = this.#key;
-    const val = this.#value;
-    const hasher = this.#buildHasher.create(writer.format);
-    const encoder = writer.textEncoder;
-    const table = buildSwissTable(items, hasher, (h, item) => key.hash(h, item[0], encoder));
-    const { capacity, slotToItem, controlBytes } = table;
-
-    // Dependencies in slot order (rkyv iterates ordered_items ascending).
-    const keyResolvers: unknown[] = new Array<unknown>(capacity);
-    const valueResolvers: unknown[] = new Array<unknown>(capacity);
-    for (let slot = 0; slot < capacity; slot++) {
-      const item = slotToItem[slot];
-      if (item >= 0) {
-        keyResolvers[slot] = key.inline ? undefined : key.archive(writer, items[item][0]);
-        valueResolvers[slot] = val.inline ? undefined : val.archive(writer, items[item][1]);
-      }
-    }
-
-    // Buckets from the highest slot down to slot 0, ending where the control
-    // bytes begin: slot i lives at controlBytesPos - (i + 1) * entrySize.
-    writer.align(g.entryAlign);
-    for (let slot = capacity - 1; slot >= 0; slot--) {
-      const entryStart = writer.pos;
-      const item = slotToItem[slot];
-      if (item < 0) {
-        writer.writeZeros(g.entrySize);
-      } else {
-        key.resolve(writer, items[item][0], keyResolvers[slot]);
-        writer.padTo(entryStart + g.valueOffset);
-        val.resolve(writer, items[item][1], valueResolvers[slot]);
-        writer.padTo(entryStart + g.entrySize);
-      }
-    }
-
-    const controlBytesPos = writer.writeBytes(controlBytes);
-    return { len: items.length, capacity, controlBytesPos };
+    return this.#write.archive(writer, value);
   }
 
-  resolve(writer: RkyvWriter, _value: Map<K, V>, resolver: TableResolver): number {
-    const pos = writer.pos;
-    const ptrPos = writer.reserveRelPtr();
-    writer.writeUsize(resolver.len);
-    writer.writeUsize(resolver.capacity);
-    if (resolver.len > 0) {
-      writer.writeRelPtrAt(ptrPos, resolver.controlBytesPos);
-    } else {
-      // An empty table's pointer is rkyv's invalid sentinel (raw offset 1).
-      writer.writeInvalidPtrAt(ptrPos);
-    }
-    return pos;
+  resolve(writer: RkyvWriter, value: Map<K, V>, resolver: TableResolver): number {
+    return this.#write.resolve(writer, value, resolver);
+  }
+
+  hash(hasher: RkyvHasher, value: Map<K, V>, encoder: RkyvTextEncoder): void {
+    this.#write.hash(hasher, value, encoder);
+  }
+
+  encode(value: Map<K, V>, format: RkyvFormat = DEFAULT_FORMAT): Uint8Array {
+    return encodePooled(this, value, format);
+  }
+
+  encodeInto(writer: RkyvWriter, value: Map<K, V>): Uint8Array {
+    return encodeIntoWriter(this, writer, value);
   }
 }
 

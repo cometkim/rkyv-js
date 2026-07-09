@@ -82,5 +82,5 @@ mod registry;
 
 pub use error::{Diagnostic, DiagnosticKind, Error, SourceLocation};
 pub use expr::{CodecExpr, Import, codec, generate_import_block};
-pub use generator::{CodeGenerator, EnumVariant, OnUnknown};
+pub use generator::{CodeGenerator, Direction, EnumVariant, OnUnknown};
 pub use registry::{ExternalType, WithWrapper};

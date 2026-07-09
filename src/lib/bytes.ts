@@ -3,63 +3,51 @@
  *
  * Supports the `bytes-1` feature in rkyv.
  * @see https://docs.rs/bytes/1
+ *
+ * The logic lives once per direction: the full codec here EXTENDS the read
+ * class from `./bytes.decode.ts` and CONTAINS the encode class from
+ * `./bytes.encode.ts`, delegating `archive`/`resolve`/`hash` to it.
+ * One-direction consumers import those modules directly instead.
  */
 
 import {
-  Codec,
-  type Layout,
+  DEFAULT_FORMAT,
+  encodeIntoWriter,
+  encodePooled,
+  type Codec,
   type RkyvFormat,
   type RkyvHasher,
   type RkyvTextEncoder,
-  type RkyvReader,
   type RkyvWriter,
 } from 'rkyv-js/core';
 
-interface BytesLayout extends Layout {
-  pb: 2 | 4 | 8;
-}
+import { BytesDecoder } from './bytes.decode.ts';
+import { BytesEncoder, type BytesResolver } from './bytes.encode.ts';
 
-interface BytesResolver {
-  pos: number;
-  len: number;
-}
+export { BytesDecoder } from './bytes.decode.ts';
+export { BytesEncoder } from './bytes.encode.ts';
 
-class BytesCodec extends Codec<Uint8Array, BytesResolver, BytesLayout> {
-  constructor() {
-    super({ inline: false, hashable: true });
-  }
-
-  computeLayout(fmt: RkyvFormat): BytesLayout {
-    const pb = (fmt.pointerWidth / 8) as 2 | 4 | 8;
-    return { size: pb * 2, align: fmt.aligned ? pb : 1, pb };
-  }
-
-  read(reader: RkyvReader, offset: number): Uint8Array {
-    const l = this.layout(reader.format);
-    const dataOffset = reader.readRelPtr(offset);
-    const length = reader.readUsize(offset + l.pb);
-    // Zero-copy: a view into the archive buffer.
-    return reader.readBytes(dataOffset, length);
-  }
+export class BytesCodec extends BytesDecoder {
+  #write: BytesEncoder = new BytesEncoder();
 
   archive(writer: RkyvWriter, value: Uint8Array): BytesResolver {
-    // Bytes are align-1; the current position is the data position even for
-    // empty values (mirroring ArchivedVec's always-real pointer).
-    return { pos: writer.writeBytes(value), len: value.length };
+    return this.#write.archive(writer, value);
   }
 
-  resolve(writer: RkyvWriter, _value: Uint8Array, resolver: BytesResolver): number {
-    const structPos = writer.pos;
-    const ptrPos = writer.reserveRelPtr();
-    writer.writeUsize(resolver.len);
-    writer.writeRelPtrAt(ptrPos, resolver.pos);
-    return structPos;
+  resolve(writer: RkyvWriter, value: Uint8Array, resolver: BytesResolver): number {
+    return this.#write.resolve(writer, value, resolver);
   }
 
-  // Hash for Bytes derefs to [u8]: length prefix, then the raw bytes.
-  hash(hasher: RkyvHasher, value: Uint8Array, _encoder: RkyvTextEncoder): void {
-    hasher.writeUsize(value.length);
-    hasher.writeBytes(value);
+  hash(hasher: RkyvHasher, value: Uint8Array, encoder: RkyvTextEncoder): void {
+    this.#write.hash(hasher, value, encoder);
+  }
+
+  encode(value: Uint8Array, format: RkyvFormat = DEFAULT_FORMAT): Uint8Array {
+    return encodePooled(this, value, format);
+  }
+
+  encodeInto(writer: RkyvWriter, value: Uint8Array): Uint8Array {
+    return encodeIntoWriter(this, writer, value);
   }
 }
 

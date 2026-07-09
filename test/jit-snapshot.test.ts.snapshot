@@ -1,0 +1,199 @@
+exports[`jit emitted source > decoder: format specialization (big-endian, 64-bit pointers) 1`] = `
+"use strict";
+function h0(r, o, k) {
+  var b = r.buffer;
+  if ((b[o] & 0xc0) !== 0x80) {
+    var s = '';
+    for (var i = 0; i < 16; i++) {
+      var c = b[o + i];
+      if (c === 0xff) return s;
+      if (c > 0x7f) return d[k].read(r, o);
+      s += String.fromCharCode(c);
+    }
+    return s;
+  }
+  return d[k].read(r, o);
+}
+return function read(r, o) { return { "name": h0(r, o, 0), "age": r.readU32(o + 16), "email": (r.readU8(o + 24) === 0 ? null : h0(r, o + 32, 0)), "scores": d[1].read(r, o + 48), "active": r.readBool(o + 64), "address": { "city": h0(r, o + 72, 0), "zip": r.readU32(o + 88) } }; };
+`;
+
+exports[`jit emitted source > decoder: inline all-primitive struct 1`] = `
+"use strict";
+return function read(r, o) { return { "x": r.readF64(o), "y": r.readF64(o + 8) }; };
+`;
+
+exports[`jit emitted source > decoder: map fields stay interpreter dep calls 1`] = `
+"use strict";
+return function read(r, o) { return { "tags": d[0].read(r, o), "n": r.readU32(o + 12) }; };
+`;
+
+exports[`jit emitted source > decoder: person struct (string helper, option, vec-of-primitive dep, nested struct) 1`] = `
+"use strict";
+function h0(r, o, k) {
+  var b = r.buffer;
+  if ((b[o] & 0xc0) !== 0x80) {
+    var s = '';
+    for (var i = 0; i < 8; i++) {
+      var c = b[o + i];
+      if (c === 0xff) return s;
+      if (c > 0x7f) return d[k].read(r, o);
+      s += String.fromCharCode(c);
+    }
+    return s;
+  }
+  return d[k].read(r, o);
+}
+return function read(r, o) { return { "name": h0(r, o, 0), "age": r.readU32(o + 8), "email": (r.readU8(o + 12) === 0 ? null : h0(r, o + 16, 0)), "scores": d[1].read(r, o + 24), "active": r.readBool(o + 32), "address": { "city": h0(r, o + 36, 0), "zip": r.readU32(o + 44) } }; };
+`;
+
+exports[`jit emitted source > decoder: recursion terminates at lazy() with a dep call 1`] = `
+"use strict";
+function h0(r, o) {
+  var q = r.readRelPtr(o);
+  var n = r.readUsize(o + 4);
+  var a = new Array(n);
+  for (var i = 0, p = q; i < n; i++, p += 12) a[i] = d[0].read(r, p);
+  return a;
+}
+return function read(r, o) { return { "value": r.readU32(o), "children": h0(r, o + 4) }; };
+`;
+
+exports[`jit emitted source > decoder: tagged enum switch (unit / newtype / record variants) 1`] = `
+"use strict";
+function h1(r, o, k) {
+  var b = r.buffer;
+  if ((b[o] & 0xc0) !== 0x80) {
+    var s = '';
+    for (var i = 0; i < 8; i++) {
+      var c = b[o + i];
+      if (c === 0xff) return s;
+      if (c > 0x7f) return d[k].read(r, o);
+      s += String.fromCharCode(c);
+    }
+    return s;
+  }
+  return d[k].read(r, o);
+}
+function h0(r, o) {
+  switch (r.readU8(o)) {
+    case 0: return { tag: "Active", value: null };
+    case 1: return { tag: "Renamed", value: h1(r, o + 4, 0) };
+    case 2: return { tag: "Banned", value: { "until": r.readF64(o + 8), "reason": h1(r, o + 16, 0) } };
+    default: throw new Error('invalid enum discriminant');
+  }
+}
+return function read(r, o) { return h0(r, o); };
+`;
+
+exports[`jit emitted source > decoder: tuple, unrolled array, loop array, vec-of-struct, u64 1`] = `
+"use strict";
+function h0(r, o) {
+  var a = new Array(12);
+  for (var i = 0, p = o; i < 12; i++, p += 2) a[i] = r.readI16(p);
+  return a;
+}
+function h1(r, o, k) {
+  var b = r.buffer;
+  if ((b[o] & 0xc0) !== 0x80) {
+    var s = '';
+    for (var i = 0; i < 8; i++) {
+      var c = b[o + i];
+      if (c === 0xff) return s;
+      if (c > 0x7f) return d[k].read(r, o);
+      s += String.fromCharCode(c);
+    }
+    return s;
+  }
+  return d[k].read(r, o);
+}
+function h2(r, o) {
+  var q = r.readRelPtr(o);
+  var n = r.readUsize(o + 4);
+  var a = new Array(n);
+  for (var i = 0, p = q; i < n; i++, p += 12) a[i] = { "city": h1(r, p, 0), "zip": r.readU32(p + 8) };
+  return a;
+}
+return function read(r, o) { return { "pair": [r.readU8(o), r.readF64(o + 8)], "short": [r.readU8(o + 16), r.readU8(o + 17), r.readU8(o + 18), r.readU8(o + 19)], "long": h0(r, o + 20), "friends": h2(r, o + 44), "id": r.readU64(o + 56) }; };
+`;
+
+exports[`jit emitted source > encoder: format specialization (big-endian, 64-bit pointers) 1`] = `
+"use strict";
+var archive = function archive(w, v) { return [d[0].archive(w, v["name"]), void 0, d[1].archive(w, v["email"]), d[2].archive(w, v["scores"]), void 0, d[3].archive(w, v["address"])]; };
+var resolve = function resolve(w, v, x) {
+  var p = w.pos;
+  d[0].resolve(w, v["name"], x === void 0 ? void 0 : x[0]);
+  w.padTo(p + 16);
+  w.writeU32(v["age"]);
+  w.padTo(p + 24);
+  d[1].resolve(w, v["email"], x === void 0 ? void 0 : x[2]);
+  w.padTo(p + 48);
+  d[2].resolve(w, v["scores"], x === void 0 ? void 0 : x[3]);
+  w.padTo(p + 64);
+  w.writeBool(v["active"]);
+  w.padTo(p + 72);
+  d[3].resolve(w, v["address"], x === void 0 ? void 0 : x[5]);
+  w.padTo(p + 96);
+  return p;
+};
+return { archive: archive, resolve: resolve };
+`;
+
+exports[`jit emitted source > encoder: inline all-primitive struct (single-pass, null archive) 1`] = `
+"use strict";
+var archive = null;
+var resolve = function resolve(w, v, x) {
+  var p = w.pos;
+  w.writeF64(v["x"]);
+  w.padTo(p + 8);
+  w.writeF64(v["y"]);
+  w.padTo(p + 16);
+  return p;
+};
+return { archive: archive, resolve: resolve };
+`;
+
+exports[`jit emitted source > encoder: mixed shapes struct 1`] = `
+"use strict";
+var archive = function archive(w, v) { return [void 0, void 0, void 0, d[0].archive(w, v["friends"]), void 0]; };
+var resolve = function resolve(w, v, x) {
+  var p = w.pos;
+  d[1].resolve(w, v["pair"], x === void 0 ? void 0 : x[0]);
+  w.padTo(p + 16);
+  d[2].resolve(w, v["short"], x === void 0 ? void 0 : x[1]);
+  w.padTo(p + 20);
+  d[3].resolve(w, v["long"], x === void 0 ? void 0 : x[2]);
+  w.padTo(p + 44);
+  d[0].resolve(w, v["friends"], x === void 0 ? void 0 : x[3]);
+  w.padTo(p + 56);
+  w.writeU64(v["id"]);
+  w.padTo(p + 64);
+  return p;
+};
+return { archive: archive, resolve: resolve };
+`;
+
+exports[`jit emitted source > encoder: person struct (archive + resolve pair) 1`] = `
+"use strict";
+var archive = function archive(w, v) { return [d[0].archive(w, v["name"]), void 0, d[1].archive(w, v["email"]), d[2].archive(w, v["scores"]), void 0, d[3].archive(w, v["address"])]; };
+var resolve = function resolve(w, v, x) {
+  var p = w.pos;
+  d[0].resolve(w, v["name"], x === void 0 ? void 0 : x[0]);
+  w.padTo(p + 8);
+  w.writeU32(v["age"]);
+  w.padTo(p + 12);
+  d[1].resolve(w, v["email"], x === void 0 ? void 0 : x[2]);
+  w.padTo(p + 24);
+  d[2].resolve(w, v["scores"], x === void 0 ? void 0 : x[3]);
+  w.padTo(p + 32);
+  w.writeBool(v["active"]);
+  w.padTo(p + 36);
+  d[3].resolve(w, v["address"], x === void 0 ? void 0 : x[5]);
+  w.padTo(p + 48);
+  return p;
+};
+return { archive: archive, resolve: resolve };
+`;
+
+exports[`jit emitted source > encoder: unrecognized root shapes are not compiled 1`] = `
+null
+`;

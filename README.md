@@ -203,6 +203,49 @@ Pinned.encode(person);
 
 In codegen, `set_format(...)` emits a `FORMAT` constant and wraps every export with `r.withFormat`, matching the Rust crate's compile-time features. Non-default formats are conformance-tested with a reduced smoke matrix.
 
+## Unidirectional codecs
+
+The runtime ships every codec in three directions — full (`rkyv-js`), decode-only (`rkyv-js/decode`), and encode-only (`rkyv-js/encode`) — with identical factory names, so switching direction is switching an import path:
+
+```typescript
+import * as r from 'rkyv-js/decode';
+
+const ArchivedPerson = r.struct({ /* same schema */ });
+ArchivedPerson.decode(bytes);   // ✓
+ArchivedPerson.access(bytes);   // ✓
+// .encode() does not exist on this chain
+```
+
+Class methods can't be tree-shaken, so a full codec always carries both halves; the one-direction modules cut the unused half out at the module-graph level. Measured on a Person + hash-map binding set (min+gz): **3.3 KB decode-only / 4.7 KB encode-only vs 7.8 KB full** (−57% / −40%). The decode chain never pulls in the writer, a hasher, or the swiss-table builder; the encode chain never pulls in the reader or the lazy-view machinery. External-crate codecs split the same way (`rkyv-js/lib/hashmap/decode`, …).
+
+In codegen, `set_direction` rewrites only the rkyv-js import specifiers in the emitted bindings (registered externals are untouched), so a browser client and a Rust-facing service can share one schema with direction-matched bundles:
+
+```rust
+codegen.set_direction(Direction::Decode);   // bindings import from rkyv-js/decode
+```
+
+At the type level, `Decoder<T>` and `Encoder<T>` are the public contracts — a full `Codec` satisfies both, and containers accept full and one-direction children interchangeably.
+
+## Opt-in JIT compilation
+
+`rkyv-js/jit` pre-compiles a codec into specialized read/write functions with `new Function` — field offsets become integer constants and every remaining child call gets its own monomorphic call site, the property that makes per-message codegen (protobufjs-style) fast:
+
+```typescript
+import { compileCodec } from 'rkyv-js/jit';
+
+const Compiled = compileCodec(ArchivedPerson);
+Compiled.decode(bytes);    // specialized read
+Compiled.encode(person);   // specialized archive/resolve (struct & tuple roots)
+```
+
+The result is a drop-in codec with the identical surface — swap it in at one boundary.
+
+- Measured ~1.3–1.8x faster decode and ~1.2x faster encode on struct-heavy payloads; on tiny messages the wrapper overhead can outweigh the win — benchmark your own shapes.
+- The default import path never touches this module, and where `new Function` is blocked (CSP) `compileCodec` returns the interpreter codec unchanged (pass `{ onUnsupported: 'throw' }` to raise instead).
+- Maps, custom codecs, and recursive types stay on the interpreter behind monomorphic call sites. Generated source receives untrusted content only through `JSON.stringify`-quoted property names.
+- `emitDecoderSource(codec)` / `emitEncoderSource(codec)` return the exact source `compileCodec` evaluates (snapshot-friendly).
+- Custom codecs can opt into inlining by declaring their shape descriptor (`meta` in `defineCodec`).
+
 ## Custom codecs
 
 Implement `Codec` for full control over a type's binary format — extend the class or use the object-literal helper:
@@ -304,6 +347,7 @@ Benchmarked against protobufjs, cbor-x, and capnp-es on the same payloads (`yarn
 - **Encode**: 1.2–2.8x faster than protobufjs across payload sizes.
 - **Decode**: at parity or faster than protobufjs at every payload size (readers allocate no `DataView`; bulk primitive runs amortize one lazily).
 - **Lazy access**: ~2x faster than protobufjs for selective field reads and partial array reads; use `decode()` for full traversals.
+- **Opt-in JIT** (`rkyv-js/jit`): another ~1.3–1.8x over the interpreter on struct-heavy decode, ~1.2x on encode.
 
 ## Development
 
