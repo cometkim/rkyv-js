@@ -1,13 +1,13 @@
 import * as assert from 'node:assert';
 import { describe, it } from 'node:test';
 
-import { SipHasher13 } from '#conformance/cases/sip-hasher.ts';
+import { SipHasher13 } from '#src/lib/sip-hasher.ts';
 
 /**
  * Differential oracle: an independent BigInt SipHash-1-3 written literally
  * from the SipHash specification (whole-message, non-streaming). The u32-pair
- * streaming implementation must agree with it exactly. Both use k0 = k1 = 0,
- * matching `siphasher::sip::SipHasher13::default()`.
+ * streaming implementation must agree with it exactly. The default k0 = k1 = 0
+ * matches `siphasher::sip::SipHasher13::default()`.
  */
 const MASK64 = 0xffff_ffff_ffff_ffffn;
 
@@ -15,11 +15,11 @@ function rotl(x: bigint, b: bigint): bigint {
   return ((x << b) | (x >> (64n - b))) & MASK64;
 }
 
-function oracleSip13(data: Uint8Array): bigint {
-  let v0 = 0x736f6d6570736575n;
-  let v1 = 0x646f72616e646f6dn;
-  let v2 = 0x6c7967656e657261n;
-  let v3 = 0x7465646279746573n;
+function oracleSip13(data: Uint8Array, k0 = 0n, k1 = 0n): bigint {
+  let v0 = 0x736f6d6570736575n ^ k0;
+  let v1 = 0x646f72616e646f6dn ^ k1;
+  let v2 = 0x6c7967656e657261n ^ k0;
+  let v3 = 0x7465646279746573n ^ k1;
 
   const round = () => {
     v0 = (v0 + v1) & MASK64;
@@ -79,7 +79,7 @@ function randomBytes(len: number): Uint8Array {
   return bytes;
 }
 
-describe('SipHasher13 (conformance custom hasher)', () => {
+describe('SipHasher13 (u32-pair) vs BigInt oracle', () => {
   it('matches the BigInt oracle across lengths 0..64', () => {
     for (let len = 0; len <= 64; len++) {
       const bytes = randomBytes(len);
@@ -134,6 +134,28 @@ describe('SipHasher13 (conformance custom hasher)', () => {
     h.writeBytes(bytes);
     h.finish();
     assert.strictEqual(pairToBigint(h), oracleSip13(bytes));
+  });
+
+  it('keyed construction matches SipHasher13::new_with_keys', () => {
+    const keys: Array<[bigint, bigint]> = [
+      [0x0706_0504_0302_0100n, 0x0f0e_0d0c_0b0a_0908n], // the reference-vector key
+      [0xffff_ffff_ffff_ffffn, 1n],
+      [0xdead_beef_cafe_baben, 0x0123_4567_89ab_cdefn],
+    ];
+    for (const [k0, k1] of keys) {
+      for (const len of [0, 1, 7, 8, 9, 33]) {
+        const bytes = randomBytes(len);
+        const h = new SipHasher13(k0, k1);
+        h.writeBytes(bytes);
+        h.finish();
+        assert.strictEqual(pairToBigint(h), oracleSip13(bytes, k0, k1), `k0=${k0} k1=${k1} len=${len}`);
+        // reset() must restore the KEYED state, not the zero-key one.
+        h.reset();
+        h.writeBytes(bytes);
+        h.finish();
+        assert.strictEqual(pairToBigint(h), oracleSip13(bytes, k0, k1), `after reset, len=${len}`);
+      }
+    }
   });
 
   it('matches the Rust `Hash for str` write pattern', () => {

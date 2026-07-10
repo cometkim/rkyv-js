@@ -1,22 +1,35 @@
 /**
- * SipHash-1-3 with zero keys, implementing the rkyv-js `RkyvHasher`
- * interface — the JS counterpart of `siphasher::sip::SipHasher13::default()`
- * used by the `SipKeyedMap` conformance type's archived table.
+ * SipHash-1-3 implementing the `RkyvHasher` interface — the JS counterpart
+ * of `siphasher::sip::SipHasher13`. Plug it into the map codecs' `hasher`
+ * option for types archived with `H = SipHasher13` through a manual
+ * `serialize_from_iter` impl (rkyv's derive/std impls always archive with
+ * `FxHasher64`, the default — see `rkyv-js/lib/fx-hasher`).
+ *
+ * `new SipHasher13()` matches `SipHasher13::default()` (zero keys);
+ * `new SipHasher13(k0, k1)` matches `SipHasher13::new_with_keys(k0, k1)`.
+ * The keys must be fixed constants shared with the Rust side — a randomly
+ * seeded archived hasher can never rebuild the table it wrote.
  *
  * The four u64 state words are kept as u32 halves and all rounds use integer
- * `number` math (add-with-carry, pair rotates), like the production
- * `FxHasher`. Writes buffer into an 8-byte tail exactly like the streaming
- * Rust implementation: full little-endian words compress immediately, the
- * final partial word is combined with the length byte in `finish()`.
+ * `number` math (add-with-carry, pair rotates), like `FxHasher`. Writes
+ * buffer into an 8-byte tail exactly like the streaming Rust implementation:
+ * full little-endian words compress immediately, the final partial word is
+ * combined with the length byte in `finish()`.
  *
  * Integer writes append their little-endian bytes to the stream, matching
- * `Hasher::write_uNN` on the little-endian 64-bit hosts the goldens are
- * generated on (`writeUsize` assumes a 64-bit Rust `usize`).
+ * `Hasher::write_uNN` on the little-endian 64-bit hosts rkyv targets
+ * (`writeUsize` assumes a 64-bit Rust `usize`).
  */
 
-import type { RkyvHasher } from 'rkyv-js/core';
+import type { RkyvBuildHasher, RkyvHasher } from 'rkyv-js/core';
 
-// Initial state for k0 = k1 = 0: the SipHash constants verbatim.
+/** `BuildHasherDefault<SipHasher13>` — SipHash-1-3 with zero keys. */
+export const sipBuildHasher13: RkyvBuildHasher = {
+  create: () => new SipHasher13(),
+};
+
+// The SipHash initialization constants ("somepseudorandomlygeneratedbytes");
+// the initial state is these XORed with the keys.
 const V0H = 0x736f6d65;
 const V0L = 0x70736575;
 const V1H = 0x646f7261;
@@ -33,28 +46,55 @@ export class SipHasher13 implements RkyvHasher {
   hi = 0;
   lo = 0;
 
-  #v0h = V0H;
-  #v0l = V0L;
-  #v1h = V1H;
-  #v1l = V1L;
-  #v2h = V2H;
-  #v2l = V2L;
-  #v3h = V3H;
-  #v3l = V3L;
+  // Initial state (constants ^ keys), restored by reset().
+  readonly #i0h: number;
+  readonly #i0l: number;
+  readonly #i1h: number;
+  readonly #i1l: number;
+  readonly #i2h: number;
+  readonly #i2l: number;
+  readonly #i3h: number;
+  readonly #i3l: number;
+
+  #v0h: number;
+  #v0l: number;
+  #v1h: number;
+  #v1l: number;
+  #v2h: number;
+  #v2l: number;
+  #v3h: number;
+  #v3l: number;
   #tail = new Uint8Array(8);
   #ntail = 0;
   /** Total bytes written; only the low 8 bits reach the final block. */
   #length = 0;
 
+  constructor(k0: bigint = 0n, k1: bigint = 0n) {
+    const key0 = BigInt.asUintN(64, k0);
+    const key1 = BigInt.asUintN(64, k1);
+    const k0h = Number(key0 >> 32n);
+    const k0l = Number(key0 & 0xffff_ffffn);
+    const k1h = Number(key1 >> 32n);
+    const k1l = Number(key1 & 0xffff_ffffn);
+    this.#v0h = this.#i0h = (V0H ^ k0h) >>> 0;
+    this.#v0l = this.#i0l = (V0L ^ k0l) >>> 0;
+    this.#v1h = this.#i1h = (V1H ^ k1h) >>> 0;
+    this.#v1l = this.#i1l = (V1L ^ k1l) >>> 0;
+    this.#v2h = this.#i2h = (V2H ^ k0h) >>> 0;
+    this.#v2l = this.#i2l = (V2L ^ k0l) >>> 0;
+    this.#v3h = this.#i3h = (V3H ^ k1h) >>> 0;
+    this.#v3l = this.#i3l = (V3L ^ k1l) >>> 0;
+  }
+
   reset(): this {
-    this.#v0h = V0H;
-    this.#v0l = V0L;
-    this.#v1h = V1H;
-    this.#v1l = V1L;
-    this.#v2h = V2H;
-    this.#v2l = V2L;
-    this.#v3h = V3H;
-    this.#v3l = V3L;
+    this.#v0h = this.#i0h;
+    this.#v0l = this.#i0l;
+    this.#v1h = this.#i1h;
+    this.#v1l = this.#i1l;
+    this.#v2h = this.#i2h;
+    this.#v2l = this.#i2l;
+    this.#v3h = this.#i3h;
+    this.#v3l = this.#i3l;
     this.#ntail = 0;
     this.#length = 0;
     this.hi = 0;
@@ -204,7 +244,7 @@ export class SipHasher13 implements RkyvHasher {
   }
 
   writeUsize(value: number): void {
-    // Rust `usize` on the 64-bit hosts the goldens come from.
+    // Rust `usize` on the 64-bit hosts rkyv targets.
     this.writeU64Parts(Math.floor(value / 0x1_0000_0000), value >>> 0);
   }
 

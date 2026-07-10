@@ -2,8 +2,8 @@
  * Hasher contracts for archived hash collections.
  *
  * This module defines only the interfaces; the default implementation
- * (rkyv's `FxHasher64`) lives in `src/lib/internal/fx-hasher.ts` next to the
- * map codecs that use it, so pulling in the core never pulls in a hasher.
+ * (rkyv's `FxHasher64`) lives in `rkyv-js/lib/fx-hasher` next to the map
+ * codecs that use it, so pulling in the core never pulls in a hasher.
  */
 
 import type { RkyvFormat } from './format.ts';

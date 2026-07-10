@@ -24,7 +24,7 @@ import {
 
 import { unit } from '../encode.ts';
 import { requireHashableKey, type HashTableOptions } from './hashmap.encode.ts';
-import { fxBuildHasher } from './internal/fx-hasher.ts';
+import { fxBuildHasher } from './fx-hasher.ts';
 import { SetOfMapEncoder } from './internal/map-set.encode.ts';
 import { buildSwissTable } from './internal/swiss-table.ts';
 

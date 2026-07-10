@@ -9,9 +9,8 @@
 import * as r from 'rkyv-js';
 import type { Codec } from 'rkyv-js/core';
 import { hashMap } from 'rkyv-js/lib/hashmap';
-
-import { SipHasher13 } from './sip-hasher.ts';
+import { sipBuildHasher13 } from 'rkyv-js/lib/sip-hasher';
 
 export const SipKeyedMap: Codec<Map<string, number>> = hashMap(r.string, r.u32, {
-  hasher: { create: () => new SipHasher13() },
+  hasher: sipBuildHasher13,
 });

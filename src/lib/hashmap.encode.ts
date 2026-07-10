@@ -21,7 +21,7 @@ import {
 } from 'rkyv-js/core';
 
 import { unit } from '../encode.ts';
-import { fxBuildHasher } from './internal/fx-hasher.ts';
+import { fxBuildHasher } from './fx-hasher.ts';
 import { SetOfMapEncoder } from './internal/map-set.encode.ts';
 import { buildSwissTable } from './internal/swiss-table.ts';
 
@@ -56,7 +56,8 @@ export interface HashTableOptions {
    * `ArchivedHashMap<K, V, H>` — not the source map's `S`, which never
    * affects the wire. rkyv 0.8's derive/std impls always archive with
    * `FxHasher64` (the default); set this only for types archived through a
-   * manual `serialize_from_iter` impl with a custom `H`.
+   * manual `serialize_from_iter` impl with a custom `H`
+   * (`rkyv-js/lib/sip-hasher` ships a ready-made SipHash-1-3).
    */
   hasher?: RkyvBuildHasher;
 }

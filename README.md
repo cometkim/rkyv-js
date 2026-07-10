@@ -177,7 +177,9 @@ The codegen recognizes types from [external crates that rkyv supports](https://d
 
 ### Map keys
 
-Archived hash containers require keys that hash exactly like Rust's `Hash` implementations (rkyv-js ships a cross-platform FxHasher64). Supported key types: strings, integers (including `u64`/`i64`), `bool`, `char`, `uuid`, and structs/tuples composed of those. Codecs advertise this via `codec.hashable`; `hashMap()` throws at construction for unhashable keys. Floats (not `Eq` in Rust) and sequences are not supported as keys.
+Archived hash containers require keys that hash exactly like Rust's `Hash` implementations (rkyv-js ships a cross-platform FxHasher64 — rkyv's default archived hasher). Supported key types: strings, integers (including `u64`/`i64`), `bool`, `char`, `uuid`, and structs/tuples composed of those. Codecs advertise this via `codec.hashable`; `hashMap()` throws at construction for unhashable keys. Floats (not `Eq` in Rust) and sequences are not supported as keys.
+
+Maps archived with a custom `H` (a manual `serialize_from_iter` impl) can pass any `RkyvHasher` through the `hasher` option; `rkyv-js/lib/fx-hasher` exports the default `FxHasher`, and `rkyv-js/lib/sip-hasher` ships a `SipHasher13` (zero keys by default, `new SipHasher13(k0, k1)` for `new_with_keys` — keys must be fixed constants shared with the Rust side).
 
 JS-encoded maps are fully searchable from Rust — `archived.map.get(key)` works, at any size.
 

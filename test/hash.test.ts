@@ -1,7 +1,7 @@
 import * as assert from 'node:assert';
 import { describe, it } from 'node:test';
 
-import { FxHasher } from '#src/lib/internal/fx-hasher.ts';
+import { FxHasher } from '#src/lib/fx-hasher.ts';
 import { digestH2, digestMod } from '#src/lib/internal/swiss-table.ts';
 
 /**
