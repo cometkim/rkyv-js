@@ -8,9 +8,3 @@ members = [
 # Format-profile smoke crates set global rkyv format features and must not
 # share a build graph with the default-format workspace.
 exclude = ["conformance/formats"]
-
-[workspace.package]
-version = "0.1.0"
-edition = "2024"
-license = "MIT"
-repository = "https://github.com/cometkim/rkyv-js"
