@@ -27,7 +27,8 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: 26
+          # CodSpeed action may not be compatible with the latest Node.js version yet.
+          node-version: 24
           cache: yarn
 
       - name: Install Dependencies
