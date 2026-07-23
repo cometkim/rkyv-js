@@ -1,5 +1,6 @@
 [package]
 name = "rkyv-js-codegen"
+# Owned by changesets via rkyv-js-codegen/package.json; see scripts/sync-cargo-version.mjs.
 version = "0.0.1"
 edition = "2024"
 license = "MIT"

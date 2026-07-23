@@ -91,15 +91,16 @@
     }
   },
   "files": [
-    "src",
     "dist"
   ],
   "scripts": {
+    "prepack": "yarn build",
     "test": "node --test",
     "check": "tsc --noEmit && tsc -p tsconfig.src.json --noEmit",
     "build": "node scripts/build.mjs",
-    "prepack": "yarn build",
-    "conformance:gen": "node scripts/conformance.mjs generate",
+    "changeset:version": "changeset version && node scripts/sync-cargo-version.mjs",
+    "changeset:publish": "changeset publish",
+    "conformance:generate": "node scripts/conformance.mjs generate",
     "conformance:verify": "node scripts/conformance.mjs verify",
     "bench:comparison": "node --expose-gc benchmark/comparison.ts",
     "bench:primitives": "node --expose-gc benchmark/primitives.ts",

@@ -27,11 +27,11 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: 24
+          node-version: 26
           cache: yarn
 
       - name: Install Dependencies
-        run: yarn install --immutable
+        run: yarn install
 
       - name: Run benchmark
         uses: CodSpeedHQ/action@v4
