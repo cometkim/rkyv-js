@@ -1,8 +1,5 @@
 # rkyv-js
 
-[![npm](https://img.shields.io/npm/v/rkyv-js.svg)](https://npmx.dev/package/rkyv-js)
-[![crates.io](https://img.shields.io/crates/v/rkyv-js-codegen.svg)](https://crates.io/crates/rkyv-js-codegen)
-
 An unofficial library to use [rkyv] (zero-copy deserialization framework for Rust) in JavaScript/TypeScript projects — a wire protocol for Rust↔JS interop with no schema files.
 
 ## Motivation
@@ -17,13 +14,9 @@ Wire compatibility is enforced by a bidirectional conformance suite: every relea
 
 ## Components
 
-
-| Package | Registry | Role |
-|---------|----------|------|
-| [`rkyv-js`](https://www.npmjs.com/package/rkyv-js) | npm | JavaScript runtime for encoding/decoding rkyv archives. Documented here. |
-| [`rkyv-js-codegen`](https://crates.io/crates/rkyv-js-codegen) | crates.io | Generates JavaScript codec bindings from Rust source. Documented on [docs.rs](https://docs.rs/rkyv-js-codegen). |
-
-[`rkyv-example`](rkyv-example) is a worked crate exercising both — external crate types, `with`-wrappers, and remote types — with its `build.rs` and generated bindings committed.
+- `rkyv-js` ([![npm](https://img.shields.io/npm/v/rkyv-js.svg)](https://npmx.dev/package/rkyv-js)): JavaScript runtime for encoding/decoding rkyv archives. Documented here.
+- [`rkyv-js-codegen`](rkyv-js-codegen) ([![crates.io](https://img.shields.io/crates/v/rkyv-js-codegen.svg)](https://crates.io/crates/rkyv-js-codegen)): Generates JavaScript codec bindings from Rust source. Documented on [docs.rs](https://docs.rs/rkyv-js-codegen).
+- [`rkyv-example`](rkyv-example) is an example project for exercising both.
 
 ## Installation
 
