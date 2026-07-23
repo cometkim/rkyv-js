@@ -1,8 +1,8 @@
 //! Example crate demonstrating rkyv-js-codegen usage.
 //!
-//! Every type below derives `rkyv::Archive`; `build.rs` feeds this file to
-//! [`rkyv_js_codegen::CodeGenerator`] and writes the matching TypeScript
-//! codec bindings to `generated/bindings.ts`.
+//! Every type below derives `rkyv::Archive`;
+//! `build.rs` feeds this file to [`rkyv_js_codegen::CodeGenerator`]
+//! and writes the matching TypeScript codec bindings to `generated/bindings.ts`.
 
 pub mod remote;
 
@@ -19,9 +19,8 @@ use tinyvec::TinyVec;
 use triomphe::Arc;
 use uuid::Uuid;
 
-/// A deterministic `HashMap` using `DefaultHasher` (SipHash with fixed
-/// keys), demonstrating that hasher-parameterized aliases resolve to the
-/// `std` builtin.
+/// A deterministic `HashMap` using `DefaultHasher` (SipHash with fixed keys),
+/// demonstrating that hasher-parameterized aliases resolve to the `std` builtin.
 pub type HashMap<K, V> =
     std::collections::HashMap<K, V, std::hash::BuildHasherDefault<std::hash::DefaultHasher>>;
 
@@ -71,10 +70,6 @@ pub struct GameState {
     pub inventory: Vec<String>,
     pub current_message: Option<Message>,
 }
-
-// ============================================================================
-// Built-in crate types examples
-// ============================================================================
 
 /// A record with a UUID identifier.
 #[derive(Debug, Clone, Archive, Deserialize, Serialize)]
@@ -198,16 +193,12 @@ pub struct BTreeSetData {
     pub label: String,
 }
 
-// ── Remote derive types ─────────────────────────────────────────────
-
-/// An `ArchiveWith` wrapper that serializes any `serde::Serialize +
-/// serde::Deserialize` type as a JSON string in the rkyv buffer.
+/// An `ArchiveWith` wrapper that serializes and
+/// `serde::Serialize + serde::Deserialize` type as a JSON string in the rkyv buffer.
 ///
-/// The archived form is `ArchivedString` — a relative pointer + length
-/// pointing to UTF-8 JSON text. This demonstrates that rkyv-js custom
-/// codecs can use arbitrary wire formats, not just rkyv's own struct layout.
-/// `build.rs` registers it with
-/// `WithWrapper::replace(import { Coord } from './coord.ts')`.
+/// The archived form is `ArchivedString` - a relative pointer + length pointing to UTF-8 JSON text.
+/// This demonstrates that rkyv-js custom codecs can use arbitrary wire formats, not just rkyv's own struct layout.
+/// `build.rs` registers it with `WithWrapper::replace(import { Coord } from './coord.ts')`.
 pub struct AsJson;
 
 impl rkyv::with::ArchiveWith<remote::Coord> for AsJson {
@@ -254,9 +245,8 @@ where
 
 /// A struct that uses a remote type via an `AsJson` wrapper.
 ///
-/// The codegen never inspects `remote::Coord` — the registered `AsJson`
-/// wrapper replaces the field codec with the hand-written `Coord` codec
-/// from `generated/coord.ts`.
+/// The codegen never inspects `remote::Coord`
+/// the registered `AsJson` wrapper replaces the field codec with the hand-written `Coord` codec from `generated/coord.ts`.
 #[derive(Debug, Clone, Archive, Deserialize, Serialize)]
 #[rkyv(derive(Debug))]
 pub struct RemoteEvent {

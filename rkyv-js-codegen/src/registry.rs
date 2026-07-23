@@ -2,14 +2,14 @@
 //!
 //! Two registries drive source extraction:
 //!
-//! - [`ExternalType`] maps a fully-qualified Rust *type* path (e.g.
-//!   `uuid::Uuid`, `std::collections::HashMap`) to a [`CodecExpr`] template.
-//! - [`WithWrapper`] maps a `#[rkyv(with = ...)]` *wrapper* path (e.g.
-//!   `rkyv::with::AsBox`) to a transformation of the underlying field codec.
+//! - [`ExternalType`] maps a fully-qualified Rust *type* path (e.g. `uuid::Uuid`, `std::collections::HashMap`) 
+//!   to a [`CodecExpr`] template.
+//! - [`WithWrapper`] maps a `#[rkyv(with = ...)]` *wrapper* path (e.g. `rkyv::with::AsBox`)
+//!   to a transformation of the underlying field codec.
 //!
-//! Both are keyed by fully-qualified path strings. Unknown-path lookups
-//! produce a did-you-mean suggestion when a registered key shares the last
-//! path segment.
+//! Both are keyed by fully-qualified path strings. 
+//!
+//! Unknown-path lookups produce a did-you-mean suggestion when a registered key shares the last path segment.
 
 use std::collections::BTreeMap;
 
@@ -18,8 +18,8 @@ use crate::expr::{CodecExpr, codec};
 
 /// A codec template for an external Rust type.
 ///
-/// Templates are built once at registration time; type arguments are filled
-/// in per use site via [`CodecExpr::Param`] placeholders.
+/// Templates are built once at registration time;
+/// type arguments are filled in per use site via [`CodecExpr::Param`] placeholders.
 #[derive(Debug, Clone)]
 pub struct ExternalType {
     arity: usize,
@@ -37,20 +37,20 @@ impl ExternalType {
         }
     }
 
-    /// A type with one type parameter. The closure runs **once** with
-    /// `Param(0)` to build the template.
+    /// A type with one type parameter.
+    /// The closure runs **once** with `Param(0)` to build the template.
     pub fn generic1(build: impl FnOnce(CodecExpr) -> CodecExpr) -> Self {
         Self::generic(1, |params| build(params[0].clone()))
     }
 
-    /// A type with two type parameters. The closure runs **once** with
-    /// `Param(0)` and `Param(1)`.
+    /// A type with two type parameters.
+    /// The closure runs **once** with `Param(0)` and `Param(1)`.
     pub fn generic2(build: impl FnOnce(CodecExpr, CodecExpr) -> CodecExpr) -> Self {
         Self::generic(2, |params| build(params[0].clone(), params[1].clone()))
     }
 
-    /// A type with `arity` type parameters. The closure runs **once** with
-    /// `[Param(0), ..., Param(arity - 1)]`.
+    /// A type with `arity` type parameters.
+    /// The closure runs **once** with `[Param(0), ..., Param(arity - 1)]`.
     ///
     /// # Panics
     ///
@@ -73,8 +73,8 @@ impl ExternalType {
         }
     }
 
-    /// Accept (and ignore) extra trailing type arguments beyond the declared
-    /// arity — e.g. the hasher parameter of `HashMap<K, V, S>`.
+    /// Accept (and ignore) extra trailing type arguments beyond the declared arity.
+    /// e.g. the hasher parameter of `HashMap<K, V, S>`.
     pub fn allow_trailing_args(mut self) -> Self {
         self.allow_trailing = true;
         self
@@ -92,12 +92,12 @@ impl ExternalType {
 
     /// Fill in the template with concrete type arguments.
     ///
-    /// The argument count must match the declared arity exactly, unless
-    /// [`allow_trailing_args`](ExternalType::allow_trailing_args) was set, in
-    /// which case extra trailing arguments are ignored.
+    /// The argument count must match the declared arity exactly,
+    /// unless [`allow_trailing_args`](ExternalType::allow_trailing_args) was set,
+    /// in which case extra trailing arguments are ignored.
     ///
-    /// The `rust_path` of a returned [`DiagnosticKind::GenericArity`] is left
-    /// empty; the caller fills it in with the use-site path.
+    /// The `rust_path` of a returned [`DiagnosticKind::GenericArity`] is left empty;
+    /// the caller fills it in with the use-site path.
     pub(crate) fn instantiate(&self, args: Vec<CodecExpr>) -> Result<CodecExpr, DiagnosticKind> {
         let acceptable = args.len() == self.arity || (self.allow_trailing && args.len() > self.arity);
         if !acceptable {
@@ -139,8 +139,8 @@ impl WithWrapper {
         }
     }
 
-    /// Transform the underlying field codec. The closure runs **once** with
-    /// `Param(0)` standing in for the underlying codec expression.
+    /// Transform the underlying field codec.
+    /// The closure runs **once** with `Param(0)` standing in for the underlying codec expression.
     pub fn map(build: impl FnOnce(CodecExpr) -> CodecExpr) -> Self {
         Self {
             kind: WithWrapperKind::Map(build(CodecExpr::Param(0))),
@@ -169,9 +169,8 @@ impl WithWrapper {
         )
     }
 
-    /// Apply the wrapper. `underlying` is only consulted for
-    /// [`map`](WithWrapper::map) and [`identity`](WithWrapper::identity)
-    /// wrappers; `None` is returned for [`skip`](WithWrapper::skip).
+    /// Apply the wrapper. `underlying` is only consulted for [`map`](WithWrapper::map) and [`identity`](WithWrapper::identity) wrappers;
+    /// `None` is returned for [`skip`](WithWrapper::skip).
     pub(crate) fn apply(&self, underlying: Option<CodecExpr>) -> Option<CodecExpr> {
         match &self.kind {
             WithWrapperKind::Replace(expr) => Some(expr.clone()),
@@ -223,14 +222,12 @@ impl Registry {
             ExternalType::generic1(codec::vec),
         );
         registry.register_type("thin_vec::ThinVec", ExternalType::generic1(codec::vec));
-        // `ArrayVec<T, N>`: the const-generic capacity is skipped during
-        // argument collection, but tolerate it anyway.
+        // `ArrayVec<T, N>`: the const-generic capacity is skipped during argument collection, but tolerate it anyway.
         registry.register_type(
             "arrayvec::ArrayVec",
             ExternalType::generic1(codec::vec).allow_trailing_args(),
         );
-        // `SmallVec<[T; N]>` / `TinyVec<[T; N]>`: the array argument is
-        // unwrapped to `T` during argument collection.
+        // `SmallVec<[T; N]>` / `TinyVec<[T; N]>`: the array argument is unwrapped to `T` during argument collection.
         registry.register_type("smallvec::SmallVec", ExternalType::generic1(codec::vec));
         registry.register_type("tinyvec::TinyVec", ExternalType::generic1(codec::vec));
 

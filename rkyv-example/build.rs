@@ -14,8 +14,7 @@ fn main() -> Result<(), Error> {
          These types match the Rust structs in src/lib.rs",
     );
 
-    // `#[rkyv(with = AsJson)]` fields are backed by the hand-written JSON
-    // string codec next to the generated bindings (generated/coord.ts).
+    // `#[rkyv(with = AsJson)]` fields are backed by the hand-written JSON string codec next to the generated bindings (generated/coord.ts).
     codegen.register_with(
         "AsJson",
         WithWrapper::replace(CodecExpr::import_from("./coord.ts", "Coord")),
@@ -24,8 +23,7 @@ fn main() -> Result<(), Error> {
     // Extract every type annotated with #[derive(Archive)].
     codegen.add_source_file(manifest_dir.join("src/lib.rs"))?;
 
-    // Write to OUT_DIR (standard cargo location) and to the in-tree copy
-    // consumed by the TypeScript workspace.
+    // Write to OUT_DIR (standard cargo location) and to the in-tree copy consumed by the TypeScript workspace.
     codegen.write_to_file(out_dir.join("bindings.ts"))?;
     codegen.write_to_file(manifest_dir.join("generated/bindings.ts"))?;
 

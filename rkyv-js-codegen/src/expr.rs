@@ -135,8 +135,7 @@ impl CodecExpr {
 
     /// Walk the expression tree in pre-order, calling `f` on every node.
     ///
-    /// [`CodecExpr::Raw`] contents are never inspected (the node itself is
-    /// still visited).
+    /// [`CodecExpr::Raw`] contents are never inspected (the node itself is still visited).
     pub fn visit(&self, f: &mut impl FnMut(&CodecExpr)) {
         f(self);
         match self {
@@ -191,9 +190,8 @@ impl CodecExpr {
 
     /// Render the expression to TypeScript source.
     ///
-    /// `archived_names` maps Rust type names to their exported archived
-    /// names. A [`CodecExpr::TypeRef`] missing from the map produces
-    /// [`DiagnosticKind::UnresolvedTypeRef`].
+    /// `archived_names` maps Rust type names to their exported archived names.
+    /// A [`CodecExpr::TypeRef`] missing from the map produces [`DiagnosticKind::UnresolvedTypeRef`].
     pub fn render(
         &self,
         archived_names: &BTreeMap<String, String>,
@@ -333,7 +331,7 @@ pub mod codec {
     pub fn array(inner: CodecExpr, len: u64) -> CodecExpr {
         CodecExpr::call(CodecExpr::runtime("array"), [inner, CodecExpr::LitInt(len)])
     }
-    /// `r.tuple(e0, e1, ...)` — the empty tuple is `r.unit`.
+    /// `r.tuple(e0, e1, ...)` - the empty tuple is `r.unit`.
     pub fn tuple(elems: impl IntoIterator<Item = CodecExpr>) -> CodecExpr {
         let elems: Vec<_> = elems.into_iter().collect();
         if elems.is_empty() {
@@ -342,8 +340,8 @@ pub mod codec {
             CodecExpr::call(CodecExpr::runtime("tuple"), elems)
         }
     }
-    /// A reference to a generated type by its Rust name; resolved to the
-    /// archived name at `generate()` time.
+    /// A reference to a generated type by its Rust name;
+    /// resolved to the archived name at `generate()` time.
     pub fn named(rust_name: impl Into<String>) -> CodecExpr {
         CodecExpr::type_ref(rust_name)
     }
@@ -352,8 +350,8 @@ pub mod codec {
 /// Generate the import block for a set of expressions.
 ///
 /// Always starts with `import * as r from 'rkyv-js';`, followed by named
-/// imports grouped by module and sorted by module specifier (exports sorted
-/// within each statement).
+/// imports grouped by module and sorted by module specifier
+/// (exports sorted within each statement).
 ///
 /// The same export name imported from two different modules is reported as
 /// [`DiagnosticKind::ImportConflict`].

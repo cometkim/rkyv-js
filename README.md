@@ -1,6 +1,9 @@
 # rkyv-js
 
-An unofficial library to use [rkyv](https://rkyv.org/) (zero-copy deserialization framework for Rust) in JavaScript/TypeScript projects — a wire protocol for Rust↔JS interop with no schema files.
+[![npm](https://img.shields.io/npm/v/rkyv-js.svg)](https://npmx.dev/package/rkyv-js)
+[![crates.io](https://img.shields.io/crates/v/rkyv-js-codegen.svg)](https://crates.io/crates/rkyv-js-codegen)
+
+An unofficial library to use [rkyv] (zero-copy deserialization framework for Rust) in JavaScript/TypeScript projects — a wire protocol for Rust↔JS interop with no schema files.
 
 ## Motivation
 
@@ -14,14 +17,20 @@ Wire compatibility is enforced by a bidirectional conformance suite: every relea
 
 ## Components
 
-1. `rkyv-js` (npm) — TypeScript runtime for encoding/decoding rkyv archives
-2. `rkyv-js-codegen` (crates.io) — generates TypeScript codec bindings from Rust source
+
+| Package | Registry | Role |
+|---------|----------|------|
+| [`rkyv-js`](https://www.npmjs.com/package/rkyv-js) | npm | JavaScript runtime for encoding/decoding rkyv archives. Documented here. |
+| [`rkyv-js-codegen`](https://crates.io/crates/rkyv-js-codegen) | crates.io | Generates JavaScript codec bindings from Rust source. Documented on [docs.rs](https://docs.rs/rkyv-js-codegen). |
+
+[`rkyv-example`](rkyv-example) is a worked crate exercising both — external crate types, `with`-wrappers, and remote types — with its `build.rs` and generated bindings committed.
 
 ## Installation
 
 ```bash
 yarn add rkyv-js
 ```
+
 
 ```toml
 [build-dependencies]
@@ -100,7 +109,7 @@ const person = ArchivedPerson.decode(data);
 
 ## Lazy access
 
-`access()` returns a view whose fields decode only when read — the fastest way to read a few fields out of a large archive:
+`access()` returns a view whose fields decode only when read - the fastest way to read a few fields out of a large archive:
 
 ```typescript
 const lazy = ArchivedPerson.access(bytes);
@@ -112,7 +121,9 @@ lazy.scores.toArray();  // eager copy of the sequence
 JSON.stringify(lazy);   // works (decodes everything)
 ```
 
-Sequences appear as `LazyList<E>` (`length`, `at`, iteration, `toArray`) rather than plain arrays. For full traversals of plain data, `decode()` is faster than `access()` — reach for `access()` when you read a subset.
+Sequences appear as `LazyList<E>` (`length`, `at`, iteration, `toArray`) rather than plain arrays.
+
+For full traversals of plain data, `decode()` is faster than `access()` - reach for `access()` when you read a subset.
 
 ## Codec API
 
@@ -140,6 +151,20 @@ Sequences appear as `LazyList<E>` (`length`, `at`, iteration, `toArray`) rather 
 
 ### Structs & enums
 
+From Rust source:
+
+```rust
+#[derive(Archive)]
+enum Shape {
+    Circle { radius: f64 },
+    Wrap(String),
+    Color(u8, u8, u8),
+    Empty,
+}
+```
+
+Into JavaScript:
+
 ```typescript
 const ArchivedShape = r.taggedEnum({
   Circle: { radius: r.f64 },        // struct variant → record of codecs
@@ -156,6 +181,7 @@ Enum variants are laid out exactly like rkyv's `repr(u8)` enums (fields flattene
 
 ### Smart pointers
 
+
 | Rust type | Codec | TypeScript type |
 |-----------|-------|-----------------|
 | `Rc<T>`, `Arc<T>`, `triomphe::Arc<T>` | `r.rc(T)` | `T` |
@@ -164,6 +190,7 @@ Enum variants are laid out exactly like rkyv's `repr(u8)` enums (fields flattene
 ### External crate types
 
 The codegen recognizes types from [external crates that rkyv supports](https://docs.rs/rkyv/latest/rkyv/#crates):
+
 
 | Rust type | Codec |
 |-----------|-------|
@@ -175,13 +202,14 @@ The codegen recognizes types from [external crates that rkyv supports](https://d
 | `smol_str::SmolStr` | `r.string` |
 | `VecDeque`, `ThinVec`, `ArrayVec`, `SmallVec`, `TinyVec` | `r.vec(T)` |
 
+
 ### Map keys
 
-Archived hash containers require keys that hash exactly like Rust's `Hash` implementations (rkyv-js ships a cross-platform FxHasher64 — rkyv's default archived hasher). Supported key types: strings, integers (including `u64`/`i64`), `bool`, `char`, `uuid`, and structs/tuples composed of those. Codecs advertise this via `codec.hashable`; `hashMap()` throws at construction for unhashable keys. Floats (not `Eq` in Rust) and sequences are not supported as keys.
+Archived hash containers require keys that hash exactly like Rust's `Hash` implementations (rkyv-js ships a cross-platform FxHasher64 - rkyv's default archived hasher). Supported key types: strings, integers (including `u64`/`i64`), `bool`, `char`, `uuid`, and structs/tuples composed of those. Codecs advertise this via `codec.hashable`; `hashMap()` throws at construction for unhashable keys. Floats (not `Eq` in Rust) and sequences are not supported as keys.
 
 Maps archived with a custom `H` (a manual `serialize_from_iter` impl) can pass any `RkyvHasher` through the `hasher` option; `rkyv-js/lib/fx-hasher` exports the default `FxHasher`, and `rkyv-js/lib/sip-hasher` ships a `SipHasher13` (zero keys by default, `new SipHasher13(k0, k1)` for `new_with_keys` — keys must be fixed constants shared with the Rust side).
 
-JS-encoded maps are fully searchable from Rust — `archived.map.get(key)` works, at any size.
+JS-encoded maps are fully searchable from Rust - `archived.map.get(key)` works, at any size.
 
 ## Format configuration
 
@@ -198,6 +226,7 @@ const person = ArchivedPerson.decode(bytes, be64);
 const Pinned = r.withFormat(ArchivedPerson, be64);
 Pinned.encode(person);
 ```
+
 
 | Option | rkyv default | rkyv feature |
 |--------|--------------|--------------|
@@ -244,7 +273,7 @@ Compiled.encode(person);   // specialized archive/resolve (struct & tuple roots)
 
 The result is a drop-in codec with the identical surface — swap it in at one boundary.
 
-- Measured ~1.3–1.8x faster decode and ~1.2x faster encode on struct-heavy payloads; on tiny messages the wrapper overhead can outweigh the win — benchmark your own shapes.
+- Measured 1.14–1.22x faster encode over the interpreter on the comparison payloads; the decode gain is smaller and too noisy on V8 to quote. On tiny messages the wrapper overhead can outweigh the win — benchmark your own shapes.
 - The default import path never touches this module, and where `new Function` is blocked (CSP) `compileCodec` returns the interpreter codec unchanged (pass `{ onUnsupported: 'throw' }` to raise instead).
 - Maps, custom codecs, and recursive types stay on the interpreter behind monomorphic call sites. Generated source receives untrusted content only through `JSON.stringify`-quoted property names.
 - `emitDecoderSource(codec)` / `emitEncoderSource(codec)` return the exact source `compileCodec` evaluates (snapshot-friendly).
@@ -269,70 +298,21 @@ export const Coord = transform(
 
 ## Code generation
 
-### Source extraction
+Bindings are generated from your Rust source by the [`rkyv-js-codegen`](https://crates.io/crates/rkyv-js-codegen) crate, driven from `build.rs` as shown in [Quick Start](#option-1-code-generation-recommended). Beyond the defaults it covers:
 
-```rust
-let mut codegen = CodeGenerator::new();
-codegen.add_source_file("src/lib.rs")?;   // or add_source_dir / add_source_str
-```
+- **Source extraction** — `add_source_file` / `add_source_dir` / `add_source_str`, with `use` imports resolved to fully-qualified paths and a configurable `#[derive(Archive)]` marker. Unmappable types are hard errors carrying source locations and did-you-mean suggestions.
+- **External types** — register any crate's types against a typed codec-expression tree, including generic arity and trailing hasher/allocator parameters.
+- **`with`-wrappers and remote types** — `rkyv::with::{AsBox, Inline, InlineAsBox, Skip}` are built in; `#[rkyv(with = …)]` and `#[rkyv(remote = …)]` resolve through an extensible registry.
+- **Output shaping** — `set_direction` for the unidirectional builds above, `set_format` for non-default wire formats, `set_archived_name` for `#[rkyv(archived = …)]`, and a plain-JavaScript mode.
+- **Programmatic API** — declare structs, enums, and aliases directly, without parsing any Rust.
 
-`use` imports are resolved to fully-qualified paths (aliases included), so registry lookups never depend on local names. `#[derive(Archive)]` must be resolvable — via `use rkyv::Archive`, an alias, a `use rkyv::*` glob, or a custom `add_marker_path("my_prelude::Archive")`.
+Emission is deterministic - dependency-ordered, alphabetical within ties - so generated files diff cleanly.
 
-Unknown types are **hard errors** with source locations and did-you-mean suggestions (opt into `OnUnknown::SkipContainingType` to warn-and-omit instead). Parse errors fail `add_source_*` immediately.
-
-### Registering external types
-
-Codec expressions are a typed tree — no format strings:
-
-```rust
-use rkyv_js_codegen::{CodecExpr, ExternalType};
-
-codegen.register_external(
-    "my_crate::OrderMap",
-    ExternalType::generic2(|k, v| {
-        CodecExpr::call(CodecExpr::import_from("my-package/codecs", "orderMap"), [k, v])
-    })
-    .allow_trailing_args(), // tolerate hasher/alloc params: OrderMap<K, V, S>
-);
-```
-
-### `with`-wrappers and remote types
-
-`#[rkyv(with = W)]` attributes are resolved through a wrapper registry (`AsBox`, `Inline`, `InlineAsBox`, and `Skip` are built in):
-
-```rust
-use rkyv_js_codegen::{CodecExpr, WithWrapper};
-
-// #[rkyv(with = AsJson)] fields → a hand-written codec:
-codegen.register_with(
-    "AsJson",
-    WithWrapper::replace(CodecExpr::import_from("./coord.ts", "Coord")),
-);
-```
-
-`#[rkyv(remote = T)]` proxy types register themselves automatically: fields written as `#[rkyv(with = CoordDef)]` inline the proxy's own layout; the proxy emits no top-level export.
-
-### Programmatic API
-
-```rust
-use rkyv_js_codegen::{codec, EnumVariant};
-
-codegen.add_struct("Person", [
-    ("name", codec::string()),
-    ("age", codec::u32()),
-    ("email", codec::option(codec::string())),
-]);
-codegen.add_enum("Status", [
-    EnumVariant::Unit("Pending".into()),
-    EnumVariant::Struct("Error".into(), vec![("message".into(), codec::string())]),
-]);
-```
-
-`set_archived_name` renames exports (order-independent; unknown targets are diagnostics). Emission is deterministic: dependency-ordered, alphabetical within ties.
+See **[docs.rs/rkyv-js-codegen](https://docs.rs/rkyv-js-codegen)** for the full API.
 
 ## Conformance & guarantees
 
-- Tested against **rkyv 0.8.14** (pinned; `conformance/cases/manifest.json` records the version). rkyv patch bumps can legitimately change wire bytes — regenerate goldens when bumping.
+- Tested against **rkyv 0.8.14** (pinned; `conformance/cases/manifest.json` records the version). rkyv patch bumps can legitimately change wire bytes - regenerate goldens when bumping.
 - The committed golden suite covers primitives at boundary values, string length boundaries, float specials, options, sequences, mixed-alignment enums, pointers, hash/index/btree containers at multiple sizes and key types, external crate types, and non-default format profiles. CI regenerates goldens and fails on diff.
 - `cargo run -p conformance --bin verify` proves JS output with rkyv itself: `bytecheck` validation, deserialization + `PartialEq`, and archived-map key lookups.
 
@@ -346,19 +326,28 @@ codegen.add_enum("Status", [
 
 ## Performance
 
-Benchmarked against protobufjs, cbor-x, and capnp-es on the same payloads (`yarn bench:comparison`, Apple M4 Pro / Node 26):
+Measured against [protobufjs] 8.7.0, [capnp-es] 0.0.14, [cbor-x] 1.6.4
 
-- **Encode**: 1.2–2.8x faster than protobufjs across payload sizes.
-- **Decode**: at parity or faster than protobufjs at every payload size (readers allocate no `DataView`; bulk primitive runs amortize one lazily).
-- **Lazy access**: ~2x faster than protobufjs for selective field reads and partial array reads; use `decode()` for full traversals.
-- **Opt-in JIT** (`rkyv-js/jit`): another ~1.3–1.8x over the interpreter on struct-heavy decode, ~1.2x on encode.
+- Decode is a tie with protobufjs, slightly behind on the smallest payloads.
+- Encode is generally better than protobufjs.
+- Lazy `access()` can be more than twice as fast when reading only parts of the payload. On a full traversal it is slower than `decode()`.
+- `rkyv-js/jit` generally adds a 20% perf gain over the interpreter.
+- cbor-x decodes the small payloads faster than rkyv-js; capnp-es was slower than protobufjs on every row of this suite.
+
+These are microbenchmarks on three fixed payload shapes; Run them against your own before drawing conclusions: `yarn bench:*`.
+
+## Why use rkyv-js over alternatives?
+
+This library doesn't claim or aim for best-in-class performance. It heavily depends on the codec design of rkyv. However, the goal is to make it comparable to using schema-based codecs such as Protobuf or Cap'n Proto.
+
+The advantages of the library are inherited from rkyv. Rust codebase as schema, and zero-copy deserialization where possible.
 
 ## Development
 
 ```bash
 yarn test                  # unit + conformance (JS side)
 yarn check                 # typecheck (isolatedDeclarations enforced on src)
-yarn conformance:gen       # regenerate golden cases (Rust)
+yarn conformance:generate  # regenerate golden cases (Rust)
 yarn conformance:verify    # verify JS output with real rkyv
 yarn bench:comparison      # protobufjs/cbor-x/capnp-es comparison
 yarn build                 # dist/ via amaro (type stripping) + oxc (declarations)
@@ -367,3 +356,8 @@ yarn build                 # dist/ via amaro (type stripping) + oxc (declaration
 ## License
 
 MIT
+
+[rkyv]: https://rkyv.org/
+[protobufjs](https://github.com/protobufjs/protobuf.js)
+[capnp-es](https://github.com/unjs/capnp-es)
+[cbor-x](https://github.com/kriszyp/cbor-x)

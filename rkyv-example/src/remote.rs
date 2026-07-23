@@ -5,8 +5,8 @@
 
 /// A simple 2D coordinate from an "external" crate.
 ///
-/// This type does NOT derive `Archive` — it simulates a type from a crate
-/// that doesn't have rkyv support.
+/// This type does NOT derive `Archive` 
+/// it simulates a type from a crate that doesn't have rkyv support.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Coord {
     pub x: f32,

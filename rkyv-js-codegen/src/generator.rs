@@ -22,13 +22,12 @@ pub enum OnUnknown {
 /// An enum variant for [`CodeGenerator::add_enum`].
 #[derive(Debug, Clone)]
 pub enum EnumVariant {
-    /// A unit variant: `Name` — emitted as `Name: null`.
+    /// A unit variant: `Name` - emitted as `Name: null`.
     Unit(String),
-    /// A newtype (1-tuple) variant: `Name(T)` — emitted as a bare codec.
+    /// A newtype (1-tuple) variant: `Name(T)` - emitted as a bare codec.
     Newtype(String, CodecExpr),
-    /// An n-tuple variant (n >= 2): `Name(T0, T1)` — emitted as an array
-    /// of codecs (`[t0, t1]`), decoded as an array value. The fields stay
-    /// flattened in the enum layout (this is NOT a nested `r.tuple` block).
+    /// An n-tuple variant (n >= 2): `Name(T0, T1)` - emitted as an array of codecs (`[t0, t1]`), decoded as an array value.
+    /// The fields stay flattened in the enum layout (this is NOT a nested `r.tuple` block).
     Tuple(String, Vec<CodecExpr>),
     /// A struct variant: `Name { a: T }` — emitted as a record of codecs.
     Struct(String, Vec<(String, CodecExpr)>),
@@ -54,8 +53,7 @@ pub(crate) enum TypeKind {
     Alias(CodecExpr),
 }
 
-/// The non-default wire format configured via
-/// [`set_format`](CodeGenerator::set_format).
+/// The non-default wire format configured via [`set_format`](CodeGenerator::set_format).
 #[derive(Debug, Clone)]
 struct FormatSpec {
     endian: String,
@@ -120,9 +118,8 @@ pub struct CodeGenerator {
 
 /// Which half of the codec surface the generated bindings target.
 ///
-/// The emitted factory calls and type exports are identical in all three
-/// modes — only the `rkyv-js` import specifiers change, so a decode-only
-/// bundle never pulls the writer/hasher machinery (and vice versa).
+/// The emitted factory calls and type exports are identical in all three modes.
+/// Only the `rkyv-js` import specifiers change, so a decode-only bundle never pulls the writer/hasher machinery (and vice versa).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Direction {
     /// Full codecs (`rkyv-js`): encode + decode + access.
@@ -143,10 +140,9 @@ impl Direction {
         }
     }
 
-    /// Rewrite an emitted import block's `rkyv-js` specifiers for this
-    /// direction. Non-`rkyv-js` specifiers (user `register_external`
-    /// modules) are left untouched — hand-written codecs must provide their
-    /// own direction-appropriate exports.
+    /// Rewrite an emitted import block's `rkyv-js` specifiers for this direction.
+    /// Non-`rkyv-js` specifiers (user `register_external` modules) are left untouched.
+    /// Hand-written codecs must provide their own direction-appropriate exports.
     pub(crate) fn rewrite_import_block(self, block: &str) -> String {
         let Some(suffix) = self.suffix() else {
             return block.to_string();
@@ -202,25 +198,27 @@ impl CodeGenerator {
         self
     }
 
-    /// Emit unidirectional bindings: [`Direction::Decode`] rewrites every
-    /// `rkyv-js` import specifier to its `/decode` counterpart
-    /// (`rkyv-js/lib/X` becomes `rkyv-js/lib/X/decode`), [`Direction::Encode`]
-    /// symmetrically. Factory names and type exports are unchanged; imports
-    /// of user modules registered via `register_external` are not rewritten.
+    /// Emit unidirectional bindings: [`Direction::Decode`] rewrites every `rkyv-js` import specifier
+    /// to its `/decode` counterpart (`rkyv-js/lib/X` becomes `rkyv-js/lib/X/decode`), [`Direction::Encode`] symmetrically.
+    ///
+    /// Factory names and type exports are unchanged;
+    /// imports of user modules registered via `register_external` are not rewritten.
     pub fn set_direction(&mut self, direction: Direction) -> &mut Self {
         self.direction = direction;
         self
     }
 
-    /// When `false`, `export type ... = r.Infer<...>` lines are dropped so
-    /// the output is valid plain JavaScript. Defaults to `true`.
+    /// When `false`, `export type ... = r.Infer<...>` lines are dropped so the output is valid plain JavaScript.
+    ///
+    /// Defaults to `true`.
     pub fn allow_typescript_syntax(&mut self, enabled: bool) -> &mut Self {
         self.allow_typescript_syntax = enabled;
         self
     }
 
-    /// Configure how unmappable field types are handled. Defaults to
-    /// [`OnUnknown::Error`].
+    /// Configure how unmappable field types are handled.
+    ///
+    /// Defaults to [`OnUnknown::Error`].
     pub fn on_unknown_type(&mut self, mode: OnUnknown) -> &mut Self {
         self.on_unknown = mode;
         self
@@ -233,8 +231,7 @@ impl CodeGenerator {
         self
     }
 
-    /// Register (or replace) an external type mapping for a fully-qualified
-    /// Rust path.
+    /// Register (or replace) an external type mapping for a fully-qualified Rust path.
     ///
     /// ```
     /// use rkyv_js_codegen::{CodeGenerator, CodecExpr, ExternalType};
@@ -335,12 +332,10 @@ impl CodeGenerator {
         self.types.contains_key(name) || self.failed.contains_key(name)
     }
 
-    /// Override the archived (exported) name of a type, corresponding to
-    /// `#[rkyv(archived = Name)]`.
+    /// Override the archived (exported) name of a type, corresponding to `#[rkyv(archived = Name)]`.
     ///
-    /// Order-independent: the target type may be added before or after this
-    /// call. A target that never materializes is reported as
-    /// [`DiagnosticKind::UnknownRenameTarget`] at generate time.
+    /// Order-independent: the target type may be added before or after this call.
+    /// A target that never materializes is reported as [`DiagnosticKind::UnknownRenameTarget`] at generate time.
     pub fn set_archived_name(
         &mut self,
         type_name: impl Into<String>,
@@ -368,10 +363,9 @@ impl CodeGenerator {
 
     /// Configure the rkyv wire format of the generated bindings.
     ///
-    /// When the format differs from the default (`little`/32/aligned), the
-    /// output declares `const FORMAT = r.format({ ... })` with the
-    /// non-default keys and wraps every exported codec in
-    /// `r.withFormat(<expr>, FORMAT)`.
+    /// When the format differs from the default (`little`/32/aligned),
+    /// the output declares `const FORMAT = r.format({ ... })` with the non-default keys
+    /// and wraps every exported codec in `r.withFormat(<expr>, FORMAT)`.
     pub fn set_format(&mut self, endian: &str, pointer_width: u32, aligned: bool) -> &mut Self {
         self.format = Some(FormatSpec {
             endian: endian.to_string(),
@@ -425,8 +419,7 @@ impl CodeGenerator {
 
     /// Generate the TypeScript bindings.
     ///
-    /// Validation runs first; every problem is aggregated into a single
-    /// [`Error::Codegen`].
+    /// Validation runs first; every problem is aggregated into a single [`Error::Codegen`].
     pub fn generate(&self) -> Result<String, Error> {
         let mut diagnostics: Vec<Diagnostic> = self.add_diagnostics.clone();
 

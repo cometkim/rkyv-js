@@ -1,38 +1,29 @@
 //! Rust source extraction: parses files with `syn` and adds every type
-//! marked with a recognized derive (default `rkyv::Archive`) to the
-//! [`CodeGenerator`].
+//! marked with a recognized derive (default `rkyv::Archive`) to the [`CodeGenerator`].
 //!
 //! ## Marker detection
 //!
 //! A derive path marks a type for extraction iff:
 //!
-//! - it is the exact multi-segment marker path (`rkyv::Archive`, leading
-//!   `::` allowed), or
-//! - it is a single-segment ident resolving to a marker path through the
-//!   file's `use` imports (including renames), or
-//! - it is a bare ident and a glob import (`use rkyv::*`) brings a marker
-//!   path into scope, or
-//! - it matches a path registered via
-//!   [`add_marker_path`](CodeGenerator::add_marker_path).
+//! - it is the exact multi-segment marker path (`rkyv::Archive`, leading `::` allowed), or
+//! - it is a single-segment ident resolving to a marker path through the file's `use` imports (including renames), or
+//! - it is a bare ident and a glob import (`use rkyv::*`) brings a marker path into scope, or
+//! - it matches a path registered via [`add_marker_path`](CodeGenerator::add_marker_path).
 //!
 //! ## Use-item analysis
 //!
 //! `use` trees are flattened into a local-name → fully-qualified-path map:
 //!
-//! - `use std::collections::BTreeMap` maps `BTreeMap` to
-//!   `std::collections::BTreeMap`
+//! - `use std::collections::BTreeMap` maps `BTreeMap` to `std::collections::BTreeMap`
 //! - `use rkyv::Archive as Rkyv` maps `Rkyv` to `rkyv::Archive`
-//! - `type HashMap<K, V> = std::collections::HashMap<K, V, S>` maps
-//!   `HashMap` to `std::collections::HashMap` (the alias *path* only; extra
-//!   RHS arguments surface as trailing type arguments at the use site)
+//! - `type HashMap<K, V> = std::collections::HashMap<K, V, S>` maps `HashMap` to `std::collections::HashMap` 
+//!   (the alias *path* only; extra RHS arguments surface as trailing type arguments at the use site)
 //!
 //! ## Remote proxies
 //!
-//! A type with `#[rkyv(remote = T)]` is a serialization proxy: it emits no
-//! top-level export. Instead, the proxy itself is auto-registered as a
-//! with-wrapper whose template is the proxy's own codec expression, so
-//! fields annotated `#[rkyv(with = ProxyDef)]` resolve to it (rkyv 0.8
-//! semantics).
+//! A type with `#[rkyv(remote = T)]` is a serialization proxy: it emits no top-level export.
+//! Instead, the proxy itself is auto-registered as a with-wrapper whose template is the proxy's own codec expression,
+//! so fields annotated `#[rkyv(with = ProxyDef)]` resolve to it (rkyv 0.8 semantics).
 
 use std::collections::HashMap;
 use std::fs;
@@ -327,8 +318,8 @@ fn type_to_expr(
                 _ => {
                     if let Some(external) = codegen.registry.get_type(&full_path) {
                         let raw_args = collect_type_args(segment);
-                        // Trailing arguments (hashers, allocators) are
-                        // discarded, so never try to resolve them to codecs.
+                        // Trailing arguments (hashers, allocators) are discarded,
+                        // so never try to resolve them to codecs.
                         let keep = if external.allows_trailing() && raw_args.len() > external.arity()
                         {
                             external.arity()
@@ -350,8 +341,8 @@ fn type_to_expr(
                             other => other,
                         })
                     } else if path.segments.len() == 1 && full_path == raw_ident {
-                        // A bare local ident: a reference to another
-                        // generated type, validated at generate time.
+                        // A bare local ident: a reference to another generated type,
+                        // validated at generate time.
                         Ok(codec::named(raw_ident))
                     } else {
                         Err(DiagnosticKind::UnknownType {
@@ -416,8 +407,7 @@ fn single_generic_arg<'a>(
 
 /// Collect the type arguments of a path segment.
 ///
-/// - `[T; N]` array arguments are unwrapped to `T` (SmallVec/TinyVec-style
-///   parameters).
+/// - `[T; N]` array arguments are unwrapped to `T` (SmallVec/TinyVec-style parameters).
 /// - Lifetimes and const generics are skipped.
 fn collect_type_args(segment: &syn::PathSegment) -> Vec<&Type> {
     let PathArguments::AngleBracketed(args) = &segment.arguments else {
@@ -499,8 +489,8 @@ fn field_expr(
         })
 }
 
-/// Look up a with-wrapper by resolved path, trying glob prefixes for bare
-/// idents (`use rkyv::with::*` + `with = AsBox`).
+/// Look up a with-wrapper by resolved path, trying glob prefixes for bare idents
+/// (`use rkyv::with::*` + `with = AsBox`).
 fn lookup_wrapper(
     codegen: &CodeGenerator,
     ctx: &SourceContext,
@@ -519,8 +509,8 @@ fn lookup_wrapper(
     None
 }
 
-/// A struct's extracted shape: named fields form a record codec; unnamed
-/// (tuple-struct) fields are positional.
+/// A struct's extracted shape: named fields form a record codec;
+/// unnamed (tuple-struct) fields are positional.
 enum StructShape {
     Record(Vec<(String, CodecExpr)>),
     Tuple(Vec<CodecExpr>),
@@ -574,10 +564,9 @@ fn extract_struct_shape(
     }
 }
 
-/// The codec expression for a tuple struct: archived exactly like a tuple
-/// of its fields, so `struct Pair(A, B)` aliases `r.tuple(A, B)`. A
-/// single-field (newtype) struct is transparent — the inner codec — and a
-/// zero-field one degenerates to `r.unit`, both matching rkyv's layout.
+/// The codec expression for a tuple struct: archived exactly like a tuple of its fields,
+/// so `struct Pair(A, B)` aliases `r.tuple(A, B)`. A single-field (newtype) struct is transparent — the inner codec — and
+/// a zero-field one degenerates to `r.unit`, both matching rkyv's layout.
 fn tuple_struct_expr(mut exprs: Vec<CodecExpr>) -> CodecExpr {
     match exprs.len() {
         0 => CodecExpr::runtime("unit"),
@@ -610,8 +599,8 @@ fn extract_enum_variants(
                     }
                 }
                 let variant = if unnamed.unnamed.len() == 1 {
-                    // A newtype variant decodes as the bare inner value; a
-                    // fully skipped one degenerates to a unit variant.
+                    // A newtype variant decodes as the bare inner value;
+                    // a fully skipped one degenerates to a unit variant.
                     match exprs.pop() {
                         Some(expr) => EnumVariant::Newtype(variant_name, expr),
                         None => EnumVariant::Unit(variant_name),
@@ -715,9 +704,8 @@ fn parse_source(
     let ctx = build_source_context(&parsed, file);
     let items = type_items(&parsed);
 
-    // Pass 1: remote proxies. `#[rkyv(remote = T)]` types register
-    // themselves as with-wrappers and emit no top-level export. Running
-    // this pass first makes proxy usage order-independent within a file.
+    // Pass 1: remote proxies. `#[rkyv(remote = T)]` types register themselves as with-wrappers and emit no top-level export.
+    // Running this pass first makes proxy usage order-independent within a file.
     for item in &items {
         if !has_marker_derive(item.attrs(), &ctx, codegen) {
             continue;
@@ -819,15 +807,14 @@ impl CodeGenerator {
         Ok(self)
     }
 
-    /// Parse Rust source from a string and extract every type with a marker
-    /// derive.
+    /// Parse Rust source from a string and extract every type with a marker derive.
     pub fn add_source_str(&mut self, source: &str) -> Result<&mut Self, Error> {
         parse_source(self, source, None)?;
         Ok(self)
     }
 
-    /// Recursively scan a directory for `.rs` files and extract every type
-    /// with a marker derive. Files are processed in path order.
+    /// Recursively scan a directory for `.rs` files and extract every type with a marker derive.
+    /// Files are processed in path order.
     pub fn add_source_dir(&mut self, path: impl AsRef<Path>) -> Result<&mut Self, Error> {
         let mut files: Vec<PathBuf> = Vec::new();
         for entry in WalkDir::new(path) {
@@ -865,8 +852,6 @@ mod tests {
             other => panic!("expected codegen diagnostics, got {other:?}"),
         }
     }
-
-    // ── Basic extraction ────────────────────────────────────────────
 
     #[test]
     fn extracts_simple_struct() {
@@ -963,8 +948,6 @@ mod tests {
         let outer_pos = code.find("export const ArchivedOuter").unwrap();
         assert!(inner_pos < outer_pos);
     }
-
-    // ── Marker detection ────────────────────────────────────────────
 
     #[test]
     fn marker_via_plain_import() {
@@ -1071,8 +1054,6 @@ mod tests {
         assert!(!code.contains("ArchivedNotDetected"));
         assert!(!code.contains("ArchivedAlsoNotDetected"));
     }
-
-    // ── Built-in external types ─────────────────────────────────────
 
     #[test]
     fn builtin_leaf_types() {
@@ -1210,8 +1191,6 @@ mod tests {
         assert!(code.contains("m: hashMap(r.string, r.u32),"));
     }
 
-    // ── Diagnostics ─────────────────────────────────────────────────
-
     #[test]
     fn generic_arity_too_few_args() {
         let diagnostics = generate_diagnostics(
@@ -1271,9 +1250,8 @@ mod tests {
 
     #[test]
     fn unknown_imported_type_is_not_a_dangling_ref() {
-        // A single-segment ident that resolves via imports to an
-        // unregistered path must be an UnknownType error, not a silent
-        // `ArchivedNaiveDate` type reference.
+        // A single-segment ident that resolves via imports to an unregistered path must be an UnknownType error,
+        // not a silent `ArchivedNaiveDate` type reference.
         let diagnostics = generate_diagnostics(
             r#"
             use rkyv::Archive;
@@ -1344,8 +1322,6 @@ mod tests {
         assert!(matches!(error, Error::Parse { file: None, .. }));
     }
 
-    // ── OnUnknown::SkipContainingType ───────────────────────────────
-
     #[test]
     fn skip_mode_omits_unknown_and_dependents() {
         let mut codegen = CodeGenerator::new();
@@ -1371,8 +1347,6 @@ mod tests {
         assert!(!code.contains("ArchivedUsesBroken"));
         assert!(!code.contains("ArchivedUsesUsesBroken"));
     }
-
-    // ── With-wrappers ───────────────────────────────────────────────
 
     #[test]
     fn with_asbox_boxes_the_underlying_codec() {
@@ -1488,8 +1462,6 @@ mod tests {
         assert!(code.contains("big: r.box(r.string),"));
     }
 
-    // ── Remote proxies ──────────────────────────────────────────────
-
     #[test]
     fn remote_proxy_registers_itself_as_wrapper() {
         let code = generate(
@@ -1509,9 +1481,9 @@ mod tests {
             }
         "#,
         );
-        // The proxy emits no top-level export…
+        // The proxy emits no top-level export...
         assert!(!code.contains("ArchivedNaiveDateDef"));
-        // …and the consuming field gets the proxy's own struct codec.
+        // ...and the consuming field gets the proxy's own struct codec.
         assert!(code.contains("date: r.struct({ year: r.i32, ordinal: r.u32 }),"));
     }
 
@@ -1554,8 +1526,6 @@ mod tests {
         ));
     }
 
-    // ── Archived renames ────────────────────────────────────────────
-
     #[test]
     fn archived_rename_attribute() {
         let code = generate(
@@ -1573,8 +1543,6 @@ mod tests {
         assert!(code.contains("start: CustomPoint,"));
         assert!(!code.contains("ArchivedPoint"));
     }
-
-    // ── Custom registrations ────────────────────────────────────────
 
     #[test]
     fn custom_external_type() {

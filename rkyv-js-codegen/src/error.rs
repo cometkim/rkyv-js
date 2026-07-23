@@ -1,9 +1,8 @@
 //! Error and diagnostic types for the code generator.
 //!
-//! Fallible operations return [`Error`]. Code-generation problems are
-//! aggregated: [`CodeGenerator::generate`](crate::CodeGenerator::generate)
-//! validates everything it can and reports all [`Diagnostic`]s at once in
-//! [`Error::Codegen`].
+//! Fallible operations return [`Error`].
+//! Code-generation problems are aggregated: [`CodeGenerator::generate`](crate::CodeGenerator::generate)
+//! validates everything it can and reports all [`Diagnostic`]s at once in [`Error::Codegen`].
 
 use std::fmt;
 use std::path::PathBuf;
