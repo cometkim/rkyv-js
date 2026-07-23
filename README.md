@@ -6,9 +6,9 @@ An unofficial library to use [rkyv] (zero-copy deserialization framework for Rus
 
 This library allows JavaScript programs to efficiently exchange data with a Rust backend using rkyv types.
 
-- Archived Rust types can be read directly from JS programs without an additional serialization layer.
-- Bytes written in JS programs can be deserialized in Rust programs in a zero-copy manner — including archived hash map lookups, which work byte-for-byte like Rust's own.
-- Unlike Protobuf or Cap'n Proto, the schema is derived directly from your Rust codebase without having to manage additional schema files.
+- Archived Rust types can be read directly from JS programs without an additional deserialization/transform layer.
+- Bytes written in JS programs can be read in Rust programs in a zero-copy manner, including archived hash map lookups, which work byte-for-byte like Rust's own.
+- Unlike Protobuf or Cap'n Proto, the type is derived directly from your Rust codebase without having to manage additional schema files.
 
 Wire compatibility is enforced by a bidirectional conformance suite: every release is verified against a pinned rkyv version (currently **0.8.14**) in both directions — Rust-generated archives decoded in JS, and JS-encoded archives validated with rkyv's own `bytecheck`, deserialized, compared for equality, and probed with real archived-container lookups.
 
@@ -65,14 +65,14 @@ fn main() -> Result<(), rkyv_js_codegen::Error> {
 }
 ```
 
-This generates self-contained codecs — use sites don't import `rkyv-js` at all:
+Then you can import generated codecs from `generated/bindings` in your JavaScript/TypeScript project like:
 
 ```typescript
 import { ArchivedPerson, type Person } from './generated/bindings.ts';
 
-const bytes = ArchivedPerson.encode(person);       // Uint8Array
-const person = ArchivedPerson.decode(bytes);       // plain object
-const lazy = ArchivedPerson.access(bytes);         // lazy view — fields decode on first read
+const bytes = ArchivedPerson.encode(person); // Uint8Array
+const person = ArchivedPerson.decode(bytes); // plain object
+const lazy = ArchivedPerson.access(bytes);   // lazy view, fields decode partially on read
 ```
 
 ### Option 2: Manual schema definition
@@ -160,14 +160,11 @@ Into JavaScript:
 
 ```typescript
 const ArchivedShape = r.taggedEnum({
-  Circle: { radius: r.f64 },        // struct variant → record of codecs
-  Wrap: r.string,                   // newtype variant → bare codec
-  Color: [r.u8, r.u8, r.u8],        // tuple variant → array of codecs
-  Empty: null,                      // unit variant
+  Circle: { radius: r.f64 },  // struct variant → record of codecs
+  Wrap: r.string,             // newtype variant → bare codec
+  Color: [r.u8, r.u8, r.u8],  // tuple variant → array of codecs
+  Empty: null,                // unit variant
 });
-// value shape: { tag: 'Circle', value: { radius: 1.5 } }
-//            | { tag: 'Wrap', value: string }
-//            | { tag: 'Color', value: [number, number, number] } | …
 ```
 
 Enum variants are laid out exactly like rkyv's `repr(u8)` enums (fields flattened after the tag), and — matching rkyv's derive — at most 256 variants are supported.
@@ -231,7 +228,9 @@ In codegen, `set_format(...)` emits a `FORMAT` constant and wraps every export w
 
 ## Unidirectional codecs
 
-The runtime ships every codec in three directions — full (`rkyv-js`), decode-only (`rkyv-js/decode`), and encode-only (`rkyv-js/encode`) — with identical factory names, so switching direction is switching an import path:
+The runtime ships every codec in three directions.
+
+full (`rkyv-js`), decode-only (`rkyv-js/decode`), and encode-only (`rkyv-js/encode`), with identical factory names, so switching direction is switching an import path:
 
 ```typescript
 import * as r from 'rkyv-js/decode';
@@ -242,19 +241,27 @@ ArchivedPerson.access(bytes);   // ✓
 // .encode() does not exist on this chain
 ```
 
-Class methods can't be tree-shaken, so a full codec always carries both halves; the one-direction modules cut the unused half out at the module-graph level. Measured on a Person + hash-map binding set (min+gz): **3.3 KB decode-only / 4.7 KB encode-only vs 7.8 KB full** (−57% / −40%). The decode chain never pulls in the writer, a hasher, or the swiss-table builder; the encode chain never pulls in the reader or the lazy-view machinery. External-crate codecs split the same way (`rkyv-js/lib/hashmap/decode`, …).
+Class methods can't be tree-shaken, so a full codec always carries both halves; the one-direction modules cut the unused half out at the module-graph level.
+
+Measured on a Person + hash-map binding set (min+gz): 3.3 KB decode-only / 4.7 KB encode-only vs 7.8 KB full (−57% / −40%).
+
+The decode chain never pulls in the writer, a hasher, or the swiss-table builder; the encode chain never pulls in the reader or the lazy-view machinery.
+
+External-crate codecs split the same way (`rkyv-js/lib/hashmap/decode`, ...).
 
 In codegen, `set_direction` rewrites only the rkyv-js import specifiers in the emitted bindings (registered externals are untouched), so a browser client and a Rust-facing service can share one schema with direction-matched bundles:
 
 ```rust
-codegen.set_direction(Direction::Decode);   // bindings import from rkyv-js/decode
+codegen.set_direction(Direction::Decode); // bindings import from rkyv-js/decode
 ```
 
-At the type level, `Decoder<T>` and `Encoder<T>` are the public contracts — a full `Codec` satisfies both, and containers accept full and one-direction children interchangeably.
+At the type level, `Decoder<T>` and `Encoder<T>` are the public contracts. 
+
+A full `Codec` satisfies both, and containers accept full and one-direction children interchangeably.
 
 ## Opt-in JIT compilation
 
-`rkyv-js/jit` pre-compiles a codec into specialized read/write functions with `new Function` — field offsets become integer constants and every remaining child call gets its own monomorphic call site, the property that makes per-message codegen (protobufjs-style) fast:
+`rkyv-js/jit` pre-compiles a codec into specialized read/write functions with `new Function`, field offsets become integer constants and every remaining child call gets its own monomorphic call site, the property that makes per-message codegen (protobufjs-style) fast:
 
 ```typescript
 import { compileCodec } from 'rkyv-js/jit';
@@ -264,7 +271,7 @@ Compiled.decode(bytes);    // specialized read
 Compiled.encode(person);   // specialized archive/resolve (struct & tuple roots)
 ```
 
-The result is a drop-in codec with the identical surface — swap it in at one boundary.
+The result is a drop-in codec with the identical surface, swap it in at one boundary.
 
 - Measured 1.14–1.22x faster encode over the interpreter on the comparison payloads; the decode gain is smaller and too noisy on V8 to quote. On tiny messages the wrapper overhead can outweigh the win — benchmark your own shapes.
 - The default import path never touches this module, and where `new Function` is blocked (CSP) `compileCodec` returns the interpreter codec unchanged (pass `{ onUnsupported: 'throw' }` to raise instead).
@@ -291,15 +298,15 @@ export const Coord = transform(
 
 ## Code generation
 
-Bindings are generated from your Rust source by the [`rkyv-js-codegen`](https://crates.io/crates/rkyv-js-codegen) crate, driven from `build.rs` as shown in [Quick Start](#option-1-code-generation-recommended). Beyond the defaults it covers:
+Bindings are generated from your Rust source by the [`rkyv-js-codegen`](https://crates.io/crates/rkyv-js-codegen) crate, driven from `build.rs` as shown in [Quick Start](#option-1-code-generation-recommended).
 
-- **Source extraction** — `add_source_file` / `add_source_dir` / `add_source_str`, with `use` imports resolved to fully-qualified paths and a configurable `#[derive(Archive)]` marker. Unmappable types are hard errors carrying source locations and did-you-mean suggestions.
-- **External types** — register any crate's types against a typed codec-expression tree, including generic arity and trailing hasher/allocator parameters.
-- **`with`-wrappers and remote types** — `rkyv::with::{AsBox, Inline, InlineAsBox, Skip}` are built in; `#[rkyv(with = …)]` and `#[rkyv(remote = …)]` resolve through an extensible registry.
-- **Output shaping** — `set_direction` for the unidirectional builds above, `set_format` for non-default wire formats, `set_archived_name` for `#[rkyv(archived = …)]`, and a plain-JavaScript mode.
-- **Programmatic API** — declare structs, enums, and aliases directly, without parsing any Rust.
+Beyond the defaults it covers:
 
-Emission is deterministic - dependency-ordered, alphabetical within ties - so generated files diff cleanly.
+- Source extraction: `add_source_file` / `add_source_dir` / `add_source_str`, with `use` imports resolved to fully-qualified paths and a configurable `#[derive(Archive)]` marker. Unmappable types are hard errors carrying source locations and did-you-mean suggestions.
+- External types: register any crate's types against a typed codec-expression tree, including generic arity and trailing hasher/allocator parameters.
+- `with`-wrappers and remote types: `rkyv::with::{AsBox, Inline, InlineAsBox, Skip}` are built in; `#[rkyv(with = ...)]` and `#[rkyv(remote = ...)]` resolve through an extensible registry.
+- Output shaping: `set_direction` for the unidirectional builds above, `set_format` for non-default wire formats, `set_archived_name` for `#[rkyv(archived = ...)]`, and a plain-JavaScript mode.
+- Programmatic API: declare structs, enums, and aliases directly, without parsing any Rust.
 
 See **[docs.rs/rkyv-js-codegen](https://docs.rs/rkyv-js-codegen)** for the full API.
 
