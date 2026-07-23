@@ -1,6 +1,5 @@
 ---
 "rkyv-js": minor
-"rkyv-js-codegen": minor
 ---
 
 Complete v0.1 redesign:
