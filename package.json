@@ -99,7 +99,7 @@
     "check": "tsc --noEmit && tsc -p tsconfig.src.json --noEmit",
     "build": "node scripts/build.mjs",
     "changeset:version": "changeset version && node scripts/sync-cargo-version.mjs",
-    "changeset:publish": "changeset publish",
+    "changeset:publish": "yarn workspaces foreach --all --no-private npm publish --tolerate-republish && changeset tag",
     "conformance:generate": "node scripts/conformance.mjs generate",
     "conformance:verify": "node scripts/conformance.mjs verify",
     "bench:comparison": "node --expose-gc benchmark/comparison.ts",
