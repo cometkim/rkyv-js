@@ -1,6 +1,6 @@
 {
   "name": "rkyv-js",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "An unofficial library for rkyv (Rust zero-copy serialization framework)",
   "license": "MIT",
   "homepage": "https://github.com/cometkim/rkyv-js",

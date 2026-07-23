@@ -1,5 +1,11 @@
 # rkyv-js
 
+## 0.1.1
+
+### Patch Changes
+
+- 50a95fc: Fix broken entry points in the published package. Publishing now goes through `yarn npm publish`, which applies the `publishConfig` overrides.
+
 ## 0.1.0
 
 ### Minor Changes
