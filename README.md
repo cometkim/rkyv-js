@@ -360,6 +360,6 @@ yarn build                 # dist/ via amaro (type stripping) + oxc (declaration
 MIT
 
 [rkyv]: https://rkyv.org/
-[protobufjs](https://github.com/protobufjs/protobuf.js)
-[capnp-es](https://github.com/unjs/capnp-es)
-[cbor-x](https://github.com/kriszyp/cbor-x)
+[protobufjs]: https://github.com/protobufjs/protobuf.js
+[capnp-es]: https://github.com/unjs/capnp-es
+[cbor-x]: https://github.com/kriszyp/cbor-x
