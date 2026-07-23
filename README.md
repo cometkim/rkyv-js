@@ -14,8 +14,8 @@ Wire compatibility is enforced by a bidirectional conformance suite: every relea
 
 ## Components
 
-- `rkyv-js` ([![npm](https://img.shields.io/npm/v/rkyv-js.svg)](https://npmx.dev/package/rkyv-js)): JavaScript runtime for encoding/decoding rkyv archives. Documented here.
-- [`rkyv-js-codegen`](rkyv-js-codegen) ([![crates.io](https://img.shields.io/crates/v/rkyv-js-codegen.svg)](https://crates.io/crates/rkyv-js-codegen)): Generates JavaScript codec bindings from Rust source. Documented on [docs.rs](https://docs.rs/rkyv-js-codegen).
+- [`rkyv-js`](#) [![npm](https://img.shields.io/npm/v/rkyv-js.svg)](https://npmx.dev/package/rkyv-js): JavaScript runtime for encoding/decoding rkyv archives. Documented here.
+- [`rkyv-js-codegen`](rkyv-js-codegen) [![crates.io](https://img.shields.io/crates/v/rkyv-js-codegen.svg)](https://crates.io/crates/rkyv-js-codegen): Generates JavaScript codec bindings from Rust source. Documented on [docs.rs](https://docs.rs/rkyv-js-codegen).
 - [`rkyv-example`](rkyv-example) is an example project for exercising both.
 
 ## Installation
