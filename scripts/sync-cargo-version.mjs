@@ -125,8 +125,10 @@ if (updated.length === 0) {
 console.log(`Synced Cargo versions:\n  ${updated.join('\n  ')}`);
 
 // Cargo.lock pins workspace members by version, so it goes stale on every bump
-// and `--locked` builds would fail on the release commit.
-const { status, error } = spawnSync('cargo', ['update', '--workspace', '--offline'], {
+// and `--locked` builds would fail on the release commit. `--workspace` keeps
+// re-resolution to workspace members, leaving third-party pins alone; it still
+// needs the registry index, so this can't run `--offline` on a cold runner.
+const { status, error } = spawnSync('cargo', ['update', '--workspace'], {
   cwd: rootDir,
   stdio: 'inherit',
 });
