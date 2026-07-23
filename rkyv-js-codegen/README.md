@@ -5,7 +5,9 @@
 
 Generates TypeScript codec bindings from [rkyv](https://rkyv.org/) types, targeting the [`rkyv-js`](https://www.npmjs.com/package/rkyv-js) runtime.
 
-The generator parses Rust sources with `syn`, extracts every type marked `#[derive(Archive)]`, and emits one `export const Archived{Name}` codec per type. TypeScript types are derived from the codecs via `r.Infer<typeof …>`, so your Rust source stays the single source of truth - no schema files, no second type declaration to drift.
+The generator parses Rust sources with `syn`, extracts every type marked `#[derive(Archive)]`, and emits one `export const Archived{Name}` codec per type.
+
+TypeScript types are derived from the codecs via `r.Infer<typeof ...>`, so your Rust source stays the single source of truth. No schema files, no second type declaration to drift.
 
 ```toml
 [build-dependencies]
@@ -42,9 +44,9 @@ export type Person = r.Infer<typeof ArchivedPerson>;
 
 ## Documentation
 
-- **[docs.rs/rkyv-js-codegen](https://docs.rs/rkyv-js-codegen)** - the full generator API: source extraction, external-type and `with`-wrapper registries, unidirectional and non-default-format output, the programmatic builder, and diagnostics.
-- **[Project README](https://github.com/cometkim/rkyv-js#readme)** - the `rkyv-js` runtime, the codec reference, wire-format guarantees, and known limitations.
-- **[rkyv-example](https://github.com/cometkim/rkyv-js/tree/main/rkyv-example)** - a worked crate covering external types, `with`-wrappers, and remote types, with its `build.rs` and generated output committed.
+- [docs.rs](https://docs.rs/rkyv-js-codegen)
+- [rkyv-js](https://github.com/cometkim/rkyv-js#readme)
+- [rkyv-example](https://github.com/cometkim/rkyv-js/tree/main/rkyv-example)
 
 ## Compatibility
 
