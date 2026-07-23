@@ -1,6 +1,9 @@
 # rkyv-js
 
-An unofficial library to use [rkyv] (zero-copy deserialization framework for Rust) in JavaScript/TypeScript projects — a wire protocol for Rust↔JS interop with no schema files.
+ [![npm](https://img.shields.io/npm/v/rkyv-js.svg)](https://npmx.dev/package/rkyv-js)
+ [![LICENSE - MIT](https://img.shields.io/github/license/cometkim/rkyv-js)](#license)
+
+An unofficial library to use [rkyv] (zero-copy deserialization framework for Rust) in JavaScript/TypeScript projects, a wire protocol for Rust-JS interop with no schema files.
 
 ## Motivation
 
@@ -10,12 +13,12 @@ This library allows JavaScript programs to efficiently exchange data with a Rust
 - Bytes written in JS programs can be read in Rust programs in a zero-copy manner, including archived hash map lookups, which work byte-for-byte like Rust's own.
 - Unlike Protobuf or Cap'n Proto, the type is derived directly from your Rust codebase without having to manage additional schema files.
 
-Wire compatibility is enforced by a bidirectional conformance suite: every release is verified against a pinned rkyv version (currently **0.8.14**) in both directions — Rust-generated archives decoded in JS, and JS-encoded archives validated with rkyv's own `bytecheck`, deserialized, compared for equality, and probed with real archived-container lookups.
+Wire compatibility is enforced by a bidirectional conformance suite: every release is verified against a pinned rkyv version (currently **0.8.14**).
 
 ## Components
 
-- [`rkyv-js`](#) [![npm](https://img.shields.io/npm/v/rkyv-js.svg)](https://npmx.dev/package/rkyv-js): JavaScript runtime for encoding/decoding rkyv archives. Documented here.
-- [`rkyv-js-codegen`](rkyv-js-codegen) [![crates.io](https://img.shields.io/crates/v/rkyv-js-codegen.svg)](https://crates.io/crates/rkyv-js-codegen): Generates JavaScript codec bindings from Rust source. Documented on [docs.rs](https://docs.rs/rkyv-js-codegen).
+- [`rkyv-js`](#): JavaScript runtime for encoding/decoding rkyv archives. Documented here.
+- [`rkyv-js-codegen`](rkyv-js-codegen): Generates JavaScript codec bindings from Rust source. Documented on [docs.rs](https://docs.rs/rkyv-js-codegen).
 - [`rkyv-example`](rkyv-example) is an example project for exercising both.
 
 ## Installation
@@ -23,7 +26,6 @@ Wire compatibility is enforced by a bidirectional conformance suite: every relea
 ```bash
 yarn add rkyv-js
 ```
-
 
 ```toml
 [build-dependencies]
@@ -102,7 +104,7 @@ const person = ArchivedPerson.decode(data);
 
 ## Lazy access
 
-`access()` returns a view whose fields decode only when read - the fastest way to read a few fields out of a large archive:
+`access()` returns a view whose fields decode only when read, the fastest way to read a few fields out of a large archive:
 
 ```typescript
 const lazy = ArchivedPerson.access(bytes);
@@ -116,7 +118,7 @@ JSON.stringify(lazy);   // works (decodes everything)
 
 Sequences appear as `LazyList<E>` (`length`, `at`, iteration, `toArray`) rather than plain arrays.
 
-For full traversals of plain data, `decode()` is faster than `access()` - reach for `access()` when you read a subset.
+For full traversals of plain data, `decode()` is faster than `access()`, reach for `access()` when you read a subset.
 
 ## Codec API
 
@@ -167,7 +169,7 @@ const ArchivedShape = r.taggedEnum({
 });
 ```
 
-Enum variants are laid out exactly like rkyv's `repr(u8)` enums (fields flattened after the tag), and — matching rkyv's derive — at most 256 variants are supported.
+Enum variants are laid out exactly like rkyv's `repr(u8)` enums (fields flattened after the tag).
 
 ### Smart pointers
 
@@ -197,13 +199,13 @@ The codegen recognizes types from [external crates that rkyv supports](https://d
 
 Archived hash containers require keys that hash exactly like Rust's `Hash` implementations (rkyv-js ships a cross-platform FxHasher64 - rkyv's default archived hasher). Supported key types: strings, integers (including `u64`/`i64`), `bool`, `char`, `uuid`, and structs/tuples composed of those. Codecs advertise this via `codec.hashable`; `hashMap()` throws at construction for unhashable keys. Floats (not `Eq` in Rust) and sequences are not supported as keys.
 
-Maps archived with a custom `H` (a manual `serialize_from_iter` impl) can pass any `RkyvHasher` through the `hasher` option; `rkyv-js/lib/fx-hasher` exports the default `FxHasher`, and `rkyv-js/lib/sip-hasher` ships a `SipHasher13` (zero keys by default, `new SipHasher13(k0, k1)` for `new_with_keys` — keys must be fixed constants shared with the Rust side).
+Maps archived with a custom `H` (a manual `serialize_from_iter` impl) can pass any `RkyvHasher` through the `hasher` option; `rkyv-js/lib/fx-hasher` exports the default `FxHasher`, and `rkyv-js/lib/sip-hasher` ships a `SipHasher13` (zero keys by default, `new SipHasher13(k0, k1)` for `new_with_keys`, keys must be fixed constants shared with the Rust side).
 
-JS-encoded maps are fully searchable from Rust - `archived.map.get(key)` works, at any size.
+JS-encoded maps are fully searchable from Rust. `archived.map.get(key)` works, at any size.
 
 ## Format configuration
 
-rkyv's non-default wire formats are supported end to end:
+rkyv's non-default wire formats are supported end-to-end:
 
 ```typescript
 import { format } from 'rkyv-js/core';
@@ -247,7 +249,7 @@ Measured on a Person + hash-map binding set (min+gz): 3.3 KB decode-only / 4.7 K
 
 The decode chain never pulls in the writer, a hasher, or the swiss-table builder; the encode chain never pulls in the reader or the lazy-view machinery.
 
-External-crate codecs split the same way (`rkyv-js/lib/hashmap/decode`, ...).
+External-crate codecs split the same way (`rkyv-js/lib/hashmap/decode`, etc).
 
 In codegen, `set_direction` rewrites only the rkyv-js import specifiers in the emitted bindings (registered externals are untouched), so a browser client and a Rust-facing service can share one schema with direction-matched bundles:
 
@@ -271,7 +273,7 @@ Compiled.decode(bytes);    // specialized read
 Compiled.encode(person);   // specialized archive/resolve (struct & tuple roots)
 ```
 
-The result is a drop-in codec with the identical surface, swap it in at one boundary.
+The result is a drop-in codec with the identical surface; swap it in at one boundary.
 
 - Measured 1.14–1.22x faster encode over the interpreter on the comparison payloads; the decode gain is smaller and too noisy on V8 to quote. On tiny messages the wrapper overhead can outweigh the win — benchmark your own shapes.
 - The default import path never touches this module, and where `new Function` is blocked (CSP) `compileCodec` returns the interpreter codec unchanged (pass `{ onUnsupported: 'throw' }` to raise instead).
@@ -319,7 +321,7 @@ See **[docs.rs/rkyv-js-codegen](https://docs.rs/rkyv-js-codegen)** for the full 
 ### Limitations
 
 - **No input validation**: like rkyv's `access_unchecked`, decoding assumes trusted bytes. Do not decode untrusted data.
-- **No shared-pointer dedup on encode**: rkyv writes shared `Rc`/`Arc` data once; rkyv-js writes one copy per occurrence (semantically equal, not byte-identical). Consequently a *live* `Weak` encoded from JS deserializes as dangling in Rust; dead weaks work exactly.
+- **No shared-pointer dedup on encode**: rkyv writes shared `Rc`/`Arc` data once; rkyv-js writes one copy per occurrence (semantically equal, not byte-identical). Consequently, a *live* `Weak` encoded from JS deserializes as dangling in Rust; dead weaks work exactly.
 - `Option<Option<T>>`'s `Some(None)` is not representable in the JS value model (`T | null` collapses it).
 - Hash map re-encoding is semantically equal but not byte-identical (bucket placement depends on insertion sequence); index maps and B-trees re-encode byte-identically.
 - Trait objects (`rkyv_dyn`) are not supported.
@@ -330,7 +332,7 @@ Measured against [protobufjs] 8.7.0, [capnp-es] 0.0.14, [cbor-x] 1.6.4
 
 - Decode is a tie with protobufjs, slightly behind on the smallest payloads.
 - Encode is generally better than protobufjs.
-- Lazy `access()` can be more than twice as fast when reading only parts of the payload. On a full traversal it is slower than `decode()`.
+- Lazy `access()` can be more than twice as fast when reading only parts of the payload. On a full traversal, it is slower than `decode()`.
 - `rkyv-js/jit` generally adds a 20% perf gain over the interpreter.
 - cbor-x decodes the small payloads faster than rkyv-js; capnp-es was slower than protobufjs on every row of this suite.
 
