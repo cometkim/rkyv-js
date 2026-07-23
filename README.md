@@ -310,7 +310,7 @@ Beyond the defaults it covers:
 - Output shaping: `set_direction` for the unidirectional builds above, `set_format` for non-default wire formats, `set_archived_name` for `#[rkyv(archived = ...)]`, and a plain-JavaScript mode.
 - Programmatic API: declare structs, enums, and aliases directly, without parsing any Rust.
 
-See **[docs.rs/rkyv-js-codegen](https://docs.rs/rkyv-js-codegen)** for the full API.
+See **[docs.rs](https://docs.rs/rkyv-js-codegen)** for the full API.
 
 ## Conformance & guarantees
 
