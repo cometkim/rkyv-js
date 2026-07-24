@@ -16,7 +16,7 @@ jobs:
       pull-requests: write # open the version-bump PR
       id-token: write # npm provenance + crates.io trusted publishing
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: actions/setup-node@v6
