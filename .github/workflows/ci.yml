@@ -21,6 +21,9 @@ jobs:
       - run: yarn check
       - run: yarn test
 
+      - name: Build and publish to pkg.pr.new
+        run: yarn pkg-pr-new publish
+
   rust:
     name: Test & lint (Rust)
     runs-on: ubuntu-latest

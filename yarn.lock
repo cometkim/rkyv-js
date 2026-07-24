@@ -1906,6 +1906,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"pkg-pr-new@npm:^0.0.79":
+  version: 0.0.79
+  resolution: "pkg-pr-new@npm:0.0.79"
+  bin:
+    pkg-pr-new: bin/cli.js
+  checksum: 10c0/188513a78300f440ed9eebf564cdf608daa3847fed7f97d02f9be6455219cdca1921d65a8edef19abfce530635931ea1d80631cb341cc7a2d5ccb879720e0e15
+  languageName: node
+  linkType: hard
+
 "prettier@npm:^2.7.1":
   version: 2.8.8
   resolution: "prettier@npm:2.8.8"
@@ -2023,6 +2032,7 @@ __metadata:
     es-module-lexer: "npm:^2.3.0"
     mitata: "npm:^1.0.34"
     oxc-transform: "npm:^0.139.0"
+    pkg-pr-new: "npm:^0.0.79"
     protobufjs: "npm:^8.7.0"
     tinybench: "npm:^5.1.0"
     typescript: "npm:^6.0.3"
