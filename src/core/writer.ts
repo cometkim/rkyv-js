@@ -6,8 +6,14 @@ import { DEFAULT_FORMAT, pointerBytes, type RkyvFormat } from './format.ts';
  * hosts may inject a more efficient or hand-rolled implementation.
  */
 export interface RkyvTextEncoder {
-  /** UTF-8 encode `src` into `dest`, reporting the bytes written. */
-  encodeInto(src: string, dest: Uint8Array): { written: number };
+  /**
+   * UTF-8 encode `src` into `dest`, reporting the bytes written and,
+   * optionally, the UTF-16 code units read (the platform encoder reports
+   * both). `read` lets a fixed-buffer writer distinguish "everything fit"
+   * from "output truncated"; without it, an output that exactly fills
+   * `dest` is conservatively treated as truncated.
+   */
+  encodeInto(src: string, dest: Uint8Array): { read?: number; written: number };
 }
 
 export interface RkyvWriterOptions {
@@ -16,6 +22,31 @@ export interface RkyvWriterOptions {
   initialCapacity?: number;
   /** UTF-8 encoder used for all text. Defaults to the platform TextEncoder. */
   textEncoder?: RkyvTextEncoder;
+  /**
+   * Write into caller-provided memory instead of an owned, growable buffer.
+   * The writer is then **fixed-capacity**: running past `buffer.length`
+   * throws a `RangeError` instead of growing (`initialCapacity` is ignored).
+   *
+   * This is the zero-copy path for producing an archive directly in its
+   * final destination — e.g. a `WebAssembly.Memory` region:
+   *
+   * ```ts
+   * const region = new Uint8Array(memory.buffer, ptr, size);
+   * const writer = new RkyvWriter({ buffer: region });
+   * codec.encodeInto(writer, value); // archive written in place
+   * const byteLength = writer.pos;
+   * ```
+   *
+   * Two caller responsibilities:
+   * - **Alignment**: rkyv archives are aligned relative to the buffer
+   *   start, so the region itself must start at an address satisfying the
+   *   archived type's alignment (allocate with ≥ 8-byte alignment to cover
+   *   every kind).
+   * - **Staleness**: growing a `WebAssembly.Memory` detaches the buffer the
+   *   region views. Construct a fresh writer after any operation that may
+   *   grow the memory.
+   */
+  buffer?: Uint8Array;
 }
 
 /**
@@ -43,6 +74,8 @@ export class RkyvWriter {
   capacity: number;
   readonly format: RkyvFormat;
   readonly textEncoder: RkyvTextEncoder;
+  /** True for a caller-provided buffer: capacity is fixed, overflow throws. */
+  readonly fixed: boolean;
   /** True when the format is little-endian. */
   #le: boolean;
   /** Size in bytes of relative pointers and archived usize. */
@@ -52,10 +85,21 @@ export class RkyvWriter {
     this.format = options.format ?? DEFAULT_FORMAT;
     this.#le = this.format.endian === 'little';
     this.pointerBytes = pointerBytes(this.format);
-    this.capacity = options.initialCapacity ?? 1024;
     this.textEncoder = options.textEncoder ?? (sharedTextEncoder ??= new TextEncoder());
-    this.buffer = new Uint8Array(this.capacity);
-    this.view = new DataView(this.buffer.buffer);
+    const external = options.buffer;
+    if (external !== undefined) {
+      this.fixed = true;
+      this.capacity = external.length;
+      this.buffer = external;
+    } else {
+      this.fixed = false;
+      this.capacity = options.initialCapacity ?? 1024;
+      this.buffer = new Uint8Array(this.capacity);
+    }
+    // Anchored at the Uint8Array's own offset so `position` addresses the
+    // view and the underlying memory identically (external buffers are
+    // typically subarrays with a non-zero byteOffset).
+    this.view = new DataView(this.buffer.buffer, this.buffer.byteOffset, this.buffer.byteLength);
     this.position = 0;
   }
 
@@ -88,19 +132,29 @@ export class RkyvWriter {
   }
 
   /**
-   * Ensure the buffer has enough capacity for additional bytes.
+   * Ensure the buffer has enough capacity for additional bytes: grow an
+   * owned buffer, throw for a fixed (caller-provided) one.
    */
   #ensureCapacity(additionalBytes: number): void {
     const required = this.position + additionalBytes;
     if (required > this.capacity) {
+      if (this.fixed) {
+        this.#overflow(additionalBytes);
+      }
       while (this.capacity < required) {
         this.capacity *= 2;
       }
       const newBuffer = new Uint8Array(this.capacity);
       newBuffer.set(this.buffer);
       this.buffer = newBuffer;
-      this.view = new DataView(this.buffer.buffer);
+      this.view = new DataView(newBuffer.buffer, 0, newBuffer.byteLength);
     }
+  }
+
+  #overflow(additionalBytes: number): never {
+    throw new RangeError(
+      `rkyv-js: fixed writer buffer overflow: ${additionalBytes} more bytes at position ${this.position} exceed the capacity of ${this.capacity}`,
+    );
   }
 
   /**
@@ -250,14 +304,30 @@ export class RkyvWriter {
    * (no intermediate allocation). Returns the number of bytes written.
    */
   writeText(text: string): number {
-    // Worst case: 3 bytes per UTF-16 code unit.
-    this.#ensureCapacity(text.length * 3);
-    const { written } = this.textEncoder.encodeInto(
-      text,
-      this.buffer.subarray(this.position),
-    );
-    this.position += written;
-    return written;
+    if (text.length === 0) return 0;
+    if (!this.fixed) {
+      // Worst case: 3 bytes per UTF-16 code unit.
+      this.#ensureCapacity(text.length * 3);
+      const { written } = this.textEncoder.encodeInto(
+        text,
+        this.buffer.subarray(this.position),
+      );
+      this.position += written;
+      return written;
+    }
+    // Fixed buffer: the worst-case estimate may overshoot what's left even
+    // when the encoded text fits, so encode into the remaining space and
+    // detect a true overflow from the encoder's progress. Encoders that
+    // don't report `read` are judged by whether the output filled `dest`
+    // (an exact fill is then conservatively treated as truncation).
+    const dest = this.buffer.subarray(this.position);
+    const result = this.textEncoder.encodeInto(text, dest);
+    const read = result.read ?? (result.written < dest.length ? text.length : -1);
+    if (read < text.length) {
+      this.#overflow(text.length * 3);
+    }
+    this.position += result.written;
+    return result.written;
   }
 
   /**
