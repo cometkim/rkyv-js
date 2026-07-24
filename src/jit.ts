@@ -32,8 +32,10 @@ import type { RkyvTextEncoder, RkyvWriter } from './core/writer.ts';
 import { elementStride } from './layout.ts';
 
 /**
- * What the JIT compiles: a codec satisfying both direction contracts —
+ * What the JIT compiles: a codec satisfying both direction contracts.
+ *
  * `compileCodec` wraps the whole surface, so it needs the whole surface.
+ *
  * The emitters themselves are direction-typed: source emission walks the
  * `meta` descriptors of `Decoder`s resp. `Encoder`s.
  */
@@ -43,8 +45,12 @@ export interface CompileOptions {
   /** Format to compile for eagerly. Other formats compile on first use. */
   format?: RkyvFormat;
   /**
-   * Behavior when `new Function` is unavailable (CSP) — `'fallback'`
-   * (default) returns the interpreter codec unchanged, `'throw'` raises.
+   * Behavior when `new Function` is unavailable (CSP)
+   *
+   * - `'fallback'` returns the interpreter codec unchanged,
+   * - `'throw'` raises.
+   *
+   * @default 'fallback'
    */
   onUnsupported?: 'fallback' | 'throw';
 }
@@ -466,16 +472,15 @@ function flattenResolveSlots(
 }
 
 /**
- * Compile a vec slot's archive phase — the element write loop — when the
- * element is a struct/tuple the slot machinery can emit. Fully-primitive
- * elements (after flattening) get a single reservation for the whole
- * payload and a strided constant-offset store loop; mixed elements reuse
- * the slot emitters per element (monomorphic call sites, batched scalar
- * runs). Returns null to stay a dep call: primitive elements (the
- * interpreter's bulk typed-array paths already win), opaque/unsafe shapes,
- * and recursion via `ancestors`. The vec's `resolve` (header) stays a dep
- * call either way — the helper returns the interpreter-shaped
- * `{ pos, len }` resolver.
+ * Compile a vec slot's archive phase; the element write loop, when the element is a struct/tuple the slot machinery can emit.
+ *
+ * Fully-primitive elements (after flattening) get a single reservation for the whole payload
+ * and a strided constant-offset store loop; mixed elements reuse the slot emitters per element
+ * (monomorphic call sites, batched scalar runs).
+ *
+ * Returns null to stay a dep call: primitive elements (the interpreter's bulk typed-array paths already win), opaque/unsafe shapes, and recursion via `ancestors`. 
+ *
+ * The vec's `resolve` (header) stays a dep call either way, the helper returns the interpreter-shaped `{ pos, len }` resolver.
  */
 function vecWriteHelper(ctx: EmitCtx<AnyEncoder>, codec: AnyEncoder): string | null {
   const cached = ctx.vecWriteHelpers.get(codec);
@@ -506,9 +511,8 @@ function emitVecWriteHelper(ctx: EmitCtx<AnyEncoder>, element: AnyEncoder): stri
   const le = ctx.fmt.endian === 'little';
   const name = ctx.helperName();
 
-  // Fully-primitive element: one reservation, strided stores, alignment
-  // gaps zero-filled in a single pass (identical bytes to the
-  // interpreter's per-element padTo zeroing).
+  // Fully-primitive element: one reservation, strided stores, alignment gaps zero-filled in a single pass
+  // (identical bytes to the interpreter's per-element padTo zeroing).
   const leaves = flattenResolveSlots(ctx, slots, 'void 0');
   if (leaves.every((leaf) => emitPrimitiveWrite(leaf.codec, leaf.value) !== null)) {
     let payload = 0;
@@ -534,9 +538,8 @@ function emitVecWriteHelper(ctx: EmitCtx<AnyEncoder>, element: AnyEncoder): stri
     return name;
   }
 
-  // Mixed element: the interpreter's two-phase order — archive every
-  // element's deps first, then resolve at stride intervals — with the slot
-  // emitters supplying the per-element bodies.
+  // Mixed element: the interpreter's two-phase order, archive every element's deps first, then resolve at stride intervals,
+  // with the slot emitters supplying the per-element bodies.
   const archive = element.inline
     ? ''
     : `  var rs = new Array(n);\n` +
@@ -567,9 +570,11 @@ function emitVecWriteHelper(ctx: EmitCtx<AnyEncoder>, element: AnyEncoder): stri
 }
 
 /**
- * Emit the archive-phase expressions for a struct/tuple's slots. Returns
- * one resolver-array-element expression per slot (`void 0` for inline
- * children, matching the interpreter's positional resolver arrays).
+ * Emit the archive-phase expressions for a struct/tuple's slots.
+ *
+ * Returns one resolver-array-element expression per slot
+ * (`void 0` for inline children, matching the interpreter's positional resolver arrays).
+ *
  * Eligible vec slots archive through a compiled element write loop.
  */
 function emitArchiveSlots(ctx: EmitCtx<AnyEncoder>, slots: FieldSlot[]): string[] {
@@ -584,17 +589,16 @@ function emitArchiveSlots(ctx: EmitCtx<AnyEncoder>, slots: FieldSlot[]): string[
 }
 
 /**
- * Emit resolve statements for slots relative to base position variable
- * `base` (writer.pos at entry). `resolver` is the expression holding this
- * node's positional resolver array (or `void 0` when the node is inline).
+ * Emit resolve statements for slots relative to base position variable `base` (writer.pos at entry).
  *
- * Slots are flattened first, then maximal runs of 2+ primitive leaves fuse
- * into a single `w.reserve(span)` followed by direct constant-offset
- * `DataView` stores — one capacity check and one position bump per run
- * instead of one of each per field. A run whose span has alignment gaps is
- * zero-filled in one pass first, so the emitted bytes stay identical to the
- * interpreter's `padTo` zeroing. `dv` is re-read from the writer after every
- * reserve: growth (and any dep call in between) may swap the buffer.
+ * `resolver` is the expression holding this node's positional resolver array (or `void 0` when the node is inline).
+ *
+ * Slots are flattened first, then maximal runs of 2+ primitive leaves fuse into a single `w.reserve(span)`
+ * followed by direct constant-offset `DataView` stores, one capacity check and one position bump per run instead of one of each per field.
+ *
+ * A run whose span has alignment gaps is zero-filled in one pass first, so the emitted bytes stay identical to the interpreter's `padTo` zeroing.
+ *
+ * `dv` is re-read from the writer after every reserve: growth (and any dep call in between) may swap the buffer.
  */
 function emitResolveSlots(
   ctx: EmitCtx<AnyEncoder>,
