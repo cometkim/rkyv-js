@@ -38,6 +38,13 @@ const charBytes = r.char.encode(testChar);
 const stringShortBytes = r.string.encode(testStringShort);
 const stringLongBytes = r.string.encode(testStringLong);
 
+const vecU32 = r.vec(r.u32);
+const vecF64 = r.vec(r.f64);
+const vecU8 = r.vec(r.u8);
+const vecU32Bytes = vecU32.encode(Array.from({ length: 1024 }, (_, i) => i * 3));
+const vecF64Bytes = vecF64.encode(Array.from({ length: 1024 }, (_, i) => i * 1.5));
+const vecU8Bytes = vecU8.encode(Array.from({ length: 1024 }, (_, i) => i & 0xff));
+
 bench.add('primitives/decode - u8', () => {
   do_not_optimize(r.u8.decode(u8Bytes));
 });
@@ -92,6 +99,18 @@ bench.add('primitives/decode - string (short)', () => {
 
 bench.add('primitives/decode - string (long)', () => {
   do_not_optimize(r.string.decode(stringLongBytes));
+});
+
+bench.add('primitives/decode - vec<u32> x1024', () => {
+  do_not_optimize(vecU32.decode(vecU32Bytes));
+});
+
+bench.add('primitives/decode - vec<f64> x1024', () => {
+  do_not_optimize(vecF64.decode(vecF64Bytes));
+});
+
+bench.add('primitives/decode - vec<u8> x1024', () => {
+  do_not_optimize(vecU8.decode(vecU8Bytes));
 });
 
 await bench.run();

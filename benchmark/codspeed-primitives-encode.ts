@@ -23,6 +23,14 @@ const testChar = '🦀';
 const testStringShort = 'Hello';
 const testStringLong = 'Hello, World! This is a longer string that exceeds inline storage.';
 
+const vecU32 = r.vec(r.u32);
+const vecF64 = r.vec(r.f64);
+const vecU8 = r.vec(r.u8);
+const testVecU32Small = Array.from({ length: 8 }, (_, i) => i * 3);
+const testVecU32 = Array.from({ length: 1024 }, (_, i) => i * 3);
+const testVecF64 = Array.from({ length: 1024 }, (_, i) => i * 1.5);
+const testVecU8 = Array.from({ length: 1024 }, (_, i) => i & 0xff);
+
 bench.add('primitives/encode - u8', () => {
   do_not_optimize(r.u8.encode(testU8));
 });
@@ -77,6 +85,22 @@ bench.add('primitives/encode - string (short)', () => {
 
 bench.add('primitives/encode - string (long)', () => {
   do_not_optimize(r.string.encode(testStringLong));
+});
+
+bench.add('primitives/encode - vec<u32> x8 (loop path)', () => {
+  do_not_optimize(vecU32.encode(testVecU32Small));
+});
+
+bench.add('primitives/encode - vec<u32> x1024', () => {
+  do_not_optimize(vecU32.encode(testVecU32));
+});
+
+bench.add('primitives/encode - vec<f64> x1024', () => {
+  do_not_optimize(vecF64.encode(testVecF64));
+});
+
+bench.add('primitives/encode - vec<u8> x1024', () => {
+  do_not_optimize(vecU8.encode(testVecU8));
 });
 
 await bench.run();
