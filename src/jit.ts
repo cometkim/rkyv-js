@@ -321,20 +321,20 @@ function emitRead(ctx: EmitCtx<AnyDecoder>, codec: AnyDecoder, off: string): str
 // ============================================================================
 
 interface FieldSlot {
-  /** JS expression for the field value, given `v` (the parent value). */
+  /** JS expression for the field value, given the parent value expression. */
   value: string;
   codec: AnyEncoder;
   offset: number;
 }
 
-function slotsOf(ctx: EmitCtx<AnyEncoder>, codec: AnyEncoder): FieldSlot[] | null {
+function slotsOf(ctx: EmitCtx<AnyEncoder>, codec: AnyEncoder, base: string): FieldSlot[] | null {
   const meta = codec.meta;
   if (meta.kind === Kind.struct) {
     const fields = meta.fields;
     if (fields.some((f) => unsafeName(f.name))) return null;
     const layout = meta.layout(ctx.fmt);
     return fields.map((f, i) => ({
-      value: `v[${JSON.stringify(f.name)}]`,
+      value: `${base}[${JSON.stringify(f.name)}]`,
       codec: f.codec,
       offset: layout.offsets[i],
     }));
@@ -342,7 +342,7 @@ function slotsOf(ctx: EmitCtx<AnyEncoder>, codec: AnyEncoder): FieldSlot[] | nul
   if (meta.kind === Kind.tuple) {
     const layout = meta.layout(ctx.fmt);
     return meta.elements.map((e, i) => ({
-      value: `v[${i}]`,
+      value: `${base}[${i}]`,
       codec: e,
       offset: layout.offsets[i],
     }));
@@ -380,6 +380,90 @@ function emitPrimitiveWrite(codec: AnyEncoder, value: string): string | null {
 }
 
 /**
+ * Emit a direct `DataView` store for a primitive slot inside a batched run —
+ * the reserve-once form of {@link emitPrimitiveWrite}: no per-field capacity
+ * check, no position bump. `off` is a constant offset expression from the
+ * node's base position.
+ */
+function emitPrimitiveStore(codec: AnyEncoder, off: string, value: string, le: boolean): string | null {
+  switch (codec.meta.kind) {
+    case Kind.u8:
+      return `dv.setUint8(${off}, ${value})`;
+    case Kind.i8:
+      return `dv.setInt8(${off}, ${value})`;
+    case Kind.u16:
+      return `dv.setUint16(${off}, ${value}, ${le})`;
+    case Kind.i16:
+      return `dv.setInt16(${off}, ${value}, ${le})`;
+    case Kind.u32:
+      return `dv.setUint32(${off}, ${value}, ${le})`;
+    case Kind.i32:
+      return `dv.setInt32(${off}, ${value}, ${le})`;
+    case Kind.u64:
+      return `dv.setBigUint64(${off}, ${value}, ${le})`;
+    case Kind.i64:
+      return `dv.setBigInt64(${off}, ${value}, ${le})`;
+    case Kind.f32:
+      return `dv.setFloat32(${off}, ${value}, ${le})`;
+    case Kind.f64:
+      return `dv.setFloat64(${off}, ${value}, ${le})`;
+    case Kind.bool:
+      return `dv.setUint8(${off}, ${value} ? 1 : 0)`;
+    default:
+      return null;
+  }
+}
+
+/**
+ * A resolve-phase leaf after flattening inline struct/tuple subtrees.
+ * `resolver` is the expression for the leaf's positional resolver: top-level
+ * non-inline slots index the node's resolver array; leaves lifted out of an
+ * inline subtree get `void 0`, exactly what the interpreter passes them.
+ */
+interface ResolveLeaf {
+  value: string;
+  codec: AnyEncoder;
+  offset: number;
+  resolver: string;
+}
+
+/**
+ * Flatten a node's slots for the resolve phase: inline struct/tuple slots
+ * (fixed-size by construction, so the nesting is always finite) expand into
+ * their own slots at accumulated offsets, turning nested single-field-at-a-
+ * time dep calls into leaves the run batcher below can fuse. Offsets stay
+ * strictly increasing — layouts assign fields in order.
+ */
+function flattenResolveSlots(
+  ctx: EmitCtx<AnyEncoder>,
+  slots: FieldSlot[],
+  resolver: string,
+): ResolveLeaf[] {
+  const out: ResolveLeaf[] = [];
+  const walk = (slot: FieldSlot, base: number, sub: string): void => {
+    const offset = base + slot.offset;
+    const meta = slot.codec.meta;
+    if (
+      slot.codec.inline &&
+      (meta.kind === Kind.struct || meta.kind === Kind.tuple) &&
+      emitPrimitiveWrite(slot.codec, slot.value) === null
+    ) {
+      const inner = slotsOf(ctx, slot.codec, slot.value);
+      if (inner !== null) {
+        // Children of an inline node never have resolvers.
+        for (const child of inner) walk(child, offset, 'void 0');
+        return;
+      }
+    }
+    out.push({ value: slot.value, codec: slot.codec, offset, resolver: sub });
+  };
+  for (let i = 0; i < slots.length; i++) {
+    walk(slots[i], 0, `${resolver} === void 0 ? void 0 : ${resolver}[${i}]`);
+  }
+  return out;
+}
+
+/**
  * Emit the archive-phase expressions for a struct/tuple's slots. Returns
  * one resolver-array-element expression per slot (`void 0` for inline
  * children, matching the interpreter's positional resolver arrays).
@@ -395,6 +479,14 @@ function emitArchiveSlots(ctx: EmitCtx<AnyEncoder>, slots: FieldSlot[]): string[
  * Emit resolve statements for slots relative to base position variable
  * `base` (writer.pos at entry). `resolver` is the expression holding this
  * node's positional resolver array (or `void 0` when the node is inline).
+ *
+ * Slots are flattened first, then maximal runs of 2+ primitive leaves fuse
+ * into a single `w.reserve(span)` followed by direct constant-offset
+ * `DataView` stores — one capacity check and one position bump per run
+ * instead of one of each per field. A run whose span has alignment gaps is
+ * zero-filled in one pass first, so the emitted bytes stay identical to the
+ * interpreter's `padTo` zeroing. `dv` is re-read from the writer after every
+ * reserve: growth (and any dep call in between) may swap the buffer.
  */
 function emitResolveSlots(
   ctx: EmitCtx<AnyEncoder>,
@@ -402,17 +494,50 @@ function emitResolveSlots(
   base: string,
   resolver: string,
 ): string[] {
+  const leaves = flattenResolveSlots(ctx, slots, resolver);
+  const le = ctx.fmt.endian === 'little';
+  const sizeOf = (codec: AnyEncoder): number => codec.layout(ctx.fmt).size;
   const out: string[] = [];
-  for (let i = 0; i < slots.length; i++) {
-    const slot = slots[i];
-    if (slot.offset > 0) out.push(`w.padTo(${base} + ${slot.offset});`);
-    const primitive = emitPrimitiveWrite(slot.codec, slot.value);
-    if (primitive !== null) {
-      out.push(`${primitive};`);
+  let dvDeclared = false;
+  let i = 0;
+  while (i < leaves.length) {
+    const leaf = leaves[i];
+    const primitive = emitPrimitiveWrite(leaf.codec, leaf.value);
+    if (primitive === null) {
+      if (leaf.offset > 0) out.push(`w.padTo(${base} + ${leaf.offset});`);
+      out.push(`d[${ctx.dep(leaf.codec)}].resolve(w, ${leaf.value}, ${leaf.resolver});`);
+      i += 1;
       continue;
     }
-    const sub = `${resolver} === void 0 ? void 0 : ${resolver}[${i}]`;
-    out.push(`d[${ctx.dep(slot.codec)}].resolve(w, ${slot.value}, ${sub});`);
+    let j = i + 1;
+    while (j < leaves.length && emitPrimitiveWrite(leaves[j].codec, leaves[j].value) !== null) {
+      j += 1;
+    }
+    if (j - i === 1) {
+      // A lone primitive: the writer call is cheaper than reserve + view read.
+      if (leaf.offset > 0) out.push(`w.padTo(${base} + ${leaf.offset});`);
+      out.push(`${primitive};`);
+      i = j;
+      continue;
+    }
+    const start = leaf.offset;
+    const last = leaves[j - 1];
+    const end = last.offset + sizeOf(last.codec);
+    let payload = 0;
+    for (let k = i; k < j; k++) payload += sizeOf(leaves[k].codec);
+    if (start > 0) out.push(`w.padTo(${base} + ${start});`);
+    out.push(`w.reserve(${end - start});`);
+    out.push(`${dvDeclared ? '' : 'var '}dv = w.view;`);
+    dvDeclared = true;
+    if (payload !== end - start) {
+      out.push(`w.buffer.fill(0, ${addOffset(base, start)}, ${base} + ${end});`);
+    }
+    for (let k = i; k < j; k++) {
+      const l = leaves[k];
+      const store = emitPrimitiveStore(l.codec, addOffset(base, l.offset), l.value, le);
+      out.push(`${store};`);
+    }
+    i = j;
   }
   return out;
 }
@@ -453,7 +578,7 @@ function buildDecoderSource(target: AnyDecoder, fmt: RkyvFormat): EmittedSource<
  */
 function buildEncoderSource(target: AnyEncoder, fmt: RkyvFormat): EmittedSource<AnyEncoder> | null {
   const ctx = new EmitCtx<AnyEncoder>(fmt);
-  const slots = slotsOf(ctx, target);
+  const slots = slotsOf(ctx, target, 'v');
   if (slots === null) return null;
   const layout = target.layout(fmt);
   const archive = target.inline

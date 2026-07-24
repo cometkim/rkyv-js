@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 
 import * as r from '#src/index.ts';
 import { OPAQUE_META, format } from '#src/core.ts';
-import { compileCodec, emitDecoderSource } from '#src/jit.ts';
+import { compileCodec, emitDecoderSource, emitEncoderSource } from '#src/jit.ts';
 
 const Address = r.struct({ city: r.string, zip: r.u32 });
 const ArchivedPerson = r.struct({
@@ -79,6 +79,41 @@ describe('compileCodec', () => {
       assert.deepStrictEqual(compiled.decode(bytes), ArchivedPerson.decode(bytes));
       assert.deepStrictEqual(compiled.encode(person), bytes);
     }
+  });
+
+  it('batched writer runs stay byte-identical to the interpreter across formats', () => {
+    // Shapes that exercise the reserve+store fast path: a scalar-only
+    // struct, a gapped run (u8 then f64 then bigint), and a nested inline
+    // tuple flattened into its parent.
+    const Point = r.struct({ x: r.f64, y: r.f64 });
+    const Gapped = r.struct({ tag: r.u8, value: r.f64, id: r.u64 });
+    const Nested = r.struct({ pair: r.tuple(r.u8, r.f64), flag: r.bool, count: r.u32 });
+    const cases: Array<[r.Codec<any>, unknown]> = [
+      [Point, { x: 1.5, y: -2.5 }],
+      [Gapped, { tag: 7, value: 3.25, id: 0x11_2233_4455_6677n }],
+      [Nested, { pair: [9, 0.5], flag: true, count: 12345 }],
+    ];
+    const formats = [
+      format({ endian: 'big' }),
+      format({ aligned: false }),
+      format({ pointerWidth: 16 }),
+      format({ endian: 'big', aligned: false }),
+    ];
+    for (const [index, [codec, value]] of cases.entries()) {
+      const compiled = compileCodec(codec);
+      for (const fmt of formats) {
+        assert.deepStrictEqual(
+          [...compiled.encode(value, fmt)],
+          [...codec.encode(value, fmt)],
+          `case ${index} in ${fmt.endian}/${fmt.aligned ? 'aligned' : 'packed'}/pw${fmt.pointerWidth}`,
+        );
+      }
+    }
+    // The fast path is actually engaged (not a silent fallback), and the
+    // nested tuple is flattened out of its dep call.
+    const src = emitEncoderSource(Nested);
+    assert.ok(src !== null && src.includes('w.reserve('));
+    assert.ok(src !== null && !src.includes('.resolve(w, v["pair"]'));
   });
 
   it('access() still returns lazy views (delegated)', () => {
