@@ -19,7 +19,7 @@ import type { Infer, Layout } from './core/base.ts';
 import type { RkyvFormat } from './core/format.ts';
 import type { RkyvHasher } from './core/hasher.ts';
 import type { RkyvReader } from './core/reader.ts';
-import { BaseEncoder, type AnyEncoder, type Encoder } from './core/encoder.ts';
+import { BaseEncoder, FormatBoundEncoder, type AnyEncoder, type Encoder } from './core/encoder.ts';
 import type { RkyvTextEncoder, RkyvWriter } from './core/writer.ts';
 import { Kind, primitiveKindOf, type PrimitiveKindTag } from './core/meta.ts';
 import {
@@ -38,9 +38,9 @@ import {
   type StringLayout,
   type StructLayout,
   type VecLayout,
-} from './layout.ts';
+} from './core/layout.ts';
 
-export { BaseEncoder } from './core/encoder.ts';
+export { BaseEncoder, FormatBoundEncoder } from './core/encoder.ts';
 export type { AnyEncoder, Encoder } from './core/encoder.ts';
 export { Kind, OPAQUE_META, type CodecMeta, type PrimitiveKindTag } from './core/meta.ts';
 export type { Infer, Layout } from './core/base.ts';
@@ -1141,40 +1141,6 @@ export class LazyEncoder<T> extends BaseEncoder<T> {
  */
 export function lazy<T>(getCodec: () => Encoder<T>): Encoder<T> {
   return new LazyEncoder(getCodec);
-}
-
-/**
- * Encode-side twin of `withFormat`: pins `encode`'s default format.
- */
-export class FormatBoundEncoder<T> extends BaseEncoder<T> {
-  readonly inner: Encoder<T>;
-  readonly format: RkyvFormat;
-
-  constructor(inner: Encoder<T>, format: RkyvFormat) {
-    super({ inline: inner.inline, hashable: inner.hashable });
-    this.inner = inner;
-    this.format = format;
-  }
-
-  computeLayout(fmt: RkyvFormat): Layout {
-    return this.inner.layout(fmt);
-  }
-
-  archive(writer: RkyvWriter, value: T): any {
-    return this.inner.archive(writer, value);
-  }
-
-  resolve(writer: RkyvWriter, value: T, resolver: any): number {
-    return this.inner.resolve(writer, value, resolver);
-  }
-
-  hash(hasher: RkyvHasher, value: T, encoder: RkyvTextEncoder): void {
-    this.inner.hash(hasher, value, encoder);
-  }
-
-  encode(value: T, format: RkyvFormat = this.format): Uint8Array {
-    return super.encode(value, format);
-  }
 }
 
 /**

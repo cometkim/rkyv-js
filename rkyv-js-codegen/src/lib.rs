@@ -58,6 +58,7 @@
 //! | [`set_archived_name`](CodeGenerator::set_archived_name) | Override an export name, matching `#[rkyv(archived = Name)]` |
 //! | [`set_direction`](CodeGenerator::set_direction) | Emit full, decode-only, or encode-only bindings |
 //! | [`set_format`](CodeGenerator::set_format) | Target a non-default rkyv wire format |
+//! | [`set_jit`](CodeGenerator::set_jit) | Wrap every export in the direction-matched `rkyv-js/jit` compile function |
 //! | [`allow_typescript_syntax`](CodeGenerator::allow_typescript_syntax) | Drop `export type` lines, emitting plain JavaScript |
 //! | [`on_unknown_type`](CodeGenerator::on_unknown_type) | Fail, or warn and omit, on unmappable types |
 //!

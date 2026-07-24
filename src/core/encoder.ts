@@ -120,3 +120,37 @@ export class BaseEncoder<T, R = any, L extends Layout = Layout>
     return encodeIntoWriter(this, writer, value);
   }
 }
+
+/**
+ * Encode-side twin of `withFormat`: pins `encode`'s default format.
+ */
+export class FormatBoundEncoder<T> extends BaseEncoder<T> {
+  readonly inner: Encoder<T>;
+  readonly format: RkyvFormat;
+
+  constructor(inner: Encoder<T>, format: RkyvFormat) {
+    super({ inline: inner.inline, hashable: inner.hashable });
+    this.inner = inner;
+    this.format = format;
+  }
+
+  computeLayout(fmt: RkyvFormat): Layout {
+    return this.inner.layout(fmt);
+  }
+
+  archive(writer: RkyvWriter, value: T): any {
+    return this.inner.archive(writer, value);
+  }
+
+  resolve(writer: RkyvWriter, value: T, resolver: any): number {
+    return this.inner.resolve(writer, value, resolver);
+  }
+
+  hash(hasher: RkyvHasher, value: T, encoder: RkyvTextEncoder): void {
+    this.inner.hash(hasher, value, encoder);
+  }
+
+  encode(value: T, format: RkyvFormat = this.format): Uint8Array {
+    return super.encode(value, format);
+  }
+}
