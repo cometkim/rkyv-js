@@ -303,7 +303,30 @@ export class RkyvWriter {
    * (no intermediate allocation). Returns the number of bytes written.
    */
   writeText(text: string): number {
-    if (text.length === 0) return 0;
+    const len = text.length;
+    if (len === 0) return 0;
+    if (len <= 32) {
+      // Short ASCII: a char loop beats TextEncoder's fixed call cost ~3x
+      // (the same trick the reader and the hash path use). Bytes are
+      // written optimistically; a non-ASCII char bails to the encoder
+      // paths below, which re-encode from the same position. For fixed
+      // buffers the capacity check is exact — ASCII UTF-8 length equals
+      // the char count, and non-ASCII text needing more space than `len`
+      // could not fit either.
+      this.#ensureCapacity(len);
+      const buf = this.buffer;
+      const pos = this.position;
+      let i = 0;
+      for (; i < len; i++) {
+        const c = text.charCodeAt(i);
+        if (c > 0x7f) break;
+        buf[pos + i] = c;
+      }
+      if (i === len) {
+        this.position += len;
+        return len;
+      }
+    }
     if (!this.fixed) {
       // Worst case: 3 bytes per UTF-16 code unit.
       this.#ensureCapacity(text.length * 3);
