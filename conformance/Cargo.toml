@@ -17,7 +17,7 @@ publish = false
 
 [dependencies]
 rkyv-js-codegen = { path = "../rkyv-js-codegen" }
-rkyv = { version = "=0.8.14", features = [
+rkyv = { version = "=0.8.17", features = [
     "bytecheck",
     "uuid-1",
     "bytes-1",

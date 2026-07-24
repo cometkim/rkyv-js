@@ -5,7 +5,7 @@ edition = "2024"
 publish = false
 
 [dependencies]
-rkyv = { version = "0.8", features = [
+rkyv = { version = "0.8.17", features = [
     "bytecheck",
     "uuid-1",
     "bytes-1",
