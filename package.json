@@ -116,7 +116,7 @@
     "@codspeed/tinybench-plugin": "^5.7.1",
     "@mitata/counters": "^0.0.8",
     "@types/node": "^22.0.0",
-    "amaro": "^1.1.10",
+    "amaro": "^1.1.11",
     "capnp-es": "^0.0.14",
     "cbor-x": "^1.6.4",
     "es-module-lexer": "^2.3.0",

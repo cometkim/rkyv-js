@@ -656,10 +656,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"amaro@npm:^1.1.10":
-  version: 1.1.10
-  resolution: "amaro@npm:1.1.10"
-  checksum: 10c0/25da090af99948b9dc0c6d4cc3bd6c8818fe94b6190da2279046ed7659d8175e76c691a30e6b9386fe5116b04be82081978209b8a82ce13cda9dae8ce5d0ce49
+"amaro@npm:^1.1.11":
+  version: 1.1.11
+  resolution: "amaro@npm:1.1.11"
+  checksum: 10c0/e55ce921cdc5eae7e1b687492cf810b3f6b9f4cfb93cd2cfb39be751f352334d1f0512d4de2430c5cac62cd929521d06c3a7461b0f2d930e0b12c298887ea32f
   languageName: node
   linkType: hard
 
@@ -2026,7 +2026,7 @@ __metadata:
     "@codspeed/tinybench-plugin": "npm:^5.7.1"
     "@mitata/counters": "npm:^0.0.8"
     "@types/node": "npm:^22.0.0"
-    amaro: "npm:^1.1.10"
+    amaro: "npm:^1.1.11"
     capnp-es: "npm:^0.0.14"
     cbor-x: "npm:^1.6.4"
     es-module-lexer: "npm:^2.3.0"
