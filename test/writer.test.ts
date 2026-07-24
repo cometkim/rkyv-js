@@ -234,8 +234,7 @@ describe('RkyvWriter', () => {
     });
 
     it('short text with non-ASCII bails to the encoder, same bytes', () => {
-      // ASCII prefix is overwritten by the encoder fallback re-encoding
-      // from the same position.
+      // ASCII prefix is overwritten by the encoder fallback re-encoding from the same position.
       const text = 'price: 10€ total';
       const writer = new RkyvWriter();
       const written = writer.writeText(text);

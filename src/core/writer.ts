@@ -299,20 +299,18 @@ export class RkyvWriter {
   }
 
   /**
-   * UTF-8 encode `text` directly into the buffer at the current position
-   * (no intermediate allocation). Returns the number of bytes written.
+   * UTF-8 encode `text` directly into the buffer at the current position (no intermediate allocation).
+   *
+   * @returns the number of bytes written.
    */
   writeText(text: string): number {
     const len = text.length;
     if (len === 0) return 0;
     if (len <= 32) {
-      // Short ASCII: a char loop beats TextEncoder's fixed call cost ~3x
-      // (the same trick the reader and the hash path use). Bytes are
-      // written optimistically; a non-ASCII char bails to the encoder
-      // paths below, which re-encode from the same position. For fixed
-      // buffers the capacity check is exact — ASCII UTF-8 length equals
-      // the char count, and non-ASCII text needing more space than `len`
-      // could not fit either.
+      // Short ASCII: a char loop beats TextEncoder's fixed call cost ~3x (the same trick the reader and the hash path use). 
+      // Bytes are written optimistically; a non-ASCII char bails to the encoder paths below, which re-encode from the same position.
+      // For fixed buffers the capacity check is exact.
+      // ASCII UTF-8 length equals the char count, and non-ASCII text needing more space than `len` could not fit either.
       this.#ensureCapacity(len);
       const buf = this.buffer;
       const pos = this.position;
@@ -337,10 +335,9 @@ export class RkyvWriter {
       this.position += written;
       return written;
     }
-    // Fixed buffer: the worst-case estimate may overshoot what's left even
-    // when the encoded text fits, so encode into the remaining space and
-    // detect a true overflow from the encoder's progress. Encoders that
-    // don't report `read` are judged by whether the output filled `dest`
+    // Fixed buffer: the worst-case estimate may overshoot what's left even when the encoded text fits,
+    // so encode into the remaining space and detect a true overflow from the encoder's progress. 
+    // Encoders that don't report `read` are judged by whether the output filled `dest`
     // (an exact fill is then conservatively treated as truncation).
     const dest = this.buffer.subarray(this.position);
     const result = this.textEncoder.encodeInto(text, dest);
