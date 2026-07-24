@@ -114,6 +114,7 @@ pub struct CodeGenerator {
     pub(crate) registry: Registry,
     format: Option<FormatSpec>,
     direction: Direction,
+    jit: bool,
 }
 
 /// Which half of the codec surface the generated bindings target.
@@ -137,6 +138,15 @@ impl Direction {
             Direction::Full => None,
             Direction::Decode => Some("/decode"),
             Direction::Encode => Some("/encode"),
+        }
+    }
+
+    /// The JIT entry point and compile function for this direction.
+    fn jit_entry(self) -> (&'static str, &'static str) {
+        match self {
+            Direction::Full => ("rkyv-js/jit", "compileCodec"),
+            Direction::Decode => ("rkyv-js/jit/decode", "compileDecoder"),
+            Direction::Encode => ("rkyv-js/jit/encode", "compileEncoder"),
         }
     }
 
@@ -189,6 +199,7 @@ impl CodeGenerator {
             registry: Registry::with_builtins(),
             format: None,
             direction: Direction::Full,
+            jit: false,
         }
     }
 
@@ -205,6 +216,26 @@ impl CodeGenerator {
     /// imports of user modules registered via `register_external` are not rewritten.
     pub fn set_direction(&mut self, direction: Direction) -> &mut Self {
         self.direction = direction;
+        self
+    }
+
+    /// Wrap every exported codec in the direction-matched JIT compile function: `compileCodec` from `rkyv-js/jit` for [`Direction::Full`],
+    /// `compileDecoder` from `rkyv-js/jit/decode` resp. `compileEncoder` from `rkyv-js/jit/encode` for unidirectional bindings.
+    ///
+    /// Each type is emitted as a non-exported interpreter codec (`const {Name}$ = ...`)
+    /// plus a compiled export (`export const {Name} = compileCodec({Name}$);`),
+    /// and cross-references between generated types resolve to the `$` codecs:
+    /// a compiled codec is opaque to the JIT, so compiling each export over the
+    /// raw graph is what lets nested types inline instead of degrading to
+    /// per-element dispatch calls. The compiled exports stay drop-in
+    /// (`encode`/`decode`/`access`/... and `r.Infer` are unchanged),
+    /// and fall back to the interpreter codec where `new Function` is blocked (CSP).
+    ///
+    /// Every export compiles eagerly at module load.
+    ///
+    /// Defaults to `false`.
+    pub fn set_jit(&mut self, enabled: bool) -> &mut Self {
+        self.jit = enabled;
         self
     }
 
@@ -516,11 +547,18 @@ impl CodeGenerator {
             .collect();
 
         // Import conflicts across everything emitted.
-        let all_exprs: Vec<&CodecExpr> = emitted
+        let (jit_module, jit_fn) = self.direction.jit_entry();
+        let jit_import = CodecExpr::import_from(jit_module, jit_fn);
+        let mut all_exprs: Vec<&CodecExpr> = emitted
             .iter()
             .flat_map(|(name, kind)| Self::exprs_with_context(name, kind))
             .map(|(_, expr)| expr)
             .collect();
+        if self.jit && !emitted.is_empty() {
+            // Through the shared path so it dedups and conflict-checks like
+            // any user import.
+            all_exprs.push(&jit_import);
+        }
         let import_block = match generate_import_block(all_exprs.iter().copied()) {
             Ok(block) => self.direction.rewrite_import_block(&block),
             Err(conflicts) => {
@@ -541,6 +579,17 @@ impl CodeGenerator {
             .keys()
             .map(|name| ((*name).clone(), self.resolved_archived_name(name)))
             .collect();
+
+        // With JIT enabled, cross-references resolve to the raw `$` codecs so
+        // every export is compiled over the uncompiled interpreter graph.
+        let codec_names: BTreeMap<String, String> = if self.jit {
+            archived_names
+                .iter()
+                .map(|(name, archived)| (name.clone(), format!("{archived}$")))
+                .collect()
+        } else {
+            archived_names.clone()
+        };
 
         // Assemble the output.
         let mut blocks: Vec<String> = Vec::new();
@@ -570,7 +619,7 @@ impl CodeGenerator {
 
         for name in &order {
             let kind = emitted.get(name).expect("ordered names come from emitted");
-            blocks.push(self.emit_type(name, kind, &archived_names));
+            blocks.push(self.emit_type(name, kind, &archived_names, &codec_names));
         }
 
         Ok(blocks.join("\n\n") + "\n")
@@ -636,13 +685,14 @@ impl CodeGenerator {
         name: &str,
         kind: &TypeKind,
         archived_names: &BTreeMap<String, String>,
+        codec_names: &BTreeMap<String, String>,
     ) -> String {
         let archived = archived_names
             .get(name)
             .expect("emitted types have archived names")
             .clone();
         let render = |expr: &CodecExpr| -> String {
-            expr.render(archived_names)
+            expr.render(codec_names)
                 .expect("type references are validated before emission")
         };
 
@@ -690,7 +740,17 @@ impl CodeGenerator {
             None => codec_expr,
         };
 
-        let mut block = format!("export const {archived} = {codec_expr};");
+        let mut block = if self.jit {
+            // The compile functions detect a withFormat-bound codec and
+            // prewarm for the bound format, so the JIT wrap stays outermost.
+            let jit_fn = self.direction.jit_entry().1;
+            format!(
+                "const {archived}$ = {codec_expr};\n\n\
+                 export const {archived} = {jit_fn}({archived}$);"
+            )
+        } else {
+            format!("export const {archived} = {codec_expr};")
+        };
         if self.allow_typescript_syntax {
             block.push_str(&format!(
                 "\n\nexport type {name} = r.Infer<typeof {archived}>;"
@@ -1022,5 +1082,99 @@ mod tests {
         generator.add_struct("Point", [("x", codec::f64())]);
         let code = generator.generate().unwrap();
         assert!(code.contains("import * as r from 'rkyv-js/encode';"));
+    }
+
+    #[test]
+    fn set_jit_wraps_exports() {
+        let mut generator = CodeGenerator::new();
+        generator.set_jit(true);
+        generator.add_struct("Point", [("x", codec::f64())]);
+        generator.add_alias("UserId", codec::u32());
+        let code = generator.generate().unwrap();
+        assert!(code.contains("import { compileCodec } from 'rkyv-js/jit';"));
+        assert!(code.contains("const ArchivedPoint$ = r.struct({\n"));
+        assert!(code.contains("export const ArchivedPoint = compileCodec(ArchivedPoint$);"));
+        assert!(code.contains("const ArchivedUserId$ = r.u32;"));
+        assert!(code.contains("export const ArchivedUserId = compileCodec(ArchivedUserId$);"));
+        // Type exports still derive from the (drop-in) compiled exports.
+        assert!(code.contains("export type Point = r.Infer<typeof ArchivedPoint>;"));
+    }
+
+    #[test]
+    fn set_jit_references_resolve_to_raw_codecs() {
+        let mut generator = CodeGenerator::new();
+        generator.set_jit(true);
+        generator.add_struct("Inner", [("value", codec::u32())]);
+        generator.add_struct("Outer", [("inner", codec::named("Inner"))]);
+        let code = generator.generate().unwrap();
+        // The compiled Outer export must see Inner's interpreter codec, not
+        // the opaque compiled one, so the JIT can inline across types.
+        assert!(code.contains("inner: ArchivedInner$,"));
+        assert!(code.contains("export const ArchivedInner = compileCodec(ArchivedInner$);"));
+        assert!(code.contains("export const ArchivedOuter = compileCodec(ArchivedOuter$);"));
+    }
+
+    #[test]
+    fn set_jit_composes_with_format() {
+        let mut generator = CodeGenerator::new();
+        generator.set_jit(true);
+        generator.set_format("big", 64, true);
+        generator.add_struct("Point", [("x", codec::f64())]);
+        let code = generator.generate().unwrap();
+        assert!(code.contains("const FORMAT = r.format({ endian: 'big', pointerWidth: 64 });"));
+        // withFormat stays inside the compileCodec wrap.
+        assert!(code.contains("const ArchivedPoint$ = r.withFormat(r.struct({\n"));
+        assert!(code.contains("export const ArchivedPoint = compileCodec(ArchivedPoint$);"));
+    }
+
+    #[test]
+    fn set_jit_respects_archived_renames() {
+        let mut generator = CodeGenerator::new();
+        generator.set_jit(true);
+        generator.set_archived_name("Inner", "CustomInner");
+        generator.add_struct("Inner", [("value", codec::u32())]);
+        generator.add_struct("Outer", [("inner", codec::named("Inner"))]);
+        let code = generator.generate().unwrap();
+        assert!(code.contains("inner: CustomInner$,"));
+        assert!(code.contains("export const CustomInner = compileCodec(CustomInner$);"));
+    }
+
+    #[test]
+    fn set_jit_decode_direction_uses_compile_decoder() {
+        let mut generator = CodeGenerator::new();
+        generator.set_jit(true);
+        generator.set_direction(Direction::Decode);
+        generator.add_struct(
+            "Event",
+            [
+                ("id", codec::u32()),
+                (
+                    "tags",
+                    CodecExpr::call(
+                        CodecExpr::import_from("rkyv-js/lib/hashmap", "hashSet"),
+                        [codec::string()],
+                    ),
+                ),
+            ],
+        );
+        let code = generator.generate().unwrap();
+        assert!(code.contains("import * as r from 'rkyv-js/decode';"));
+        assert!(code.contains("import { hashSet } from 'rkyv-js/lib/hashmap/decode';"));
+        // The JIT import is emitted direction-matched, not rewritten.
+        assert!(code.contains("import { compileDecoder } from 'rkyv-js/jit/decode';"));
+        assert!(code.contains("export const ArchivedEvent = compileDecoder(ArchivedEvent$);"));
+        assert!(!code.contains("compileCodec"));
+    }
+
+    #[test]
+    fn set_jit_encode_direction_uses_compile_encoder() {
+        let mut generator = CodeGenerator::new();
+        generator.set_jit(true);
+        generator.set_direction(Direction::Encode);
+        generator.add_struct("Point", [("x", codec::f64())]);
+        let code = generator.generate().unwrap();
+        assert!(code.contains("import * as r from 'rkyv-js/encode';"));
+        assert!(code.contains("import { compileEncoder } from 'rkyv-js/jit/encode';"));
+        assert!(code.contains("export const ArchivedPoint = compileEncoder(ArchivedPoint$);"));
     }
 }

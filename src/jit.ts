@@ -9,6 +9,12 @@
  * codegen (protobufjs-style) fast and immune to the cross-codec megamorphism
  * that destabilizes shared interpreter loops under V8 tiering.
  *
+ * Unidirectional codecs compile through the direction-split twins:
+ * `compileDecoder` (`rkyv-js/jit/decode`) and `compileEncoder`
+ * (`rkyv-js/jit/encode`), each value-importing only its half of the emitter
+ * so decode-only bundles stay writer-free (and vice versa). Both are
+ * re-exported here for full-surface consumers.
+ *
  * The default rkyv-js path never imports this module, so eval-free (CSP)
  * deployments are unaffected; in an environment where `new Function` is
  * blocked, `compileCodec` returns the interpreter codec unchanged (or throws
@@ -21,15 +27,19 @@
 
 import type { Layout } from './core/base.ts';
 import { Codec, FormatBoundCodec, withFormat } from './core/codec.ts';
-import type { AnyDecoder, Decoder } from './core/decoder.ts';
-import type { AnyEncoder, Encoder } from './core/encoder.ts';
+import type { Decoder } from './core/decoder.ts';
+import type { Encoder } from './core/encoder.ts';
 import { DEFAULT_FORMAT, type RkyvFormat } from './core/format.ts';
 import type { RkyvHasher } from './core/hasher.ts';
-import type { StringLayout } from './core/layout.ts';
-import { Kind, primitiveKindOf } from './core/meta.ts';
+import { canEval, type ArchiveFn, type CompileOptions, type ReadFn, type ResolveFn } from './core/jit.ts';
+import { compileReadFn } from './core/jit-decode.ts';
+import { compileWritePair } from './core/jit-encode.ts';
 import type { RkyvReader } from './core/reader.ts';
 import type { RkyvTextEncoder, RkyvWriter } from './core/writer.ts';
-import { elementStride } from './layout.ts';
+
+export type { CompileOptions } from './core/jit.ts';
+export { compileDecoder, emitDecoderSource } from './jit.decode.ts';
+export { compileEncoder, emitEncoderSource } from './jit.encode.ts';
 
 /**
  * What the JIT compiles: a codec satisfying both direction contracts.
@@ -41,626 +51,9 @@ import { elementStride } from './layout.ts';
  */
 export type CompilableCodec<T> = Decoder<T, any> & Encoder<T, any, any>;
 
-export interface CompileOptions {
-  /** Format to compile for eagerly. Other formats compile on first use. */
-  format?: RkyvFormat;
-  /**
-   * Behavior when `new Function` is unavailable (CSP)
-   *
-   * - `'fallback'` returns the interpreter codec unchanged,
-   * - `'throw'` raises.
-   *
-   * @default 'fallback'
-   */
-  onUnsupported?: 'fallback' | 'throw';
-}
-
-// Emitted-source budget: a subtree that would exceed this many nodes is left
-// as an interpreter dep call instead of being inlined.
-const NODE_BUDGET = 400;
-
-// ============================================================================
-// Recognition
-// ============================================================================
-// Shape dispatch switches on the public numeric `meta.kind` tag — the
-// codec's own behavioral promise that its read/resolve implement the
-// standard algorithm for the declared shape. Codecs without a declared
-// shape (maps, transforms, custom codecs, subclasses that reset `meta` to
-// opaque) stay interpreter dep calls, never mis-inlined.
-
-/** A field name whose emitted object-literal semantics would diverge. */
-function unsafeName(name: string): boolean {
-  return name === '__proto__';
-}
-
-// ============================================================================
-// Emit context
-// ============================================================================
-
-class EmitCtx<D> {
-  readonly fmt: RkyvFormat;
-  readonly deps: D[] = [];
-  readonly helpers: string[] = [];
-  nodes = 0;
-  #helperId = 0;
-  #stringHelper: string | null = null;
-  readonly ancestors: Set<object> = new Set();
-  /** Per-vec-codec write-loop helper names (null = stays a dep call). */
-  readonly vecWriteHelpers: Map<object, string | null> = new Map();
-
-  constructor(fmt: RkyvFormat) {
-    this.fmt = fmt;
-  }
-
-  dep(codec: D): number {
-    const existing = this.deps.indexOf(codec);
-    if (existing >= 0) return existing;
-    this.deps.push(codec);
-    return this.deps.length - 1;
-  }
-
-  helperName(): string {
-    return `h${this.#helperId++}`;
-  }
-
-  /**
-   * Hoisted string reader: inline-repr ASCII fast path, everything else
-   * (non-ASCII or out-of-line) delegates to the interpreter string codec —
-   * the gnarly out-of-line length decode stays single-source.
-   */
-  stringHelper(layout: StringLayout): string {
-    if (this.#stringHelper === null) {
-      this.#stringHelper = this.helperName();
-      this.helpers.push(
-        `function ${this.#stringHelper}(r, o, k) {\n` +
-          `  var b = r.buffer;\n` +
-          `  if ((b[o] & 0xc0) !== 0x80) {\n` +
-          `    var s = '';\n` +
-          `    for (var i = 0; i < ${layout.inlineCapacity}; i++) {\n` +
-          `      var c = b[o + i];\n` +
-          `      if (c === 0xff) return s;\n` +
-          `      if (c > 0x7f) return d[k].read(r, o);\n` +
-          `      s += String.fromCharCode(c);\n` +
-          `    }\n` +
-          `    return s;\n` +
-          `  }\n` +
-          `  return d[k].read(r, o);\n` +
-          `}`,
-      );
-    }
-    return this.#stringHelper;
-  }
-}
-
-// ============================================================================
-// Decode emitter
-// ============================================================================
-
-/**
- * Compose an offset expression, constant-folding `base + a + b` chains so
- * emitted (and snapshotted) source stays readable.
- */
-function addOffset(off: string, add: number): string {
-  if (add === 0) return off;
-  const m = /^([A-Za-z_]\w*)(?: \+ (\d+))?$/.exec(off);
-  if (m !== null) return `${m[1]} + ${Number(m[2] ?? 0) + add}`;
-  return `${off} + ${add}`;
-}
-
-function depRead(ctx: EmitCtx<AnyDecoder>, codec: AnyDecoder, off: string): string {
-  return `d[${ctx.dep(codec)}].read(r, ${off})`;
-}
-
-/**
- * Emit an expression decoding `codec` at offset expression `off` (relative
- * to reader positions; always of the form `o + N` or a variable).
- */
-function emitRead(ctx: EmitCtx<AnyDecoder>, codec: AnyDecoder, off: string): string {
-  if (ctx.nodes++ > NODE_BUDGET || ctx.ancestors.has(codec)) {
-    return depRead(ctx, codec, off);
-  }
-  const meta = codec.meta;
-
-  switch (meta.kind) {
-    case Kind.u8:
-      return `r.readU8(${off})`;
-    case Kind.i8:
-      return `r.readI8(${off})`;
-    case Kind.u16:
-      return `r.readU16(${off})`;
-    case Kind.i16:
-      return `r.readI16(${off})`;
-    case Kind.u32:
-      return `r.readU32(${off})`;
-    case Kind.i32:
-      return `r.readI32(${off})`;
-    case Kind.u64:
-      return `r.readU64(${off})`;
-    case Kind.i64:
-      return `r.readI64(${off})`;
-    case Kind.f32:
-      return `r.readF32(${off})`;
-    case Kind.f64:
-      return `r.readF64(${off})`;
-    case Kind.bool:
-      return `r.readBool(${off})`;
-
-    case Kind.string: {
-      const helper = ctx.stringHelper(meta.layout(ctx.fmt));
-      return `${helper}(r, ${off}, ${ctx.dep(codec)})`;
-    }
-
-    case Kind.struct: {
-      const fields = meta.fields;
-      if (fields.some((f) => unsafeName(f.name))) {
-        return depRead(ctx, codec, off);
-      }
-      const layout = meta.layout(ctx.fmt);
-      ctx.ancestors.add(codec);
-      const parts = fields.map(
-        (f, i) =>
-          `${JSON.stringify(f.name)}: ${emitRead(ctx, f.codec, addOffset(off, layout.offsets[i]))}`,
-      );
-      ctx.ancestors.delete(codec);
-      return `{ ${parts.join(', ')} }`;
-    }
-
-    case Kind.option: {
-      const layout = meta.layout(ctx.fmt);
-      ctx.ancestors.add(codec);
-      const value = emitRead(ctx, meta.inner, addOffset(off, layout.valueOffset));
-      ctx.ancestors.delete(codec);
-      return `(r.readU8(${off}) === 0 ? null : ${value})`;
-    }
-
-    case Kind.tuple: {
-      const layout = meta.layout(ctx.fmt);
-      ctx.ancestors.add(codec);
-      const parts = meta.elements.map((e, i) =>
-        emitRead(ctx, e, addOffset(off, layout.offsets[i])),
-      );
-      ctx.ancestors.delete(codec);
-      return `[${parts.join(', ')}]`;
-    }
-
-    case Kind.array: {
-      const layout = meta.layout(ctx.fmt);
-      ctx.ancestors.add(codec);
-      // Short arrays unroll; longer ones get a hoisted loop.
-      if (meta.length <= 8) {
-        const parts: string[] = [];
-        for (let i = 0; i < meta.length; i++) {
-          parts.push(emitRead(ctx, meta.element, addOffset(off, i * layout.stride)));
-        }
-        ctx.ancestors.delete(codec);
-        return `[${parts.join(', ')}]`;
-      }
-      const name = ctx.helperName();
-      const elem = emitRead(ctx, meta.element, 'p');
-      ctx.ancestors.delete(codec);
-      ctx.helpers.push(
-        `function ${name}(r, o) {\n` +
-          `  var a = new Array(${meta.length});\n` +
-          `  for (var i = 0, p = o; i < ${meta.length}; i++, p += ${layout.stride}) a[i] = ${elem};\n` +
-          `  return a;\n` +
-          `}`,
-      );
-      return `${name}(r, ${off})`;
-    }
-
-    case Kind.vec: {
-      const element = meta.element;
-      // Primitive elements: the interpreter's monomorphic bulk loops (byte
-      // math small / DataView >=16) are already optimal — dep call.
-      if (primitiveKindOf(element.meta) !== Kind.other) {
-        return depRead(ctx, codec, off);
-      }
-      const layout = meta.layout(ctx.fmt);
-      const stride = elementStride(ctx.fmt, element);
-      ctx.ancestors.add(codec);
-      const elem = emitRead(ctx, element, 'p');
-      ctx.ancestors.delete(codec);
-      const name = ctx.helperName();
-      ctx.helpers.push(
-        `function ${name}(r, o) {\n` +
-          `  var q = r.readRelPtr(o);\n` +
-          `  var n = r.readUsize(o + ${layout.pb});\n` +
-          `  var a = new Array(n);\n` +
-          `  for (var i = 0, p = q; i < n; i++, p += ${stride}) a[i] = ${elem};\n` +
-          `  return a;\n` +
-          `}`,
-      );
-      return `${name}(r, ${off})`;
-    }
-
-    case Kind.enum: {
-      const variants = meta.variants;
-      if (variants.some((v) => v.fields.some((f) => f.name !== null && unsafeName(f.name)))) {
-        return depRead(ctx, codec, off);
-      }
-      const layout = meta.layout(ctx.fmt);
-      const name = ctx.helperName();
-      ctx.ancestors.add(codec);
-      const cases = variants.map((v, disc) => {
-        const tag = JSON.stringify(v.name);
-        if (v.fields.length === 0) {
-          return `    case ${disc}: return { tag: ${tag}, value: null };`;
-        }
-        const offsets = layout.variants[disc].fieldOffsets;
-        if (v.fields.length === 1 && v.fields[0].name === null) {
-          const value = emitRead(ctx, v.fields[0].codec, addOffset('o', offsets[0]));
-          return `    case ${disc}: return { tag: ${tag}, value: ${value} };`;
-        }
-        if (v.fields[0].name === null) {
-          // Tuple variant: positional fields decode into an array.
-          const parts = v.fields.map((f, i) => emitRead(ctx, f.codec, addOffset('o', offsets[i])));
-          return `    case ${disc}: return { tag: ${tag}, value: [${parts.join(', ')}] };`;
-        }
-        const parts = v.fields.map(
-          (f, i) =>
-            `${JSON.stringify(f.name)}: ${emitRead(ctx, f.codec, addOffset('o', offsets[i]))}`,
-        );
-        return `    case ${disc}: return { tag: ${tag}, value: { ${parts.join(', ')} } };`;
-      });
-      ctx.ancestors.delete(codec);
-      const disc = layout.discSize === 1 ? 'r.readU8(o)' : 'r.readU16(o)';
-      ctx.helpers.push(
-        `function ${name}(r, o) {\n` +
-          `  switch (${disc}) {\n` +
-          `${cases.join('\n')}\n` +
-          `    default: throw new Error('invalid enum discriminant');\n` +
-          `  }\n` +
-          `}`,
-      );
-      return `${name}(r, ${off})`;
-    }
-
-    // Kind.other (char/unit) and Kind.opaque (box/rc/weak/union/transform/
-    // lazy/maps/custom): dep call — still a monomorphic call site inside
-    // this compiled function.
-    default:
-      return depRead(ctx, codec, off);
-  }
-}
-
-// ============================================================================
-// Encode emitter (archive + resolve pair). Walks the encoder-side `meta`
-// descriptors, so encode-only chains emit exactly like full codecs.
-// ============================================================================
-
-interface FieldSlot {
-  /** JS expression for the field value, given the parent value expression. */
-  value: string;
-  codec: AnyEncoder;
-  offset: number;
-}
-
-function slotsOf(ctx: EmitCtx<AnyEncoder>, codec: AnyEncoder, base: string): FieldSlot[] | null {
-  const meta = codec.meta;
-  if (meta.kind === Kind.struct) {
-    const fields = meta.fields;
-    if (fields.some((f) => unsafeName(f.name))) return null;
-    const layout = meta.layout(ctx.fmt);
-    return fields.map((f, i) => ({
-      value: `${base}[${JSON.stringify(f.name)}]`,
-      codec: f.codec,
-      offset: layout.offsets[i],
-    }));
-  }
-  if (meta.kind === Kind.tuple) {
-    const layout = meta.layout(ctx.fmt);
-    return meta.elements.map((e, i) => ({
-      value: `${base}[${i}]`,
-      codec: e,
-      offset: layout.offsets[i],
-    }));
-  }
-  return null;
-}
-
-function emitPrimitiveWrite(codec: AnyEncoder, value: string): string | null {
-  switch (codec.meta.kind) {
-    case Kind.u8:
-      return `w.writeU8(${value})`;
-    case Kind.i8:
-      return `w.writeI8(${value})`;
-    case Kind.u16:
-      return `w.writeU16(${value})`;
-    case Kind.i16:
-      return `w.writeI16(${value})`;
-    case Kind.u32:
-      return `w.writeU32(${value})`;
-    case Kind.i32:
-      return `w.writeI32(${value})`;
-    case Kind.u64:
-      return `w.writeU64(${value})`;
-    case Kind.i64:
-      return `w.writeI64(${value})`;
-    case Kind.f32:
-      return `w.writeF32(${value})`;
-    case Kind.f64:
-      return `w.writeF64(${value})`;
-    case Kind.bool:
-      return `w.writeBool(${value})`;
-    default:
-      return null;
-  }
-}
-
-/**
- * Emit a direct `DataView` store for a primitive slot inside a batched run —
- * the reserve-once form of {@link emitPrimitiveWrite}: no per-field capacity
- * check, no position bump. `off` is a constant offset expression from the
- * node's base position.
- */
-function emitPrimitiveStore(codec: AnyEncoder, off: string, value: string, le: boolean): string | null {
-  switch (codec.meta.kind) {
-    case Kind.u8:
-      return `dv.setUint8(${off}, ${value})`;
-    case Kind.i8:
-      return `dv.setInt8(${off}, ${value})`;
-    case Kind.u16:
-      return `dv.setUint16(${off}, ${value}, ${le})`;
-    case Kind.i16:
-      return `dv.setInt16(${off}, ${value}, ${le})`;
-    case Kind.u32:
-      return `dv.setUint32(${off}, ${value}, ${le})`;
-    case Kind.i32:
-      return `dv.setInt32(${off}, ${value}, ${le})`;
-    case Kind.u64:
-      return `dv.setBigUint64(${off}, ${value}, ${le})`;
-    case Kind.i64:
-      return `dv.setBigInt64(${off}, ${value}, ${le})`;
-    case Kind.f32:
-      return `dv.setFloat32(${off}, ${value}, ${le})`;
-    case Kind.f64:
-      return `dv.setFloat64(${off}, ${value}, ${le})`;
-    case Kind.bool:
-      return `dv.setUint8(${off}, ${value} ? 1 : 0)`;
-    default:
-      return null;
-  }
-}
-
-/**
- * A resolve-phase leaf after flattening inline struct/tuple subtrees.
- * `resolver` is the expression for the leaf's positional resolver: top-level
- * non-inline slots index the node's resolver array; leaves lifted out of an
- * inline subtree get `void 0`, exactly what the interpreter passes them.
- */
-interface ResolveLeaf {
-  value: string;
-  codec: AnyEncoder;
-  offset: number;
-  resolver: string;
-}
-
-/**
- * Flatten a node's slots for the resolve phase: inline struct/tuple slots
- * (fixed-size by construction, so the nesting is always finite) expand into
- * their own slots at accumulated offsets, turning nested single-field-at-a-
- * time dep calls into leaves the run batcher below can fuse. Offsets stay
- * strictly increasing — layouts assign fields in order.
- */
-function flattenResolveSlots(
-  ctx: EmitCtx<AnyEncoder>,
-  slots: FieldSlot[],
-  resolver: string,
-): ResolveLeaf[] {
-  const out: ResolveLeaf[] = [];
-  const walk = (slot: FieldSlot, base: number, sub: string): void => {
-    const offset = base + slot.offset;
-    const meta = slot.codec.meta;
-    if (
-      slot.codec.inline &&
-      (meta.kind === Kind.struct || meta.kind === Kind.tuple) &&
-      emitPrimitiveWrite(slot.codec, slot.value) === null
-    ) {
-      const inner = slotsOf(ctx, slot.codec, slot.value);
-      if (inner !== null) {
-        // Children of an inline node never have resolvers.
-        for (const child of inner) walk(child, offset, 'void 0');
-        return;
-      }
-    }
-    out.push({ value: slot.value, codec: slot.codec, offset, resolver: sub });
-  };
-  for (let i = 0; i < slots.length; i++) {
-    walk(slots[i], 0, `${resolver} === void 0 ? void 0 : ${resolver}[${i}]`);
-  }
-  return out;
-}
-
-/**
- * Compile a vec slot's archive phase; the element write loop, when the element is a struct/tuple the slot machinery can emit.
- *
- * Fully-primitive elements (after flattening) get a single reservation for the whole payload
- * and a strided constant-offset store loop; mixed elements reuse the slot emitters per element
- * (monomorphic call sites, batched scalar runs).
- *
- * Returns null to stay a dep call: primitive elements (the interpreter's bulk typed-array paths already win), opaque/unsafe shapes, and recursion via `ancestors`. 
- *
- * The vec's `resolve` (header) stays a dep call either way, the helper returns the interpreter-shaped `{ pos, len }` resolver.
- */
-function vecWriteHelper(ctx: EmitCtx<AnyEncoder>, codec: AnyEncoder): string | null {
-  const cached = ctx.vecWriteHelpers.get(codec);
-  if (cached !== undefined) return cached;
-  let name: string | null = null;
-  const meta = codec.meta;
-  if (meta.kind === Kind.vec) {
-    const kind = meta.element.meta.kind;
-    if (
-      (kind === Kind.struct || kind === Kind.tuple) &&
-      ctx.nodes++ <= NODE_BUDGET &&
-      !ctx.ancestors.has(codec)
-    ) {
-      ctx.ancestors.add(codec);
-      name = emitVecWriteHelper(ctx, meta.element);
-      ctx.ancestors.delete(codec);
-    }
-  }
-  ctx.vecWriteHelpers.set(codec, name);
-  return name;
-}
-
-function emitVecWriteHelper(ctx: EmitCtx<AnyEncoder>, element: AnyEncoder): string | null {
-  const slots = slotsOf(ctx, element, 'v');
-  if (slots === null) return null;
-  const el = element.layout(ctx.fmt);
-  const stride = elementStride(ctx.fmt, element);
-  const le = ctx.fmt.endian === 'little';
-  const name = ctx.helperName();
-
-  // Fully-primitive element: one reservation, strided stores, alignment gaps zero-filled in a single pass
-  // (identical bytes to the interpreter's per-element padTo zeroing).
-  const leaves = flattenResolveSlots(ctx, slots, 'void 0');
-  if (leaves.every((leaf) => emitPrimitiveWrite(leaf.codec, leaf.value) !== null)) {
-    let payload = 0;
-    for (const leaf of leaves) payload += leaf.codec.layout(ctx.fmt).size;
-    const stores = leaves
-      .map((leaf) => `    ${emitPrimitiveStore(leaf.codec, addOffset('p', leaf.offset), leaf.value, le)};`)
-      .join('\n');
-    ctx.helpers.push(
-      `function ${name}(w, a) {\n` +
-        `  var n = a.length;\n` +
-        `  w.align(${el.align});\n` +
-        `  var pos = w.pos;\n` +
-        `  w.reserve(n * ${stride});\n` +
-        `  var dv = w.view;\n` +
-        (payload !== stride ? `  w.buffer.fill(0, pos, pos + n * ${stride});\n` : '') +
-        `  for (var i = 0, p = pos; i < n; i++, p += ${stride}) {\n` +
-        `    var v = a[i];\n` +
-        `${stores}\n` +
-        `  }\n` +
-        `  return { pos: pos, len: n };\n` +
-        `}`,
-    );
-    return name;
-  }
-
-  // Mixed element: the interpreter's two-phase order, archive every element's deps first, then resolve at stride intervals,
-  // with the slot emitters supplying the per-element bodies.
-  const archive = element.inline
-    ? ''
-    : `  var rs = new Array(n);\n` +
-      `  for (var i = 0; i < n; i++) {\n` +
-      `    var v = a[i];\n` +
-      `    rs[i] = [${emitArchiveSlots(ctx, slots).join(', ')}];\n` +
-      `  }\n`;
-  const resolveStmts = emitResolveSlots(ctx, slots, 'p', element.inline ? 'void 0' : 'x')
-    .map((stmt) => `    ${stmt}`)
-    .join('\n');
-  ctx.helpers.push(
-    `function ${name}(w, a) {\n` +
-      `  var n = a.length;\n` +
-      archive +
-      `  w.align(${el.align});\n` +
-      `  var pos = w.pos;\n` +
-      `  for (var i = 0; i < n; i++) {\n` +
-      `    var v = a[i];\n` +
-      (element.inline ? '' : `    var x = rs[i];\n`) +
-      `    var p = w.pos;\n` +
-      `${resolveStmts}\n` +
-      `    w.padTo(pos + (i + 1) * ${stride});\n` +
-      `  }\n` +
-      `  return { pos: pos, len: n };\n` +
-      `}`,
-  );
-  return name;
-}
-
-/**
- * Emit the archive-phase expressions for a struct/tuple's slots.
- *
- * Returns one resolver-array-element expression per slot
- * (`void 0` for inline children, matching the interpreter's positional resolver arrays).
- *
- * Eligible vec slots archive through a compiled element write loop.
- */
-function emitArchiveSlots(ctx: EmitCtx<AnyEncoder>, slots: FieldSlot[]): string[] {
-  return slots.map((slot) => {
-    if (slot.codec.inline) return 'void 0';
-    if (slot.codec.meta.kind === Kind.vec) {
-      const helper = vecWriteHelper(ctx, slot.codec);
-      if (helper !== null) return `${helper}(w, ${slot.value})`;
-    }
-    return `d[${ctx.dep(slot.codec)}].archive(w, ${slot.value})`;
-  });
-}
-
-/**
- * Emit resolve statements for slots relative to base position variable `base` (writer.pos at entry).
- *
- * `resolver` is the expression holding this node's positional resolver array (or `void 0` when the node is inline).
- *
- * Slots are flattened first, then maximal runs of 2+ primitive leaves fuse into a single `w.reserve(span)`
- * followed by direct constant-offset `DataView` stores, one capacity check and one position bump per run instead of one of each per field.
- *
- * A run whose span has alignment gaps is zero-filled in one pass first, so the emitted bytes stay identical to the interpreter's `padTo` zeroing.
- *
- * `dv` is re-read from the writer after every reserve: growth (and any dep call in between) may swap the buffer.
- */
-function emitResolveSlots(
-  ctx: EmitCtx<AnyEncoder>,
-  slots: FieldSlot[],
-  base: string,
-  resolver: string,
-): string[] {
-  const leaves = flattenResolveSlots(ctx, slots, resolver);
-  const le = ctx.fmt.endian === 'little';
-  const sizeOf = (codec: AnyEncoder): number => codec.layout(ctx.fmt).size;
-  const out: string[] = [];
-  let dvDeclared = false;
-  let i = 0;
-  while (i < leaves.length) {
-    const leaf = leaves[i];
-    const primitive = emitPrimitiveWrite(leaf.codec, leaf.value);
-    if (primitive === null) {
-      if (leaf.offset > 0) out.push(`w.padTo(${base} + ${leaf.offset});`);
-      out.push(`d[${ctx.dep(leaf.codec)}].resolve(w, ${leaf.value}, ${leaf.resolver});`);
-      i += 1;
-      continue;
-    }
-    let j = i + 1;
-    while (j < leaves.length && emitPrimitiveWrite(leaves[j].codec, leaves[j].value) !== null) {
-      j += 1;
-    }
-    if (j - i === 1) {
-      // A lone primitive: the writer call is cheaper than reserve + view read.
-      if (leaf.offset > 0) out.push(`w.padTo(${base} + ${leaf.offset});`);
-      out.push(`${primitive};`);
-      i = j;
-      continue;
-    }
-    const start = leaf.offset;
-    const last = leaves[j - 1];
-    const end = last.offset + sizeOf(last.codec);
-    let payload = 0;
-    for (let k = i; k < j; k++) payload += sizeOf(leaves[k].codec);
-    if (start > 0) out.push(`w.padTo(${base} + ${start});`);
-    out.push(`w.reserve(${end - start});`);
-    out.push(`${dvDeclared ? '' : 'var '}dv = w.view;`);
-    dvDeclared = true;
-    if (payload !== end - start) {
-      out.push(`w.buffer.fill(0, ${addOffset(base, start)}, ${base} + ${end});`);
-    }
-    for (let k = i; k < j; k++) {
-      const l = leaves[k];
-      const store = emitPrimitiveStore(l.codec, addOffset(base, l.offset), l.value, le);
-      out.push(`${store};`);
-    }
-    i = j;
-  }
-  return out;
-}
-
 // ============================================================================
 // Compilation units
 // ============================================================================
-
-type ReadFn = (reader: RkyvReader, offset: number) => unknown;
-type ArchiveFn = (writer: RkyvWriter, value: unknown) => unknown;
-type ResolveFn = (writer: RkyvWriter, value: unknown, resolver: unknown) => number;
 
 interface CompiledUnit {
   read: ReadFn;
@@ -668,68 +61,11 @@ interface CompiledUnit {
   resolve: ResolveFn | null;
 }
 
-interface EmittedSource<D> {
-  src: string;
-  deps: D[];
-}
-
-// The source builders are shared by compilation and the emit* introspection
-// exports, so snapshot tests pin exactly the source that runs.
-function buildDecoderSource(target: AnyDecoder, fmt: RkyvFormat): EmittedSource<AnyDecoder> {
-  const ctx = new EmitCtx<AnyDecoder>(fmt);
-  const expr = emitRead(ctx, target, 'o');
-  const helpers = ctx.helpers.length > 0 ? `${ctx.helpers.join('\n')}\n` : '';
-  const src = `"use strict";\n${helpers}return function read(r, o) { return ${expr}; };`;
-  return { src, deps: ctx.deps };
-}
-
-/**
- * Build the write pair source, evaluating to `{ archive, resolve }` —
- * `archive` is null for inline roots (single-pass encode never calls it).
- * Returns null when the root shape is not write-compiled (dep-call territory).
- */
-function buildEncoderSource(target: AnyEncoder, fmt: RkyvFormat): EmittedSource<AnyEncoder> | null {
-  const ctx = new EmitCtx<AnyEncoder>(fmt);
-  const slots = slotsOf(ctx, target, 'v');
-  if (slots === null) return null;
-  const layout = target.layout(fmt);
-  const archive = target.inline
-    ? 'var archive = null;'
-    : `var archive = function archive(w, v) { return [${emitArchiveSlots(ctx, slots).join(', ')}]; };`;
-  const resolveParts = emitResolveSlots(ctx, slots, 'p', target.inline ? 'void 0' : 'x');
-  const helpers = ctx.helpers.length > 0 ? `${ctx.helpers.join('\n')}\n` : '';
-  const src =
-    `"use strict";\n` +
-    `${helpers}` +
-    `${archive}\n` +
-    `var resolve = function resolve(w, v, x) {\n` +
-    `  var p = w.pos;\n` +
-    `  ${resolveParts.join('\n  ')}\n` +
-    `  w.padTo(p + ${layout.size});\n` +
-    `  return p;\n` +
-    `};\n` +
-    `return { archive: archive, resolve: resolve };`;
-  return { src, deps: ctx.deps };
-}
-
 function compileForFormat(target: CompilableCodec<unknown>, fmt: RkyvFormat): CompiledUnit {
-  const readUnit = buildDecoderSource(target, fmt);
-  const read = new Function('d', readUnit.src)(readUnit.deps) as ReadFn;
-
+  const read = compileReadFn(target, fmt);
   // archive/resolve compile only when the emitter recognizes the root shape.
-  let archive: ArchiveFn | null = null;
-  let resolve: ResolveFn | null = null;
-  const writeUnit = buildEncoderSource(target, fmt);
-  if (writeUnit !== null) {
-    const pair = new Function('d', writeUnit.src)(writeUnit.deps) as {
-      archive: ArchiveFn | null;
-      resolve: ResolveFn;
-    };
-    archive = pair.archive;
-    resolve = pair.resolve;
-  }
-
-  return { read, archive, resolve };
+  const pair = compileWritePair(target, fmt);
+  return { read, archive: pair?.archive ?? null, resolve: pair?.resolve ?? null };
 }
 
 // ============================================================================
@@ -802,32 +138,31 @@ class CompiledCodec<T> extends Codec<T> {
 // Entry point
 // ============================================================================
 
-let evalAvailable: boolean | null = null;
-
-function canEval(): boolean {
-  if (evalAvailable === null) {
-    try {
-      new Function('return 0');
-      evalAvailable = true;
-    } catch {
-      evalAvailable = false;
-    }
-  }
-  return evalAvailable;
-}
-
 /**
  * Compile a codec into a specialized drop-in replacement.
  *
- * The returned codec has the identical surface (`encode`/`decode`/`access`/
- * `read`/`resolve`/…), so it can replace the interpreter codec at a single
- * boundary. Opaque children (maps, custom codecs, recursion) stay as
- * interpreter dep calls with per-site monomorphic dispatch.
+ * The returned codec has the identical surface (`encode`/`decode`/`access`/ `read`/`resolve`/etc),
+ * so it can replace the interpreter codec at a single boundary.
+ *
+ * Opaque children (maps, custom codecs, recursion) stay as interpreter dep calls with per-site monomorphic dispatch.
  */
 export function compileCodec<T>(
   codec: CompilableCodec<T>,
   options: CompileOptions = {},
 ): CompilableCodec<T> {
+  // Fail fast on a unidirectional codec: compilation itself would succeed (it only walks `meta`) 
+  // and the missing direction would then throw — or
+  // silently work for dep-free shapes — deep inside generated source.
+  if (typeof codec.read !== 'function') {
+    throw new TypeError(
+      "compileCodec requires a full codec: missing read, for encoder-only codecs use compileEncoder from 'rkyv-js/jit/encode'",
+    );
+  }
+  if (typeof codec.resolve !== 'function') {
+    throw new TypeError(
+      "compileCodec requires a full codec: missing resolve, for decoder-only codecs use compileDecoder from 'rkyv-js/jit/decode'",
+    );
+  }
   if (!canEval()) {
     if (options.onUnsupported === 'throw') {
       throw new Error('compileCodec requires new Function (blocked by CSP in this environment)');
@@ -843,27 +178,4 @@ export function compileCodec<T>(
   const compiled = new CompiledCodec(codec);
   // Compile eagerly for the requested (or default) format so first use is hot.
   return compiled.prewarm(options.format ?? DEFAULT_FORMAT);
-}
-
-/**
- * Emit the generated decoder (read) source for a decoder — exactly the
- * source `compileCodec` evaluates. Full codecs are decoders.
- */
-export function emitDecoderSource(
-  decoder: Decoder<unknown, any>,
-  format: RkyvFormat = DEFAULT_FORMAT,
-): string {
-  return buildDecoderSource(decoder, format).src;
-}
-
-/**
- * Emit the generated encoder (archive/resolve pair) source for an encoder —
- * exactly the source `compileCodec` evaluates, or null when the root shape
- * stays on the interpreter (dep-call territory). Full codecs are encoders.
- */
-export function emitEncoderSource(
-  encoder: Encoder<unknown, any, any>,
-  format: RkyvFormat = DEFAULT_FORMAT,
-): string | null {
-  return buildEncoderSource(encoder, format)?.src ?? null;
 }

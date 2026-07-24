@@ -38,7 +38,7 @@ import {
   type StringLayout,
   type StructLayout,
   type VecLayout,
-} from './layout.ts';
+} from './core/layout.ts';
 
 export { BaseDecoder, FormatBoundDecoder } from './core/decoder.ts';
 export type { AnyDecoder, Decoder, Lazy, LazyList } from './core/decoder.ts';
