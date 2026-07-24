@@ -155,7 +155,27 @@ return { archive: archive, resolve: resolve };
 
 exports[`jit emitted source > encoder: mixed shapes struct 1`] = `
 "use strict";
-var archive = function archive(w, v) { return [void 0, void 0, void 0, d[0].archive(w, v["friends"]), void 0]; };
+function h0(w, a) {
+  var n = a.length;
+  var rs = new Array(n);
+  for (var i = 0; i < n; i++) {
+    var v = a[i];
+    rs[i] = [d[0].archive(w, v["city"]), void 0];
+  }
+  w.align(4);
+  var pos = w.pos;
+  for (var i = 0; i < n; i++) {
+    var v = a[i];
+    var x = rs[i];
+    var p = w.pos;
+    d[0].resolve(w, v["city"], x === void 0 ? void 0 : x[0]);
+    w.padTo(p + 8);
+    w.writeU32(v["zip"]);
+    w.padTo(pos + (i + 1) * 12);
+  }
+  return { pos: pos, len: n };
+}
+var archive = function archive(w, v) { return [void 0, void 0, void 0, h0(w, v["friends"]), void 0]; };
 var resolve = function resolve(w, v, x) {
   var p = w.pos;
   w.reserve(16);
@@ -168,7 +188,7 @@ var resolve = function resolve(w, v, x) {
   w.padTo(p + 20);
   d[2].resolve(w, v["long"], x === void 0 ? void 0 : x[2]);
   w.padTo(p + 44);
-  d[0].resolve(w, v["friends"], x === void 0 ? void 0 : x[3]);
+  d[3].resolve(w, v["friends"], x === void 0 ? void 0 : x[3]);
   w.padTo(p + 56);
   w.writeU64(v["id"]);
   w.padTo(p + 64);

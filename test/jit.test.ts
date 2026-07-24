@@ -81,6 +81,74 @@ describe('compileCodec', () => {
     }
   });
 
+  it('compiled vec write loops stay byte-identical to the interpreter', () => {
+    // Tier 1: fully-primitive element (single reservation, strided stores),
+    // with a nested inline struct and an alignment gap in the stride.
+    const Particle = r.struct({
+      id: r.u32,
+      kind: r.u8,
+      pos: r.struct({ x: r.f64, y: r.f64 }),
+      alive: r.bool,
+    });
+    // Tier 2: mixed element (string field keeps a dep call per element).
+    const Entry = r.struct({ name: r.string, score: r.u32 });
+    const Root = r.struct({
+      particles: r.vec(Particle),
+      entries: r.vec(Entry),
+      label: r.string,
+    });
+    const value = {
+      particles: Array.from({ length: 40 }, (_, i) => ({
+        id: i,
+        kind: i % 5,
+        pos: { x: i * 1.5, y: -i },
+        alive: i % 3 === 0,
+      })),
+      entries: [
+        { name: 'inline', score: 1 },
+        { name: 'a much longer out-of-line name', score: 2 },
+        { name: '', score: 3 },
+      ],
+      label: 'root label',
+    };
+    const compiled = compileCodec(Root);
+    const formats = [
+      undefined,
+      format({ endian: 'big' }),
+      format({ aligned: false }),
+      format({ pointerWidth: 16 }),
+    ];
+    for (const fmt of formats) {
+      assert.deepStrictEqual(
+        [...compiled.encode(value, fmt)],
+        [...Root.encode(value, fmt)],
+        `${fmt ? `${fmt.endian}/${fmt.aligned ? 'aligned' : 'packed'}/pw${fmt.pointerWidth}` : 'default'}`,
+      );
+    }
+    // Empty vecs round-trip through the helpers too.
+    const empty = { particles: [], entries: [], label: '' };
+    assert.deepStrictEqual([...compiled.encode(empty)], [...Root.encode(empty)]);
+    assert.deepStrictEqual(compiled.decode(compiled.encode(value)), value);
+
+    // The helpers actually engage: no interpreter archive dep for either vec.
+    const src = emitEncoderSource(Root);
+    assert.ok(src !== null && !src.includes('.archive(w, v["particles"])'));
+    assert.ok(src !== null && !src.includes('.archive(w, v["entries"])'));
+
+    // Recursive vec elements stay on the interpreter (no runaway emission).
+    interface Node {
+      tag: number;
+      kids: Node[];
+    }
+    const NodeCodec: r.Codec<Node> = r.struct({
+      tag: r.u32,
+      kids: r.vec(r.lazy(() => NodeCodec)),
+    }) as r.Codec<Node>;
+    const tree = { tag: 1, kids: [{ tag: 2, kids: [] }] };
+    const compiledTree = compileCodec(NodeCodec);
+    assert.deepStrictEqual([...compiledTree.encode(tree)], [...NodeCodec.encode(tree)]);
+  });
+
   it('batched writer runs stay byte-identical to the interpreter across formats', () => {
     // Shapes that exercise the reserve+store fast path: a scalar-only
     // struct, a gapped run (u8 then f64 then bigint), and a nested inline
