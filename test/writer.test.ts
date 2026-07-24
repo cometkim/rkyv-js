@@ -1,5 +1,6 @@
 import * as assert from 'node:assert';
 import { describe, it } from 'node:test';
+import * as r from '#src/index.ts';
 import { format } from '#src/core/format.ts';
 import { RkyvWriter } from '#src/core/writer.ts';
 
@@ -326,5 +327,112 @@ describe('RkyvWriter', () => {
       assert.strictEqual(result.length, 3);
       assert.deepStrictEqual(result, new Uint8Array([0x01, 0x02, 0x03]));
     });
+  });
+});
+
+describe('RkyvWriter with an external buffer', () => {
+  const Person = r.struct({
+    name: r.string,
+    age: r.u32,
+    email: r.option(r.string),
+    scores: r.vec(r.u32),
+  });
+  const person = {
+    name: 'a name long enough to go out of line',
+    age: 25,
+    email: 'someone@example.com',
+    scores: [95, 87, 92],
+  };
+
+  it('writes the archive in place, byte-identical to encode()', () => {
+    const region = new Uint8Array(4096);
+    const writer = new RkyvWriter({ buffer: region });
+    const out = Person.encodeInto(writer, person);
+    const expected = Person.encode(person);
+    assert.strictEqual(writer.fixed, true);
+    assert.strictEqual(writer.pos, expected.length);
+    assert.deepStrictEqual([...out], [...expected]);
+    // In place: the written bytes live in the caller's region.
+    assert.deepStrictEqual([...region.subarray(0, writer.pos)], [...expected]);
+  });
+
+  it('addresses a subarray region correctly (non-zero byteOffset)', () => {
+    const backing = new Uint8Array(4096 + 16);
+    backing.fill(0xaa);
+    const region = backing.subarray(16);
+    const out = Person.encodeInto(new RkyvWriter({ buffer: region }), person);
+    assert.deepStrictEqual([...out], [...Person.encode(person)]);
+    // The bytes before the region are untouched.
+    assert.ok([...backing.subarray(0, 16)].every((b) => b === 0xaa));
+  });
+
+  it('takes the bulk write path over an aligned subarray', () => {
+    const codec = r.vec(r.u32);
+    const values = Array.from({ length: 256 }, (_, i) => (i * 2654435761) >>> 0);
+    const region = new Uint8Array(8192).subarray(8); // aligned offset: bulk-eligible
+    const out = codec.encodeInto(new RkyvWriter({ buffer: region }), values);
+    assert.deepStrictEqual([...out], [...codec.encode(values)]);
+  });
+
+  it('falls back to loops on an unaligned subarray, still byte-identical', () => {
+    const codec = r.vec(r.u32);
+    const values = Array.from({ length: 64 }, (_, i) => i * 7);
+    const region = new Uint8Array(8192).subarray(2); // bulk view ineligible
+    const out = codec.encodeInto(new RkyvWriter({ buffer: region }), values);
+    assert.deepStrictEqual([...out], [...codec.encode(values)]);
+  });
+
+  it('is reusable across encodes via reset()', () => {
+    const writer = new RkyvWriter({ buffer: new Uint8Array(4096) });
+    const first = [...Person.encodeInto(writer, person)];
+    writer.reset();
+    assert.deepStrictEqual([...Person.encodeInto(writer, person)], first);
+  });
+
+  it('round-trips what it wrote', () => {
+    const writer = new RkyvWriter({ buffer: new Uint8Array(4096) });
+    const out = Person.encodeInto(writer, person);
+    assert.deepStrictEqual(Person.decode(out.slice()), person);
+  });
+
+  describe('overflow', () => {
+    it('throws RangeError instead of growing', () => {
+      const codec = r.vec(r.u32);
+      const values = Array.from({ length: 64 }, (_, i) => i);
+      const writer = new RkyvWriter({ buffer: new Uint8Array(32) });
+      assert.throws(() => codec.encodeInto(writer, values), RangeError);
+    });
+
+    it('accepts text that fits despite the pessimistic worst-case estimate', () => {
+      // 30 ASCII chars encode to 30 bytes; the 3x estimate (90) exceeds the
+      // region, the actual bytes do not.
+      const writer = new RkyvWriter({ buffer: new Uint8Array(48) });
+      assert.strictEqual(writer.writeText('x'.repeat(30)), 30);
+    });
+
+    it('throws when text truly does not fit', () => {
+      const writer = new RkyvWriter({ buffer: new Uint8Array(16) });
+      assert.throws(() => writer.writeText('y'.repeat(64)), RangeError);
+      // Multibyte content overflowing mid-way throws too.
+      const writer2 = new RkyvWriter({ buffer: new Uint8Array(8) });
+      assert.throws(() => writer2.writeText('한국어 텍스트'), RangeError);
+    });
+
+    it('reports overflow for a string codec near the boundary', () => {
+      const long = 'z'.repeat(64);
+      const exact = r.string.encode(long).length;
+      const tight = new RkyvWriter({ buffer: new Uint8Array(exact) });
+      assert.deepStrictEqual([...r.string.encodeInto(tight, long)], [...r.string.encode(long)]);
+      const short = new RkyvWriter({ buffer: new Uint8Array(exact - 1) });
+      assert.throws(() => r.string.encodeInto(short, long), RangeError);
+    });
+  });
+
+  it('owned writers still grow (fixed is opt-in)', () => {
+    const writer = new RkyvWriter({ initialCapacity: 8 });
+    const codec = r.vec(r.u32);
+    const values = Array.from({ length: 256 }, (_, i) => i);
+    assert.strictEqual(writer.fixed, false);
+    assert.deepStrictEqual([...codec.encodeInto(writer, values)], [...codec.encode(values)]);
   });
 });

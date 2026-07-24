@@ -261,6 +261,32 @@ At the type level, `Decoder<T>` and `Encoder<T>` are the public contracts.
 
 A full `Codec` satisfies both, and containers accept full and one-direction children interchangeably.
 
+## Encoding into external memory
+
+`codec.encode()` returns a fresh buffer.
+
+When the archive's final destination is memory you already own, e.g. a `WebAssembly.Memory` region.
+Construct an `RkyvWriter` over that region and the archive is written in place, with no intermediate buffer and no copy:
+
+```typescript
+import { RkyvWriter } from 'rkyv-js/encode';
+
+const region = new Uint8Array(memory.buffer, ptr, maxSize);
+const writer = new RkyvWriter({ buffer: region });
+
+codec.encodeInto(writer, value); // archive written directly into wasm memory
+const byteLength = writer.pos;   // pass alongside `ptr` to the wasm side
+```
+
+A writer over a caller-provided buffer is **fixed-capacity**: writing past the end throws a `RangeError` instead of growing. Reuse it across calls with `writer.reset()`.
+
+Two caller responsibilities:
+
+- **Alignment**: rkyv archives are aligned relative to the buffer start, so the region must begin at an address satisfying the archived type's alignment (allocate with ≥ 8-byte alignment to cover every kind). Aligned regions also keep the bulk typed-array write paths eligible.
+- **Staleness**: growing a `WebAssembly.Memory` detaches the buffer the region views. Construct a fresh writer after any operation that may grow the memory.
+
+Compared to `encode()` + copying the result into the target, in-place encoding measured faster, and produces zero garbage per call.
+
 ## Opt-in JIT compilation
 
 `rkyv-js/jit` pre-compiles a codec into specialized read/write functions with `new Function`, field offsets become integer constants and every remaining child call gets its own monomorphic call site, the property that makes per-message codegen (protobufjs-style) fast:
