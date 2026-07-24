@@ -45,4 +45,18 @@ jobs:
         uses: CodSpeedHQ/action@v4.18.5
         with:
           mode: simulation
-          run: node ${{ matrix.test-file }}
+          # Heap flags keep GC out of the measured windows.
+          # The GC schedule is deterministic under the runner's `--predictable`,
+          # but it follows the allocation history which every code change shifts,
+          # so a GC cycle can land inside an arbitrary benchmark's single measured call
+          # and inflate it ~10x (the tell: CodSpeed reports mmap/madvise syscalls inside a pure-compute benchmark).
+          #
+          # Static generous limits leave the plugin's pre-measurement `gc()`
+          # with enough headroom that a window's few KB of allocation can never trigger a collection.
+          run: >-
+            node
+            --initial-old-space-size=128
+            --min-semi-space-size=16
+            --max-semi-space-size=16
+            --no-memory-reducer
+            ${{ matrix.test-file }}
