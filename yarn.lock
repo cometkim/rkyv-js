@@ -779,7 +779,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"capnp-es@npm:^0.0.14":
+"capnp-es@npm:0.0.14":
   version: 0.0.14
   resolution: "capnp-es@npm:0.0.14"
   peerDependencies:
@@ -827,7 +827,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"cbor-x@npm:^1.6.4":
+"cbor-x@npm:1.6.4":
   version: 1.6.4
   resolution: "cbor-x@npm:1.6.4"
   dependencies:
@@ -1941,12 +1941,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"protobufjs@npm:^8.7.0":
-  version: 8.7.0
-  resolution: "protobufjs@npm:8.7.0"
+"protobufjs@npm:8.7.1":
+  version: 8.7.1
+  resolution: "protobufjs@npm:8.7.1"
   dependencies:
     long: "npm:^5.3.2"
-  checksum: 10c0/d5fd41a726bfac92431b3ef5232a26ea1df0961216be318d17d58a6dace9cf2c4cbc63c63071087691c7394e36053cd7ea66b826d74dfc6158b7b5bd39ec08da
+  checksum: 10c0/2d5e0355301657e671c9dd7a84ed80a908e2c6172f38ede8e5df8a4455fa3eb5eb7edfda16c3072b2a9e23c16c657774bca962942125047c21a347534ea07083
   languageName: node
   linkType: hard
 
@@ -2027,13 +2027,13 @@ __metadata:
     "@mitata/counters": "npm:^0.0.8"
     "@types/node": "npm:^22.0.0"
     amaro: "npm:^1.1.11"
-    capnp-es: "npm:^0.0.14"
-    cbor-x: "npm:^1.6.4"
+    capnp-es: "catalog:"
+    cbor-x: "catalog:"
     es-module-lexer: "npm:^2.3.1"
     mitata: "npm:^1.0.34"
     oxc-transform: "npm:^0.141.0"
     pkg-pr-new: "npm:^0.0.79"
-    protobufjs: "npm:^8.7.0"
+    protobufjs: "catalog:"
     tinybench: "npm:^5.1.0"
     typescript: "npm:^6.0.3"
   languageName: unknown

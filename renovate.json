@@ -3,5 +3,11 @@
   "extends": [
     "config:recommended"
   ],
-  "rangeStrategy": "bump"
+  "rangeStrategy": "bump",
+  "ignoreDeps": [
+    "rkyv",
+    "capnp-es",
+    "cbor-x",
+    "protobufjs"
+  ]
 }

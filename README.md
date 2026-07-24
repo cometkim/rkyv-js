@@ -354,7 +354,7 @@ See **[docs.rs](https://docs.rs/rkyv-js-codegen)** for the full API.
 
 ## Performance
 
-Measured against [protobufjs] 8.7.0, [capnp-es] 0.0.14, [cbor-x] 1.6.4
+Measured against [protobufjs], [capnp-es], [cbor-x] (pinned versions by Yarn `catalog:`)
 
 - Decode is a tie with protobufjs, slightly behind on the smallest payloads.
 - Encode is generally better than protobufjs.
