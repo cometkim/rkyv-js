@@ -222,6 +222,33 @@ describe('RkyvWriter', () => {
         new Uint8Array([0xe4, 0xbd, 0xa0, 0xe5, 0xa5, 0xbd, 0xf0, 0x9f, 0x91, 0x8b]),
       );
     });
+
+    it('short-ASCII fast path matches TextEncoder byte for byte', () => {
+      const te = new TextEncoder();
+      // Around the 32-char threshold, including a growth-forcing capacity.
+      for (const text of ['abc', 'x'.repeat(31), 'y'.repeat(32), 'z'.repeat(33)]) {
+        const writer = new RkyvWriter({ initialCapacity: 4 });
+        assert.strictEqual(writer.writeText(text), text.length);
+        assert.deepStrictEqual(writer.finish(), te.encode(text), JSON.stringify(text));
+      }
+    });
+
+    it('short text with non-ASCII bails to the encoder, same bytes', () => {
+      // ASCII prefix is overwritten by the encoder fallback re-encoding from the same position.
+      const text = 'price: 10€ total';
+      const writer = new RkyvWriter();
+      const written = writer.writeText(text);
+      const expected = new TextEncoder().encode(text);
+      assert.strictEqual(written, expected.length);
+      assert.deepStrictEqual(writer.finish(), expected);
+    });
+
+    it('short-ASCII fast path respects fixed-buffer capacity', () => {
+      const exact = new RkyvWriter({ buffer: new Uint8Array(12) });
+      assert.strictEqual(exact.writeText('exactly12chr'), 12);
+      const tight = new RkyvWriter({ buffer: new Uint8Array(8) });
+      assert.throws(() => tight.writeText('nine char'), RangeError);
+    });
   });
 
   describe('relative pointers', () => {
