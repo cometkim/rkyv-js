@@ -67,6 +67,27 @@ export class RkyvWriter {
   }
 
   /**
+   * True when the wire endianness matches the platform's byte order —
+   * the precondition for bulk typed-array writes into the buffer.
+   */
+  get nativeEndian(): boolean {
+    return this.#le === PLATFORM_LE;
+  }
+
+  /**
+   * Advance `count` bytes without initializing the contents, returning the
+   * start position. For bulk writers that overwrite the whole range through
+   * a typed-array view — construct the view *after* calling this: growing
+   * may replace the underlying buffer.
+   */
+  reserve(count: number): number {
+    const pos = this.position;
+    this.#ensureCapacity(count);
+    this.position += count;
+    return pos;
+  }
+
+  /**
    * Ensure the buffer has enough capacity for additional bytes.
    */
   #ensureCapacity(additionalBytes: number): void {
@@ -315,3 +336,6 @@ export class RkyvWriter {
 // Lazily constructed so hosts without a global TextEncoder can still import
 // this module and inject their own implementation per writer.
 let sharedTextEncoder: RkyvTextEncoder | undefined;
+
+// Platform byte order (JS typed arrays are always platform-endian).
+const PLATFORM_LE = new Uint8Array(Uint16Array.of(1).buffer)[0] === 1;

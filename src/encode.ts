@@ -50,18 +50,70 @@ export type { RkyvTextEncoder } from './core/writer.ts';
 export type { RkyvHasher } from './core/hasher.ts';
 
 /**
- * Encode a short ASCII string without TextEncoder (returns null when the
- * string contains non-ASCII characters).
+ * True when `value` is pure ASCII (its UTF-8 bytes are its char codes).
  */
-function encodeShortAscii(value: string): Uint8Array | null {
-  const len = value.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) {
-    const c = value.charCodeAt(i);
-    if (c > 0x7f) return null;
-    bytes[i] = c;
+function isAscii(value: string): boolean {
+  for (let i = 0; i < value.length; i++) {
+    if (value.charCodeAt(i) > 0x7f) return false;
   }
-  return bytes;
+  return true;
+}
+
+// A typed-array view over the writer buffer used for batch writes. The
+// method-syntax `set` keeps the concrete constructors assignable (bivariant)
+// across the number/bigint element split.
+interface BulkView {
+  set(values: ArrayLike<any>): void;
+}
+interface BulkViewCtor {
+  readonly BYTES_PER_ELEMENT: number;
+  new (buffer: ArrayBufferLike, byteOffset: number, length: number): BulkView;
+}
+
+// Batchable numeric kinds → their platform-endian typed-array constructors.
+// `u8`/`i8` are handled without a view; `bool` needs per-element conversion.
+const BULK_CTORS: Partial<Record<PrimitiveKindTag, BulkViewCtor>> = {
+  [Kind.u16]: Uint16Array,
+  [Kind.i16]: Int16Array,
+  [Kind.u32]: Uint32Array,
+  [Kind.i32]: Int32Array,
+  [Kind.u64]: BigUint64Array,
+  [Kind.i64]: BigInt64Array,
+  [Kind.f32]: Float32Array,
+  [Kind.f64]: Float64Array,
+};
+
+/**
+ * Bulk-write a batch of primitive-`kind` elements as one engine-level copy —
+ * `TypedArray.prototype.set` element conversions match the per-element
+ * `DataView` writes bit for bit. Short batches (where view construction
+ * would dominate), foreign wire endianness, and unaligned positions return
+ * `false` for the caller's monomorphic loops; `bool` always does (its
+ * conversion is per-element either way).
+ */
+function writeBulkPrimitive(
+  writer: RkyvWriter,
+  kind: PrimitiveKindTag,
+  values: readonly unknown[],
+): boolean {
+  if (values.length < 16) return false;
+  if (kind === Kind.u8 || kind === Kind.i8) {
+    // Byte-sized elements write through the buffer itself: same modulo-256
+    // conversion, no alignment or endianness to consider.
+    const pos = writer.reserve(values.length);
+    writer.buffer.set(values as ArrayLike<number>, pos);
+    return true;
+  }
+  const ctor = BULK_CTORS[kind];
+  if (ctor === undefined || !writer.nativeEndian) return false;
+  const size = ctor.BYTES_PER_ELEMENT;
+  // Both components checked separately: growth inside `reserve` swaps in a
+  // fresh buffer whose byteOffset is 0, which keeps `pos % size` decisive.
+  if (writer.pos % size !== 0 || writer.buffer.byteOffset % size !== 0) return false;
+  const pos = writer.reserve(values.length * size);
+  const buf = writer.buffer;
+  new ctor(buf.buffer, buf.byteOffset + pos, values.length).set(values as ArrayLike<any>);
+  return true;
 }
 
 // Growable scratch buffer for allocation-free string hashing.
@@ -190,8 +242,10 @@ export const char: Encoder<string> = new PrimitiveEncoder(
 export interface StringResolver {
   pos: number;
   len: number;
-  /** Encoded bytes, retained only when the string is inline. */
+  /** Encoded bytes, retained only when the string is inline non-ASCII. */
   bytes: Uint8Array | null;
+  /** Inline ASCII: `resolve` reads the char codes straight from the value. */
+  ascii: boolean;
 }
 
 export class StringEncoder extends BaseEncoder<string, StringResolver, StringLayout> {
@@ -234,19 +288,31 @@ export class StringEncoder extends BaseEncoder<string, StringResolver, StringLay
           `string of ${len} bytes exceeds the out-of-line capacity for pointer width ${writer.format.pointerWidth}`,
         );
       }
-      return { pos, len, bytes: null };
+      return { pos, len, bytes: null, ascii: false };
     }
-    const bytes = encodeShortAscii(value) ?? writer.encodeText(value);
+    if (isAscii(value)) {
+      // Inline ASCII (the common short-string case): resolve writes the
+      // char codes directly — no intermediate bytes at all.
+      return { pos: 0, len: value.length, bytes: null, ascii: true };
+    }
+    const bytes = writer.encodeText(value);
     if (bytes.length > l.inlineCapacity) {
-      return { pos: writer.writeBytes(bytes), len: bytes.length, bytes: null };
+      return { pos: writer.writeBytes(bytes), len: bytes.length, bytes: null, ascii: false };
     }
-    return { pos: 0, len: bytes.length, bytes };
+    return { pos: 0, len: bytes.length, bytes, ascii: false };
   }
 
-  resolve(writer: RkyvWriter, _value: string, resolver: StringResolver): number {
+  resolve(writer: RkyvWriter, value: string, resolver: StringResolver): number {
     const l = this.layout(writer.format);
     const structPos = writer.pos;
-    if (resolver.bytes !== null) {
+    if (resolver.ascii) {
+      for (let i = 0; i < resolver.len; i++) {
+        writer.writeU8(value.charCodeAt(i));
+      }
+      for (let i = resolver.len; i < l.inlineCapacity; i++) {
+        writer.writeU8(0xff);
+      }
+    } else if (resolver.bytes !== null) {
       writer.writeBytes(resolver.bytes);
       for (let i = resolver.len; i < l.inlineCapacity; i++) {
         writer.writeU8(0xff);
@@ -278,7 +344,7 @@ export interface VecResolver {
 
 export class VecEncoder<T> extends BaseEncoder<T[], VecResolver, VecLayout> {
   #element: Encoder<T>;
-  #kind: number;
+  #kind: PrimitiveKindTag;
   #strideFormat: RkyvFormat | null = null;
   #stride = 0;
 
@@ -307,6 +373,7 @@ export class VecEncoder<T> extends BaseEncoder<T[], VecResolver, VecLayout> {
   }
 
   #writePrimitive(writer: RkyvWriter, value: readonly unknown[]): void {
+    if (writeBulkPrimitive(writer, this.#kind, value)) return;
     switch (this.#kind) {
       case Kind.u8:
         for (let i = 0; i < value.length; i++) writer.writeU8(value[i] as number);
@@ -547,11 +614,14 @@ export function weak<C extends AnyEncoder>(inner: C): Encoder<Infer<C> | null> {
 export class ArrayEncoder<T> extends BaseEncoder<T[], unknown[] | undefined, ArrayLayout> {
   #element: Encoder<T>;
   #length: number;
+  /** Batchable primitive-element kind, shared with vec's bulk write path. */
+  #kind: PrimitiveKindTag;
 
   constructor(element: Encoder<T>, length: number) {
     super({ inline: element.inline, hashable: false });
     this.#element = element;
     this.#length = length;
+    this.#kind = primitiveKindOf(element.meta);
     this.meta = { kind: Kind.array, element, length, layout: (fmt) => this.layout(fmt) };
   }
 
@@ -581,6 +651,10 @@ export class ArrayEncoder<T> extends BaseEncoder<T[], unknown[] | undefined, Arr
     const l = this.layout(writer.format);
     const element = this.#element;
     const pos = writer.pos;
+    // Primitive elements: stride === size, so the batch is the whole repr.
+    if (this.#kind !== Kind.other && writeBulkPrimitive(writer, this.#kind, value)) {
+      return pos;
+    }
     for (let i = 0; i < this.#length; i++) {
       element.resolve(writer, value[i], resolver === undefined ? undefined : resolver[i]);
       writer.padTo(pos + (i + 1) * l.stride);

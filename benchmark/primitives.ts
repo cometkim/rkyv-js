@@ -31,6 +31,14 @@ const charBytes = r.char.encode(testChar);
 const stringShortBytes = r.string.encode(testStringShort);
 const stringLongBytes = r.string.encode(testStringLong);
 
+const vecU32 = r.vec(r.u32);
+const vecF64 = r.vec(r.f64);
+const vecU8 = r.vec(r.u8);
+const testVecU32Small = Array.from({ length: 8 }, (_, i) => i * 3);
+const testVecU32 = Array.from({ length: 1024 }, (_, i) => i * 3);
+const testVecF64 = Array.from({ length: 1024 }, (_, i) => i * 1.5);
+const testVecU8 = Array.from({ length: 1024 }, (_, i) => i & 0xff);
+
 // Integer encode benchmarks
 group('primitives encode', () => {
   bench('u8', () => {
@@ -87,6 +95,25 @@ group('primitives encode', () => {
 
   bench('string (long, out-of-line)', () => {
     do_not_optimize(r.string.encode(testStringLong));
+  }).gc('inner');
+});
+
+// Primitive-vec encode benchmarks (the bulk write path and its loop fallback)
+group('vec encode', () => {
+  bench('vec<u32> x8 (loop path)', () => {
+    do_not_optimize(vecU32.encode(testVecU32Small));
+  }).gc('inner');
+
+  bench('vec<u32> x1024', () => {
+    do_not_optimize(vecU32.encode(testVecU32));
+  }).gc('inner');
+
+  bench('vec<f64> x1024', () => {
+    do_not_optimize(vecF64.encode(testVecF64));
+  }).gc('inner');
+
+  bench('vec<u8> x1024', () => {
+    do_not_optimize(vecU8.encode(testVecU8));
   }).gc('inner');
 });
 
