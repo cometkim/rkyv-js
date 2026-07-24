@@ -35,7 +35,7 @@ siphasher = "1"
 base64 = "0.22"
 uuid = { version = "1", features = ["serde"] }
 bytes = { version = "1", features = ["serde"] }
-smol_str = { version = "0.2", features = ["serde"] }
+smol_str = { version = "0.3.6", features = ["serde"] }
 thin-vec = { version = "0.2", features = ["serde"] }
 arrayvec = { version = "0.7", features = ["serde"] }
 smallvec = { version = "1", features = ["serde"] }
