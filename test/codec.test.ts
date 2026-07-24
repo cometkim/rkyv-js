@@ -52,6 +52,12 @@ describe('Codec API', () => {
       assert.strictEqual(r.string.decode(data), 'hi');
     });
 
+    it('encodes inline ASCII exactly like rkyv (0xff padding)', () => {
+      assert.strictEqual(hex(r.string.encode('hi')), '68 69 ff ff ff ff ff ff');
+      assert.strictEqual(hex(r.string.encode('')), 'ff ff ff ff ff ff ff ff');
+      assert.strictEqual(hex(r.string.encode('12345678')), '31 32 33 34 35 36 37 38');
+    });
+
     it('roundtrips out-of-line string (> 8 bytes)', () => {
       const value = 'the quick brown fox jumps over the lazy dog';
       assert.strictEqual(r.string.decode(r.string.encode(value)), value);
@@ -90,6 +96,45 @@ describe('Codec API', () => {
       const codec = r.vec(r.vec(r.u16));
       const value = [[1], [], [2, 3, 4]];
       assert.deepStrictEqual(codec.decode(codec.encode(value)), value);
+    });
+
+    // ≥ 16 elements take the bulk typed-array write path; these pin its
+    // element conversions against the per-element loops' DataView semantics.
+    it('roundtrips long primitive vecs (bulk write path)', () => {
+      const u32s = Array.from({ length: 1024 }, (_, i) => i * 2654435761 >>> 0);
+      assert.deepStrictEqual(r.vec(r.u32).decode(r.vec(r.u32).encode(u32s)), u32s);
+
+      const i16s = Array.from({ length: 100 }, (_, i) => (i % 2 === 0 ? i : -i));
+      assert.deepStrictEqual(r.vec(r.i16).decode(r.vec(r.i16).encode(i16s)), i16s);
+
+      const f64s = Array.from({ length: 100 }, (_, i) => i * 1.5);
+      assert.deepStrictEqual(r.vec(r.f64).decode(r.vec(r.f64).encode(f64s)), f64s);
+
+      const u64s = Array.from({ length: 32 }, (_, i) => BigInt(i) << 33n);
+      assert.deepStrictEqual(r.vec(r.u64).decode(r.vec(r.u64).encode(u64s)), u64s);
+
+      const u8s = Array.from({ length: 256 }, (_, i) => i);
+      assert.deepStrictEqual(r.vec(r.u8).decode(r.vec(r.u8).encode(u8s)), u8s);
+
+      const bools = Array.from({ length: 32 }, (_, i) => i % 3 === 0);
+      assert.deepStrictEqual(r.vec(r.bool).decode(r.vec(r.bool).encode(bools)), bools);
+    });
+
+    it('bulk path matches the loop path byte for byte', () => {
+      // 16 is the bulk threshold; a 15-element prefix goes through the
+      // loops. The long encoding must embed the identical element bytes.
+      const codec = r.vec(r.u32);
+      const values = Array.from({ length: 16 }, (_, i) => i * 0x01010101 >>> 0);
+      const bulk = codec.encode(values);
+      const loop = codec.encode(values.slice(0, 15));
+      assert.strictEqual(hex(bulk.subarray(0, 15 * 4)), hex(loop.subarray(0, 15 * 4)));
+    });
+
+    it('roundtrips long primitive vecs in big-endian format (loop fallback)', () => {
+      const be = format({ endian: 'big' });
+      const values = Array.from({ length: 64 }, (_, i) => i * 3);
+      const codec = r.vec(r.u32);
+      assert.deepStrictEqual(codec.decode(codec.encode(values, be), be), values);
     });
   });
 
@@ -276,6 +321,16 @@ describe('Codec API', () => {
     it('roundtrips fixed-size arrays', () => {
       const codec = r.array(r.u16, 4);
       assert.deepStrictEqual(codec.decode(codec.encode([1, 2, 3, 4])), [1, 2, 3, 4]);
+    });
+
+    it('roundtrips long primitive arrays (bulk write path)', () => {
+      const values = Array.from({ length: 64 }, (_, i) => i * 7);
+      const codec = r.array(r.u32, 64);
+      assert.deepStrictEqual(codec.decode(codec.encode(values)), values);
+
+      const floats = Array.from({ length: 32 }, (_, i) => i / 4);
+      const f = r.array(r.f32, 32);
+      assert.deepStrictEqual(f.decode(f.encode(floats)), floats);
     });
 
     it('rejects length mismatches', () => {
