@@ -112,7 +112,7 @@
     "bench:decode": "node --expose-gc benchmark/decode.ts"
   },
   "devDependencies": {
-    "@changesets/cli": "^2.31.0",
+    "@changesets/cli": "^2.31.1",
     "@codspeed/tinybench-plugin": "^5.7.1",
     "@mitata/counters": "^0.0.8",
     "@types/node": "^22.0.0",
