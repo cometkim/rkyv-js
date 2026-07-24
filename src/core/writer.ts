@@ -1,17 +1,16 @@
 import { DEFAULT_FORMAT, pointerBytes, type RkyvFormat } from './format.ts';
 
 /**
- * The subset of the platform `TextEncoder` contract the writer needs — a
- * single UTF-8 `encodeInto`. The platform encoder satisfies it structurally;
- * hosts may inject a more efficient or hand-rolled implementation.
+ * The subset of the platform `TextEncoder` contract the writer needs a single UTF-8 `encodeInto`. 
+ * The platform encoder satisfies it structurally; hosts may inject a more efficient or hand-rolled implementation.
  */
 export interface RkyvTextEncoder {
   /**
    * UTF-8 encode `src` into `dest`, reporting the bytes written and,
-   * optionally, the UTF-16 code units read (the platform encoder reports
-   * both). `read` lets a fixed-buffer writer distinguish "everything fit"
-   * from "output truncated"; without it, an output that exactly fills
-   * `dest` is conservatively treated as truncated.
+   * optionally, the UTF-16 code units read (the platform encoder reports both).
+   *
+   * `read` lets a fixed-buffer writer distinguish "everything fit" from "output truncated";
+   * without it, an output that exactly fills `dest` is conservatively treated as truncated.
    */
   encodeInto(src: string, dest: Uint8Array): { read?: number; written: number };
 }
@@ -19,17 +18,22 @@ export interface RkyvTextEncoder {
 export interface RkyvWriterOptions {
   /** Wire format to emit. Defaults to rkyv's default format. */
   format?: RkyvFormat;
+
   initialCapacity?: number;
+
   /** UTF-8 encoder used for all text. Defaults to the platform TextEncoder. */
   textEncoder?: RkyvTextEncoder;
+
   /**
    * Write into caller-provided memory instead of an owned, growable buffer.
+   *
    * The writer is then **fixed-capacity**: running past `buffer.length`
    * throws a `RangeError` instead of growing (`initialCapacity` is ignored).
    *
-   * This is the zero-copy path for producing an archive directly in its
-   * final destination — e.g. a `WebAssembly.Memory` region:
-   *
+   * This is the zero-copy path for producing an archive directly in its final destination,
+   * e.g. a `WebAssembly.Memory` region:
+   * 
+   * @example
    * ```ts
    * const region = new Uint8Array(memory.buffer, ptr, size);
    * const writer = new RkyvWriter({ buffer: region });
@@ -37,14 +41,12 @@ export interface RkyvWriterOptions {
    * const byteLength = writer.pos;
    * ```
    *
-   * Two caller responsibilities:
-   * - **Alignment**: rkyv archives are aligned relative to the buffer
-   *   start, so the region itself must start at an address satisfying the
-   *   archived type's alignment (allocate with ≥ 8-byte alignment to cover
-   *   every kind).
-   * - **Staleness**: growing a `WebAssembly.Memory` detaches the buffer the
-   *   region views. Construct a fresh writer after any operation that may
-   *   grow the memory.
+   * @note Two caller responsibilities:
+   * - **Alignment**: rkyv archives are aligned relative to the buffer start,
+   *   so the region itself must start at an address satisfying the archived type's alignment
+   *   (allocate with ≥ 8-byte alignment to cover every kind).
+   * - **Staleness**: growing a `WebAssembly.Memory` detaches the buffer the region views.
+   *   Construct a fresh writer after any operation that may grow the memory.
    */
   buffer?: Uint8Array;
 }
@@ -55,17 +57,14 @@ export interface RkyvWriterOptions {
  *
  * rkyv serializes depth-first from leaves to root:
  * 1. Dependencies (strings, vec contents, etc.) are written first
- * 2. The containing structure is written after, with relative pointers
- *    pointing back to the dependencies
+ * 2. The containing structure is written after, with relative pointers pointing back to the dependencies
  * 3. The root object ends up at the end of the buffer
  *
- * The writer owns the wire-format configuration: byte order is applied on
- * every multi-byte write, and `writeUsize`/relative-pointer operations use
- * the configured pointer width.
+ * The writer owns the wire-format configuration: byte order is applied on every multi-byte write,
+ * and `writeUsize`/relative-pointer operations use the configured pointer width.
  *
- * Primitive writes do NOT self-align. Alignment is the caller's
- * responsibility (codecs align according to their format-resolved layout),
- * which is what makes the `unaligned` format work at all.
+ * Primitive writes do NOT self-align. Alignment is the caller's responsibility
+ * (codecs align according to their format-resolved layout), which is what makes the `unaligned` format work at all.
  */
 export class RkyvWriter {
   buffer: Uint8Array;
