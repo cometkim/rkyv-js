@@ -13,12 +13,12 @@ jobs:
       fail-fast: true
       matrix:
         test-file:
-          - codspeed-primitives-encode
-          - codspeed-primitives-decode
-          - codspeed-complex-encode
-          - codspeed-complex-decode
+          - benchmark/codspeed-primitives-encode.ts
+          - benchmark/codspeed-primitives-decode.ts
+          - benchmark/codspeed-complex-encode.ts
+          - benchmark/codspeed-complex-decode.ts
     name: Benchmark
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read # required for actions/checkout
       id-token: write # required for OIDC authentication with CodSpeed
@@ -28,14 +28,21 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           # CodSpeed action may not be compatible with the latest Node.js version yet.
-          node-version: 24
+          #
+          # Exact pin: a floating `24` resolves to the newest 24.x at run time,
+          # and V8 builtin changes between patch releases shift the simulated instruction counts.
+          #
+          # Baseline and PR must measure on the identical Node build.
+          node-version: 24.18.0
           cache: yarn
 
       - name: Install Dependencies
         run: yarn install
 
       - name: Run benchmark
-        uses: CodSpeedHQ/action@v4
+        # Exact pin: the floating major tag can swap the instrumented runner
+        # (valgrind/instrument-hooks) between baseline and PR runs.
+        uses: CodSpeedHQ/action@v4.18.5
         with:
           mode: simulation
-          run: node benchmark/${{ matrix.test-file }}.ts
+          run: node ${{ matrix.test-file }}
