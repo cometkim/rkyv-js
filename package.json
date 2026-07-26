@@ -122,7 +122,7 @@
     "es-module-lexer": "^2.3.1",
     "mitata": "^1.0.34",
     "oxc-transform": "^0.141.0",
-    "pkg-pr-new": "^0.0.79",
+    "pkg-pr-new": "^0.0.80",
     "protobufjs": "catalog:",
     "tinybench": "^5.1.0",
     "typescript": "^6.0.3"

@@ -1906,12 +1906,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"pkg-pr-new@npm:^0.0.79":
-  version: 0.0.79
-  resolution: "pkg-pr-new@npm:0.0.79"
+"pkg-pr-new@npm:^0.0.80":
+  version: 0.0.80
+  resolution: "pkg-pr-new@npm:0.0.80"
   bin:
     pkg-pr-new: bin/cli.js
-  checksum: 10c0/188513a78300f440ed9eebf564cdf608daa3847fed7f97d02f9be6455219cdca1921d65a8edef19abfce530635931ea1d80631cb341cc7a2d5ccb879720e0e15
+  checksum: 10c0/0eec3e44352738fae85028ad1fb32fc6a194f09a685129e615028e24546f99e19752e79df41ca1a6be108d986d700b8431b0adfd28d1d6f56b3169944c639805
   languageName: node
   linkType: hard
 
@@ -2032,7 +2032,7 @@ __metadata:
     es-module-lexer: "npm:^2.3.1"
     mitata: "npm:^1.0.34"
     oxc-transform: "npm:^0.141.0"
-    pkg-pr-new: "npm:^0.0.79"
+    pkg-pr-new: "npm:^0.0.80"
     protobufjs: "catalog:"
     tinybench: "npm:^5.1.0"
     typescript: "npm:^6.0.3"
