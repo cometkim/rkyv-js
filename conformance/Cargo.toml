@@ -41,7 +41,7 @@ arrayvec = { version = "0.7", features = ["serde"] }
 smallvec = { version = "1", features = ["serde"] }
 tinyvec = { version = "1", features = ["serde", "alloc"] }
 indexmap = { version = "2", features = ["serde"] }
-triomphe = "0.1"
+triomphe = "0.1.16"
 
 [[bin]]
 name = "generate"
