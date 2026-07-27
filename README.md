@@ -334,6 +334,7 @@ Beyond the defaults it covers:
 - External types: register any crate's types against a typed codec-expression tree, including generic arity and trailing hasher/allocator parameters.
 - `with`-wrappers and remote types: `rkyv::with::{AsBox, Inline, InlineAsBox, Skip}` are built in; `#[rkyv(with = ...)]` and `#[rkyv(remote = ...)]` resolve through an extensible registry.
 - Output shaping: `set_direction` for the unidirectional builds above, `set_format` for non-default wire formats, `set_archived_name` for `#[rkyv(archived = ...)]`, and a plain-JavaScript mode.
+- Naming conventions: `set_field_casing(Casing::Camel)` bridges Rust's `snake_case` fields to JavaScript's `camelCase` (`set_variant_casing` does the same for enum tags). rkyv lays structs out positionally, so this only relabels the decoded object and its inferred type - the wire bytes are untouched, and names that would collide after conversion are rejected instead of silently dropping a field.
 - Programmatic API: declare structs, enums, and aliases directly, without parsing any Rust.
 
 See **[docs.rs](https://docs.rs/rkyv-js-codegen)** for the full API.

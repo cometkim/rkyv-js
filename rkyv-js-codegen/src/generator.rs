@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
 
+use crate::casing::Casing;
 use crate::error::{Diagnostic, DiagnosticKind, Error, SourceLocation};
 use crate::expr::{CodecExpr, generate_import_block};
 use crate::registry::{ExternalType, Registry, WithWrapper};
@@ -115,6 +116,8 @@ pub struct CodeGenerator {
     format: Option<FormatSpec>,
     direction: Direction,
     jit: bool,
+    field_casing: Casing,
+    variant_casing: Casing,
 }
 
 /// Which half of the codec surface the generated bindings target.
@@ -200,6 +203,8 @@ impl CodeGenerator {
             format: None,
             direction: Direction::Full,
             jit: false,
+            field_casing: Casing::Preserve,
+            variant_casing: Casing::Preserve,
         }
     }
 
@@ -236,6 +241,52 @@ impl CodeGenerator {
     /// Defaults to `false`.
     pub fn set_jit(&mut self, enabled: bool) -> &mut Self {
         self.jit = enabled;
+        self
+    }
+
+    /// Rewrite the casing of emitted struct field names — including the fields
+    /// of enum struct variants — so the decoded objects read as idiomatic
+    /// JavaScript: `Casing::Camel` turns Rust's `created_at` into `createdAt`.
+    ///
+    /// rkyv lays a struct out positionally, so the keys of the emitted
+    /// `r.struct({ ... })` are labels only. Renaming them changes the shape of
+    /// the decoded object and the inferred `r.Infer` type, and does not move a
+    /// single wire byte: bindings generated with and without this option stay
+    /// interchangeable on the same buffer.
+    ///
+    /// Names that collide after conversion (`foo_bar` and `fooBar` both
+    /// becoming `fooBar`) are reported as [`DiagnosticKind::NameCollision`]
+    /// rather than emitted as a duplicate object key.
+    ///
+    /// Defaults to [`Casing::Preserve`].
+    ///
+    /// ```
+    /// use rkyv_js_codegen::{Casing, CodeGenerator, codec};
+    ///
+    /// let mut generator = CodeGenerator::new();
+    /// generator.set_field_casing(Casing::Camel);
+    /// generator.add_struct("Event", [("created_at", codec::u64())]);
+    /// assert!(generator.generate()?.contains("createdAt: r.u64,"));
+    /// # Ok::<(), rkyv_js_codegen::Error>(())
+    /// ```
+    pub fn set_field_casing(&mut self, casing: Casing) -> &mut Self {
+        self.field_casing = casing;
+        self
+    }
+
+    /// Rewrite the casing of emitted enum variant names — the keys of
+    /// `r.taggedEnum({ ... })`, which surface as the `tag` of every decoded
+    /// value.
+    ///
+    /// Rust variants are already `PascalCase`, which is the conventional
+    /// spelling for a discriminated-union tag in TypeScript, so this is
+    /// separate from [`set_field_casing`](Self::set_field_casing) and defaults
+    /// to [`Casing::Preserve`].
+    ///
+    /// The discriminant on the wire is the variant's index, not its name, so
+    /// this is a relabelling just like `set_field_casing`.
+    pub fn set_variant_casing(&mut self, casing: Casing) -> &mut Self {
+        self.variant_casing = casing;
         self
     }
 
@@ -448,6 +499,67 @@ impl CodeGenerator {
         }
     }
 
+    /// Collisions among `names` after `casing` conversion, as diagnostics
+    /// tagged with `context`.
+    ///
+    /// Emitted names key a JavaScript object literal, so a collision would not
+    /// fail loudly — it would drop a field and shift every offset after it.
+    fn casing_collisions(
+        context: &str,
+        names: impl IntoIterator<Item = String>,
+        casing: Casing,
+    ) -> Vec<Diagnostic> {
+        if casing == Casing::Preserve {
+            return Vec::new();
+        }
+        let mut by_emitted: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        for name in names {
+            by_emitted.entry(casing.apply(&name)).or_default().push(name);
+        }
+        by_emitted
+            .into_iter()
+            .filter(|(_, originals)| originals.len() > 1)
+            .map(|(emitted, originals)| {
+                Diagnostic::new(DiagnosticKind::NameCollision { emitted, originals })
+                    .referenced_by(context.to_string())
+            })
+            .collect()
+    }
+
+    /// Every casing collision across the types that will be emitted.
+    fn casing_diagnostics(&self, emitted: &BTreeMap<&String, &TypeKind>) -> Vec<Diagnostic> {
+        let mut diagnostics = Vec::new();
+        for (name, kind) in emitted {
+            match kind {
+                TypeKind::Struct(fields) => {
+                    diagnostics.extend(Self::casing_collisions(
+                        name,
+                        fields.iter().map(|(field, _)| field.clone()),
+                        self.field_casing,
+                    ));
+                }
+                TypeKind::Enum(variants) => {
+                    diagnostics.extend(Self::casing_collisions(
+                        name,
+                        variants.iter().map(|variant| variant.name().to_string()),
+                        self.variant_casing,
+                    ));
+                    for variant in variants.iter() {
+                        if let EnumVariant::Struct(vname, fields) = variant {
+                            diagnostics.extend(Self::casing_collisions(
+                                &format!("{name}::{vname}"),
+                                fields.iter().map(|(field, _)| field.clone()),
+                                self.field_casing,
+                            ));
+                        }
+                    }
+                }
+                TypeKind::Alias(_) => {}
+            }
+        }
+        diagnostics
+    }
+
     /// Generate the TypeScript bindings.
     ///
     /// Validation runs first; every problem is aggregated into a single [`Error::Codegen`].
@@ -545,6 +657,8 @@ impl CodeGenerator {
             .iter()
             .filter(|(name, _)| !skipped.contains(*name))
             .collect();
+
+        diagnostics.extend(self.casing_diagnostics(&emitted));
 
         // Import conflicts across everything emitted.
         let (jit_module, jit_fn) = self.direction.jit_entry();
@@ -703,7 +817,11 @@ impl CodeGenerator {
                 } else {
                     let mut body = String::from("r.struct({\n");
                     for (field, expr) in fields {
-                        body.push_str(&format!("  {}: {},\n", field, render(expr)));
+                        body.push_str(&format!(
+                            "  {}: {},\n",
+                            self.field_casing.apply(field),
+                            render(expr)
+                        ));
                     }
                     body.push_str("})");
                     body
@@ -722,11 +840,19 @@ impl CodeGenerator {
                                 render(&CodecExpr::array(exprs.iter().cloned()))
                             }
                             EnumVariant::Struct(_, fields) => {
-                                let record = CodecExpr::object(fields.iter().cloned());
+                                let record = CodecExpr::object(fields.iter().map(
+                                    |(field, expr)| {
+                                        (self.field_casing.apply(field), expr.clone())
+                                    },
+                                ));
                                 render(&record)
                             }
                         };
-                        body.push_str(&format!("  {}: {},\n", variant.name(), value));
+                        body.push_str(&format!(
+                            "  {}: {},\n",
+                            self.variant_casing.apply(variant.name()),
+                            value
+                        ));
                     }
                     body.push_str("})");
                     body
@@ -976,6 +1102,158 @@ mod tests {
         generator.set_archived_name("Foo", "MyFoo");
         assert_eq!(generator.archived_name_of("Foo").as_deref(), Some("MyFoo"));
         assert_eq!(generator.archived_name_of("Bar"), None);
+    }
+
+    #[test]
+    fn field_casing_defaults_to_preserve() {
+        let mut generator = CodeGenerator::new();
+        generator.add_struct("Event", [("created_at", codec::u64())]);
+        let code = generator.generate().unwrap();
+        assert!(code.contains("created_at: r.u64,"));
+    }
+
+    #[test]
+    fn field_casing_camel_rewrites_struct_fields() {
+        let mut generator = CodeGenerator::new();
+        generator.set_field_casing(Casing::Camel);
+        generator.add_struct(
+            "Event",
+            [
+                ("created_at", codec::u64()),
+                ("HTTP_status", codec::u16()),
+                ("id", codec::u32()),
+            ],
+        );
+        let code = generator.generate().unwrap();
+        assert!(code.contains("createdAt: r.u64,"));
+        assert!(code.contains("httpStatus: r.u16,"));
+        assert!(code.contains("id: r.u32,"));
+        // Field order is layout, so it must survive the relabelling.
+        let created = code.find("createdAt").unwrap();
+        let status = code.find("httpStatus").unwrap();
+        assert!(created < status);
+    }
+
+    #[test]
+    fn field_casing_applies_to_enum_struct_variants() {
+        let mut generator = CodeGenerator::new();
+        generator.set_field_casing(Casing::Camel);
+        generator.add_enum(
+            "Message",
+            [
+                EnumVariant::Struct(
+                    "Text".to_string(),
+                    vec![
+                        ("sent_at".to_string(), codec::u64()),
+                        ("body_text".to_string(), codec::string()),
+                    ],
+                ),
+                EnumVariant::Unit("Ping".to_string()),
+            ],
+        );
+        let code = generator.generate().unwrap();
+        assert!(code.contains("Text: { sentAt: r.u64, bodyText: r.string },"));
+        // Variant tags keep their own (default: preserved) casing.
+        assert!(code.contains("Ping: null,"));
+    }
+
+    #[test]
+    fn variant_casing_is_independent_of_field_casing() {
+        let mut generator = CodeGenerator::new();
+        generator
+            .set_field_casing(Casing::Camel)
+            .set_variant_casing(Casing::Snake);
+        generator.add_enum(
+            "Message",
+            [
+                EnumVariant::Struct(
+                    "PlainText".to_string(),
+                    vec![("sent_at".to_string(), codec::u64())],
+                ),
+                EnumVariant::Newtype("BinaryBlob".to_string(), codec::string()),
+            ],
+        );
+        let code = generator.generate().unwrap();
+        assert!(code.contains("plain_text: { sentAt: r.u64 },"));
+        assert!(code.contains("binary_blob: r.string,"));
+    }
+
+    #[test]
+    fn casing_leaves_type_and_export_names_alone() {
+        let mut generator = CodeGenerator::new();
+        generator.set_field_casing(Casing::Camel);
+        generator.add_struct("HttpEvent", [("created_at", codec::u64())]);
+        let code = generator.generate().unwrap();
+        assert!(code.contains("export const ArchivedHttpEvent = r.struct({"));
+        assert!(code.contains("export type HttpEvent = r.Infer<typeof ArchivedHttpEvent>;"));
+    }
+
+    #[test]
+    fn casing_collision_is_reported() {
+        let mut generator = CodeGenerator::new();
+        generator.set_field_casing(Casing::Camel);
+        generator.add_struct(
+            "Event",
+            [("foo_bar", codec::u32()), ("fooBar", codec::u32())],
+        );
+        let errors = diagnostics(generator.generate().unwrap_err());
+        assert_eq!(errors.len(), 1);
+        assert!(matches!(
+            &errors[0].kind,
+            DiagnosticKind::NameCollision { emitted, originals }
+                if emitted == "fooBar" && originals.len() == 2
+        ));
+        assert_eq!(errors[0].referenced_by.as_deref(), Some("Event"));
+    }
+
+    #[test]
+    fn casing_collision_in_a_struct_variant_names_the_variant() {
+        let mut generator = CodeGenerator::new();
+        generator.set_field_casing(Casing::Camel);
+        generator.add_enum(
+            "Message",
+            [EnumVariant::Struct(
+                "Text".to_string(),
+                vec![
+                    ("sent_at".to_string(), codec::u64()),
+                    ("sentAt".to_string(), codec::u64()),
+                ],
+            )],
+        );
+        let errors = diagnostics(generator.generate().unwrap_err());
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].referenced_by.as_deref(), Some("Message::Text"));
+    }
+
+    #[test]
+    fn variant_casing_collision_is_reported() {
+        let mut generator = CodeGenerator::new();
+        generator.set_variant_casing(Casing::Snake);
+        generator.add_enum(
+            "Message",
+            [
+                EnumVariant::Unit("PlainText".to_string()),
+                EnumVariant::Unit("plain_text".to_string()),
+            ],
+        );
+        let errors = diagnostics(generator.generate().unwrap_err());
+        assert!(errors.iter().any(|diagnostic| matches!(
+            &diagnostic.kind,
+            DiagnosticKind::NameCollision { emitted, .. } if emitted == "plain_text"
+        )));
+    }
+
+    #[test]
+    fn preserve_never_reports_a_collision() {
+        // Two names that only collide *after* conversion are fine as-is.
+        let mut generator = CodeGenerator::new();
+        generator.add_struct(
+            "Event",
+            [("foo_bar", codec::u32()), ("fooBar", codec::u32())],
+        );
+        let code = generator.generate().unwrap();
+        assert!(code.contains("foo_bar: r.u32,"));
+        assert!(code.contains("fooBar: r.u32,"));
     }
 
     #[test]
