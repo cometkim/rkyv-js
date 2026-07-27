@@ -1,5 +1,5 @@
 ---
-"rkyv-js-codegen": minor
+"rkyv-js-codegen": patch
 ---
 
 Add casing options so generated bindings can follow JavaScript naming conventions.
