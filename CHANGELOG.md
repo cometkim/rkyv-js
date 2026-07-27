@@ -1,5 +1,11 @@
 # rkyv-js
 
+## 0.2.1
+
+### Patch Changes
+
+- 2043c15: Enabled the provenance for the rkyv-js NPM package.
+
 ## 0.2.0
 
 ### Minor Changes
