@@ -31,6 +31,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use quote::ToTokens;
+use syn::ext::IdentExt;
 use syn::spanned::Spanned;
 use syn::{
     Attribute, Fields, GenericArgument, PathArguments, Type, TypeArray, TypePath, TypeTuple,
@@ -509,6 +510,17 @@ fn lookup_wrapper(
     None
 }
 
+/// A named field's identifier, with any raw-identifier escape dropped:
+/// `r#type` is the field `type`, and `r#` is not valid in a JavaScript key.
+fn field_name(field: &syn::Field) -> String {
+    field
+        .ident
+        .as_ref()
+        .expect("named fields have idents")
+        .unraw()
+        .to_string()
+}
+
 /// A struct's extracted shape: named fields form a record codec;
 /// unnamed (tuple-struct) fields are positional.
 enum StructShape {
@@ -528,11 +540,7 @@ fn extract_struct_shape(
         Fields::Named(named) => {
             let mut out = Vec::new();
             for field in &named.named {
-                let field_name = field
-                    .ident
-                    .as_ref()
-                    .expect("named fields have idents")
-                    .to_string();
+                let field_name = field_name(field);
                 let context = format!("{type_name}.{field_name}");
                 match field_expr(field, &context, codegen, ctx) {
                     Ok(Some(expr)) => out.push((field_name, expr)),
@@ -585,7 +593,7 @@ fn extract_enum_variants(
     let mut diagnostics = Vec::new();
 
     for variant in variants {
-        let variant_name = variant.ident.to_string();
+        let variant_name = variant.ident.unraw().to_string();
         match &variant.fields {
             Fields::Unit => out.push(EnumVariant::Unit(variant_name)),
             Fields::Unnamed(unnamed) => {
@@ -613,11 +621,7 @@ fn extract_enum_variants(
             Fields::Named(named) => {
                 let mut fields = Vec::new();
                 for field in &named.named {
-                    let field_name = field
-                        .ident
-                        .as_ref()
-                        .expect("named fields have idents")
-                        .to_string();
+                    let field_name = field_name(field);
                     let context = format!("{type_name}::{variant_name}.{field_name}");
                     match field_expr(field, &context, codegen, ctx) {
                         Ok(Some(expr)) => fields.push((field_name, expr)),
@@ -1542,6 +1546,47 @@ mod tests {
         assert!(code.contains("export type Point = r.Infer<typeof CustomPoint>;"));
         assert!(code.contains("start: CustomPoint,"));
         assert!(!code.contains("ArchivedPoint"));
+    }
+
+    #[test]
+    fn snake_case_sources_generate_camel_case_bindings() {
+        let mut codegen = CodeGenerator::new();
+        codegen.set_field_casing(crate::Casing::Camel);
+        codegen
+            .add_source_str(
+                r#"
+            use rkyv::Archive;
+            #[derive(Archive)]
+            struct Event { created_at: u64, http_status: u16, tag_ids: Vec<u32> }
+            #[derive(Archive)]
+            enum Message { Text { sent_at: u64 }, Ping }
+        "#,
+            )
+            .unwrap();
+        let code = codegen.generate().unwrap();
+        assert!(code.contains("createdAt: r.u64,"));
+        assert!(code.contains("httpStatus: r.u16,"));
+        assert!(code.contains("tagIds: r.vec(r.u32),"));
+        assert!(code.contains("Text: { sentAt: r.u64 },"));
+        assert!(code.contains("Ping: null,"));
+    }
+
+    #[test]
+    fn raw_identifiers_drop_the_escape() {
+        // `r#` is not valid in a JavaScript object key.
+        let code = generate(
+            r#"
+            use rkyv::Archive;
+            #[derive(Archive)]
+            struct Node { r#type: u32, r#match: bool }
+            #[derive(Archive)]
+            enum Kind { r#Struct, Other }
+        "#,
+        );
+        assert!(code.contains("type: r.u32,"));
+        assert!(code.contains("match: r.bool,"));
+        assert!(code.contains("Struct: null,"));
+        assert!(!code.contains("r#"));
     }
 
     #[test]

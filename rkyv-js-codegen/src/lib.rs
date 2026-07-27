@@ -59,18 +59,24 @@
 //! | [`set_direction`](CodeGenerator::set_direction) | Emit full, decode-only, or encode-only bindings |
 //! | [`set_format`](CodeGenerator::set_format) | Target a non-default rkyv wire format |
 //! | [`set_jit`](CodeGenerator::set_jit) | Wrap every export in the direction-matched `rkyv-js/jit` compile function |
+//! | [`set_field_casing`](CodeGenerator::set_field_casing) | Rewrite field names, e.g. Rust's `snake_case` to JavaScript's `camelCase` |
+//! | [`set_variant_casing`](CodeGenerator::set_variant_casing) | Rewrite enum variant tags |
 //! | [`allow_typescript_syntax`](CodeGenerator::allow_typescript_syntax) | Drop `export type` lines, emitting plain JavaScript |
 //! | [`on_unknown_type`](CodeGenerator::on_unknown_type) | Fail, or warn and omit, on unmappable types |
 //!
 //! ```
-//! use rkyv_js_codegen::{CodeGenerator, Direction};
+//! use rkyv_js_codegen::{Casing, CodeGenerator, Direction};
 //!
 //! let mut generator = CodeGenerator::new();
 //! generator
 //!     .set_direction(Direction::Decode)   // imports become `rkyv-js/decode`
 //!     .set_format("big", 64, true)        // mirrors rkyv's feature flags
+//!     .set_field_casing(Casing::Camel)    // `created_at` is emitted as `createdAt`
 //!     .allow_typescript_syntax(false);
 //! ```
+//!
+//! Casing is a pure relabelling: rkyv structs are laid out positionally,
+//! so the keys of an emitted `r.struct({ ... })` never affect the wire bytes.
 //!
 //! [`Direction`] rewrites only the `rkyv-js` import specifiers.
 //!
@@ -129,12 +135,14 @@
 //!
 //! Set [`OnUnknown::SkipContainingType`] to emit `cargo:warning`s and omit affected types instead of failing.
 
+mod casing;
 mod error;
 mod expr;
 mod extractor;
 mod generator;
 mod registry;
 
+pub use casing::Casing;
 pub use error::{Diagnostic, DiagnosticKind, Error, SourceLocation};
 pub use expr::{CodecExpr, Import, codec, generate_import_block};
 pub use generator::{CodeGenerator, Direction, EnumVariant, OnUnknown};

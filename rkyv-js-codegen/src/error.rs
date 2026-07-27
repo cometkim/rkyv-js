@@ -180,6 +180,14 @@ pub enum DiagnosticKind {
         /// The field type, printed as Rust source.
         rust_type: String,
     },
+    /// Two or more names within one type collapse to the same identifier
+    /// under the configured [`Casing`](crate::Casing).
+    NameCollision {
+        /// The identifier every one of `originals` converts to.
+        emitted: String,
+        /// The colliding Rust names, in declaration order.
+        originals: Vec<String>,
+    },
 }
 
 impl fmt::Display for DiagnosticKind {
@@ -235,6 +243,16 @@ impl fmt::Display for DiagnosticKind {
                 f,
                 "unsupported field type `{rust_type}`; only types mappable to rkyv-js \
                  codecs are supported"
+            ),
+            DiagnosticKind::NameCollision { emitted, originals } => write!(
+                f,
+                "{} collapse to `{emitted}` under the configured casing; \
+                 a duplicate object key would silently drop one of them",
+                originals
+                    .iter()
+                    .map(|name| format!("`{name}`"))
+                    .collect::<Vec<_>>()
+                    .join(" and "),
             ),
         }
     }
