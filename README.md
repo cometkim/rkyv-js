@@ -249,7 +249,7 @@ Measured on a Person + hash-map binding set (min+gz): 3.3 KB decode-only / 4.7 K
 
 The decode chain never pulls in the writer, a hasher, or the swiss-table builder; the encode chain never pulls in the reader or the lazy-view machinery.
 
-External-crate codecs split the same way (`rkyv-js/lib/hashmap/decode`, etc).
+External-crate codecs split the same way (`rkyv-js/lib/hashmap.decode`, etc).
 
 In codegen, `set_direction` rewrites only the rkyv-js import specifiers in the emitted bindings (registered externals are untouched), so a browser client and a Rust-facing service can share one schema with direction-matched bundles:
 

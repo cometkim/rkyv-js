@@ -129,18 +129,19 @@ pub enum Direction {
     /// Full codecs (`rkyv-js`): encode + decode + access.
     #[default]
     Full,
-    /// Decoder-only bindings (`rkyv-js/decode`, `rkyv-js/lib/*/decode`).
+    /// Decoder-only bindings (`rkyv-js/decode`, `rkyv-js/lib/*.decode`).
     Decode,
-    /// Encoder-only bindings (`rkyv-js/encode`, `rkyv-js/lib/*/encode`).
+    /// Encoder-only bindings (`rkyv-js/encode`, `rkyv-js/lib/*.encode`).
     Encode,
 }
 
 impl Direction {
+    /// The module basename this direction's entry points carry.
     fn suffix(self) -> Option<&'static str> {
         match self {
             Direction::Full => None,
-            Direction::Decode => Some("/decode"),
-            Direction::Encode => Some("/encode"),
+            Direction::Decode => Some("decode"),
+            Direction::Encode => Some("encode"),
         }
     }
 
@@ -148,8 +149,27 @@ impl Direction {
     fn jit_entry(self) -> (&'static str, &'static str) {
         match self {
             Direction::Full => ("rkyv-js/jit", "compileCodec"),
-            Direction::Decode => ("rkyv-js/jit/decode", "compileDecoder"),
-            Direction::Encode => ("rkyv-js/jit/encode", "compileEncoder"),
+            Direction::Decode => ("rkyv-js/jit.decode", "compileDecoder"),
+            Direction::Encode => ("rkyv-js/jit.encode", "compileEncoder"),
+        }
+    }
+
+    /// This direction's counterpart of an `rkyv-js` specifier, or `None` when
+    /// the runtime does not split that module.
+    ///
+    /// Every split module sits next to the one it splits, so the specifier
+    /// mirrors the file name: `rkyv-js/lib/hashmap` pairs with
+    /// `rkyv-js/lib/hashmap.decode`. The package root is the one exception —
+    /// it resolves to `index`, whose counterpart is the separate `decode`
+    /// module, hence `rkyv-js/decode`.
+    fn split_specifier(self, spec: &str) -> Option<String> {
+        let suffix = self.suffix()?;
+        if spec == "rkyv-js" {
+            Some(format!("rkyv-js/{suffix}"))
+        } else if spec.starts_with("rkyv-js/lib/") {
+            Some(format!("{spec}.{suffix}"))
+        } else {
+            None
         }
     }
 
@@ -157,22 +177,20 @@ impl Direction {
     /// Non-`rkyv-js` specifiers (user `register_external` modules) are left untouched.
     /// Hand-written codecs must provide their own direction-appropriate exports.
     pub(crate) fn rewrite_import_block(self, block: &str) -> String {
-        let Some(suffix) = self.suffix() else {
+        if self == Direction::Full {
             return block.to_string();
-        };
+        }
         let mut out = String::with_capacity(block.len() + 64);
         for line in block.lines() {
             if let Some(spec_start) = line.rfind(" from '").map(|i| i + " from '".len())
                 && let Some(len) = line[spec_start..].find('\'')
+                && let Some(split) = self.split_specifier(&line[spec_start..spec_start + len])
             {
-                let spec = &line[spec_start..spec_start + len];
-                if spec == "rkyv-js" || spec.starts_with("rkyv-js/lib/") {
-                    out.push_str(&line[..spec_start + len]);
-                    out.push_str(suffix);
-                    out.push_str(&line[spec_start + len..]);
-                    out.push('\n');
-                    continue;
-                }
+                out.push_str(&line[..spec_start]);
+                out.push_str(&split);
+                out.push_str(&line[spec_start + len..]);
+                out.push('\n');
+                continue;
             }
             out.push_str(line);
             out.push('\n');
@@ -215,7 +233,8 @@ impl CodeGenerator {
     }
 
     /// Emit unidirectional bindings: [`Direction::Decode`] rewrites every `rkyv-js` import specifier
-    /// to its `/decode` counterpart (`rkyv-js/lib/X` becomes `rkyv-js/lib/X/decode`), [`Direction::Encode`] symmetrically.
+    /// to its decode counterpart (`rkyv-js` becomes `rkyv-js/decode`, `rkyv-js/lib/X` becomes
+    /// `rkyv-js/lib/X.decode`), [`Direction::Encode`] symmetrically.
     ///
     /// Factory names and type exports are unchanged;
     /// imports of user modules registered via `register_external` are not rewritten.
@@ -225,7 +244,7 @@ impl CodeGenerator {
     }
 
     /// Wrap every exported codec in the direction-matched JIT compile function: `compileCodec` from `rkyv-js/jit` for [`Direction::Full`],
-    /// `compileDecoder` from `rkyv-js/jit/decode` resp. `compileEncoder` from `rkyv-js/jit/encode` for unidirectional bindings.
+    /// `compileDecoder` from `rkyv-js/jit.decode` resp. `compileEncoder` from `rkyv-js/jit.encode` for unidirectional bindings.
     ///
     /// Each type is emitted as a non-exported interpreter codec (`const {Name}$ = ...`)
     /// plus a compiled export (`export const {Name} = compileCodec({Name}$);`),
@@ -1345,7 +1364,7 @@ mod tests {
         );
         let code = generator.generate().unwrap();
         assert!(code.contains("import * as r from 'rkyv-js/decode';"));
-        assert!(code.contains("import { hashSet } from 'rkyv-js/lib/hashmap/decode';"));
+        assert!(code.contains("import { hashSet } from 'rkyv-js/lib/hashmap.decode';"));
         // User modules keep their exact specifier.
         assert!(code.contains("import { MyCodec } from './my-codec.ts';"));
         // Emitted factory calls and type exports are direction-independent.
@@ -1357,9 +1376,40 @@ mod tests {
     fn set_direction_encode_uses_encode_suffix() {
         let mut generator = CodeGenerator::new();
         generator.set_direction(Direction::Encode);
-        generator.add_struct("Point", [("x", codec::f64())]);
+        generator.add_struct(
+            "Point",
+            [
+                ("x", codec::f64()),
+                ("id", CodecExpr::import_from("rkyv-js/lib/uuid", "uuid")),
+            ],
+        );
         let code = generator.generate().unwrap();
         assert!(code.contains("import * as r from 'rkyv-js/encode';"));
+        assert!(code.contains("import { uuid } from 'rkyv-js/lib/uuid.encode';"));
+    }
+
+    #[test]
+    fn split_specifiers_mirror_the_runtime_module_names() {
+        // Each split module is a sibling file of the one it splits, so the
+        // specifier gains a `.decode`/`.encode` segment — except the package
+        // root, whose counterpart is the standalone `decode` module.
+        for (direction, root, lib) in [
+            (Direction::Decode, "rkyv-js/decode", "rkyv-js/lib/bytes.decode"),
+            (Direction::Encode, "rkyv-js/encode", "rkyv-js/lib/bytes.encode"),
+        ] {
+            let mut generator = CodeGenerator::new();
+            generator.set_direction(direction);
+            generator.add_struct(
+                "Blob",
+                [
+                    ("len", codec::u32()),
+                    ("data", CodecExpr::import_from("rkyv-js/lib/bytes", "bytes")),
+                ],
+            );
+            let code = generator.generate().unwrap();
+            assert!(code.contains(&format!("import * as r from '{root}';")));
+            assert!(code.contains(&format!("import {{ bytes }} from '{lib}';")));
+        }
     }
 
     #[test]
@@ -1437,9 +1487,11 @@ mod tests {
         );
         let code = generator.generate().unwrap();
         assert!(code.contains("import * as r from 'rkyv-js/decode';"));
-        assert!(code.contains("import { hashSet } from 'rkyv-js/lib/hashmap/decode';"));
-        // The JIT import is emitted direction-matched, not rewritten.
-        assert!(code.contains("import { compileDecoder } from 'rkyv-js/jit/decode';"));
+        assert!(code.contains("import { hashSet } from 'rkyv-js/lib/hashmap.decode';"));
+        // The JIT import is emitted direction-matched, not rewritten — the
+        // rewrite must not append a second suffix to it.
+        assert!(code.contains("import { compileDecoder } from 'rkyv-js/jit.decode';"));
+        assert!(!code.contains("jit.decode.decode"));
         assert!(code.contains("export const ArchivedEvent = compileDecoder(ArchivedEvent$);"));
         assert!(!code.contains("compileCodec"));
     }
@@ -1452,7 +1504,7 @@ mod tests {
         generator.add_struct("Point", [("x", codec::f64())]);
         let code = generator.generate().unwrap();
         assert!(code.contains("import * as r from 'rkyv-js/encode';"));
-        assert!(code.contains("import { compileEncoder } from 'rkyv-js/jit/encode';"));
+        assert!(code.contains("import { compileEncoder } from 'rkyv-js/jit.encode';"));
         assert!(code.contains("export const ArchivedPoint = compileEncoder(ArchivedPoint$);"));
     }
 }

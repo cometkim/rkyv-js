@@ -10,11 +10,11 @@
 
 import * as r from 'rkyv-js/encode';
 import { SipKeyedMap } from './sip-map.ts';
-import { btreeMap, btreeSet } from 'rkyv-js/lib/btreemap/encode';
-import { bytes } from 'rkyv-js/lib/bytes/encode';
-import { hashMap, hashSet } from 'rkyv-js/lib/hashmap/encode';
-import { indexMap, indexSet } from 'rkyv-js/lib/indexmap/encode';
-import { uuid } from 'rkyv-js/lib/uuid/encode';
+import { btreeMap, btreeSet } from 'rkyv-js/lib/btreemap.encode';
+import { bytes } from 'rkyv-js/lib/bytes.encode';
+import { hashMap, hashSet } from 'rkyv-js/lib/hashmap.encode';
+import { indexMap, indexSet } from 'rkyv-js/lib/indexmap.encode';
+import { uuid } from 'rkyv-js/lib/uuid.encode';
 
 export const ArchivedArraysTuples = r.struct({
   arr: r.array(r.u16, 4),

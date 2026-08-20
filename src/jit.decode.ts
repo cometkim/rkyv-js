@@ -1,6 +1,6 @@
 /**
  * Decode-side JIT entry: `compileDecoder` for decoder-only codecs
- * (`rkyv-js/decode`, `rkyv-js/lib/*\/decode`).
+ * (`rkyv-js/decode`, `rkyv-js/lib/*.decode`).
  *
  * The twin of `rkyv-js/jit`'s `compileCodec` for unidirectional bindings —
  * value-imports only the decode emitter, so a decode-only bundle that opts
@@ -79,7 +79,7 @@ export function compileDecoder<T>(
   // dep-free shapes — deep inside generated source.
   if (typeof decoder.read !== 'function') {
     throw new TypeError(
-      "compileDecoder requires a decoder: missing read, for encoder-only codecs use compileEncoder from 'rkyv-js/jit/encode'",
+      "compileDecoder requires a decoder: missing read, for encoder-only codecs use compileEncoder from 'rkyv-js/jit.encode'",
     );
   }
   if (!canEval()) {

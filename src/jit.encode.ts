@@ -1,6 +1,6 @@
 /**
  * Encode-side JIT entry: `compileEncoder` for encoder-only codecs
- * (`rkyv-js/encode`, `rkyv-js/lib/*\/encode`).
+ * (`rkyv-js/encode`, `rkyv-js/lib/*.encode`).
  *
  * The twin of `rkyv-js/jit`'s `compileCodec` for unidirectional bindings —
  * value-imports only the encode emitter, so an encode-only bundle that opts
@@ -90,7 +90,7 @@ export function compileEncoder<T>(
   // dep-free shapes — deep inside generated source.
   if (typeof encoder.resolve !== 'function') {
     throw new TypeError(
-      "compileEncoder requires an encoder: missing resolve, for decoder-only codecs use compileDecoder from 'rkyv-js/jit/decode'",
+      "compileEncoder requires an encoder: missing resolve, for decoder-only codecs use compileDecoder from 'rkyv-js/jit.decode'",
     );
   }
   if (!canEval()) {
