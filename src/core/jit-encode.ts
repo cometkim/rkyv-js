@@ -1,7 +1,7 @@
 /**
  * The JIT encode emitter: walks an encoder's `meta` descriptors and builds
  * the specialized `archive`/`resolve` pair source. Value-imports no reader
- * machinery, so `rkyv-js/jit/encode` bundles stay reader-free.
+ * machinery, so `rkyv-js/jit.encode` bundles stay reader-free.
  */
 
 import type { AnyEncoder } from './encoder.ts';

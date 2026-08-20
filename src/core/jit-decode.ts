@@ -1,7 +1,7 @@
 /**
  * The JIT decode emitter: walks a decoder's `meta` descriptors and builds the
  * specialized `read` source. Value-imports no writer machinery, so
- * `rkyv-js/jit/decode` bundles stay writer-free.
+ * `rkyv-js/jit.decode` bundles stay writer-free.
  */
 
 import type { AnyDecoder } from './decoder.ts';

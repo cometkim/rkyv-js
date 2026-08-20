@@ -10,8 +10,8 @@
  * that destabilizes shared interpreter loops under V8 tiering.
  *
  * Unidirectional codecs compile through the direction-split twins:
- * `compileDecoder` (`rkyv-js/jit/decode`) and `compileEncoder`
- * (`rkyv-js/jit/encode`), each value-importing only its half of the emitter
+ * `compileDecoder` (`rkyv-js/jit.decode`) and `compileEncoder`
+ * (`rkyv-js/jit.encode`), each value-importing only its half of the emitter
  * so decode-only bundles stay writer-free (and vice versa). Both are
  * re-exported here for full-surface consumers.
  *
@@ -155,12 +155,12 @@ export function compileCodec<T>(
   // silently work for dep-free shapes — deep inside generated source.
   if (typeof codec.read !== 'function') {
     throw new TypeError(
-      "compileCodec requires a full codec: missing read, for encoder-only codecs use compileEncoder from 'rkyv-js/jit/encode'",
+      "compileCodec requires a full codec: missing read, for encoder-only codecs use compileEncoder from 'rkyv-js/jit.encode'",
     );
   }
   if (typeof codec.resolve !== 'function') {
     throw new TypeError(
-      "compileCodec requires a full codec: missing resolve, for decoder-only codecs use compileDecoder from 'rkyv-js/jit/decode'",
+      "compileCodec requires a full codec: missing resolve, for decoder-only codecs use compileDecoder from 'rkyv-js/jit.decode'",
     );
   }
   if (!canEval()) {
