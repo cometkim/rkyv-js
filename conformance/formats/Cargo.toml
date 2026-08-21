@@ -1,0 +1,18 @@
+# Workspace of the non-default rkyv format profiles (conformance/formats/*).
+#
+# rkyv's format features (`big_endian`, `pointer_width_*`, `unaligned`) are
+# global and mutually exclusive per build, so the profiles live outside the
+# main workspace and must be built ONE PACKAGE AT A TIME (`cargo run -p ...` or
+# `--manifest-path <profile>/Cargo.toml`, as scripts/conformance.mjs does):
+# `cargo build --workspace` here would unify all four format features into a
+# single rkyv build and fail to compile.
+
+[workspace]
+resolver = "2"
+members = ["be", "pw16", "pw64", "unaligned"]
+
+[workspace.dependencies]
+# Mirrors the root Cargo.toml pin: Cargo cannot inherit dependencies across a
+# workspace boundary, so it is repeated here once, and shared/smoke.rs refuses
+# to run (generate or verify) if the two drift.
+rkyv = "=0.8.18"

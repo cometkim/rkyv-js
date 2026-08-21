@@ -11,6 +11,7 @@ use std::path::PathBuf;
 
 use conformance::cases::all_cases;
 use conformance::cases_dir;
+use conformance::rkyv_pin::workspace_rkyv_version;
 use rkyv_js_codegen::{CodeGenerator, CodecExpr, Direction, ExternalType};
 
 /// Generate the codec bindings from the case types — the full surface plus
@@ -76,9 +77,10 @@ fn main() -> std::io::Result<()> {
     }
 
     // Wire bytes are a function of the rkyv version and format features;
-    // record what the goldens were generated with.
+    // record what the goldens were generated with. The version is the
+    // workspace pin (root Cargo.toml), the only place it is written down.
     let manifest = serde_json::json!({
-        "rkyv": "0.8.14",
+        "rkyv": workspace_rkyv_version(),
         "format": { "endian": "little", "pointerWidth": 32, "aligned": true },
         "hasher": "siphasher13-zero-key (source map iteration order only)",
         "cases": cases.len(),

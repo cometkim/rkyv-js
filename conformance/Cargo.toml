@@ -6,8 +6,10 @@
 # deserialize + PartialEq against the expected value, archived-map key
 # lookups, and byte-identity for cases marked identical.
 #
-# rkyv is pinned exactly: wire bytes are the contract, and a patch bump can
-# legitimately change them. cases/manifest.json records the pinned version.
+# rkyv is pinned exactly in the workspace Cargo.toml and inherited here: wire
+# bytes are the contract, and a patch bump can legitimately change them.
+# cases/manifest.json records the pinned version, read from the workspace
+# manifest by src/rkyv_pin.rs.
 
 [package]
 name = "conformance"
@@ -17,7 +19,7 @@ publish = false
 
 [dependencies]
 rkyv-js-codegen = { path = "../rkyv-js-codegen" }
-rkyv = { version = "=0.8.14", features = [
+rkyv = { workspace = true, features = [
     "bytecheck",
     "uuid-1",
     "bytes-1",
@@ -33,6 +35,8 @@ serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 siphasher = "1"
 base64 = "0.23.0"
+# Reads the rkyv pin out of the workspace manifest (src/rkyv_pin.rs).
+toml = "1"
 uuid = { version = "1", features = ["serde"] }
 bytes = { version = "1", features = ["serde"] }
 smol_str = { version = "0.2", features = ["serde"] }

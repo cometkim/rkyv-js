@@ -5,6 +5,20 @@ members = [
   "rkyv-example",
   "conformance",
 ]
-# Format-profile smoke crates set global rkyv format features and must not
-# share a build graph with the default-format workspace.
+# Format-profile smoke crates set global, mutually exclusive rkyv format
+# features and must not share a build graph with the default-format workspace;
+# they form their own workspace (conformance/formats/Cargo.toml).
 exclude = ["conformance/formats"]
+
+[workspace.dependencies]
+# The rkyv version rkyv-js is verified against.
+# Pinned exactly: wire bytes are the contract, and a patch bump can legitimately change them.
+# This is the single source of truth for the pin -- workspace crates inherit it,
+# and the conformance generators read it from this file to stamp cases/manifest.json
+# (conformance/src/rkyv_pin.rs). The format-profile workspace cannot inherit it
+# across the workspace boundary, so conformance/formats/Cargo.toml repeats the pin
+# and its profiles refuse to run if the two drift.
+#
+# Bumping: change it here and in conformance/formats/Cargo.toml,
+# then regenerate the goldens (`yarn conformance:generate`).
+rkyv = "=0.8.18"

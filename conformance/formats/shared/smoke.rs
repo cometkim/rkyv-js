@@ -1,13 +1,16 @@
 //! Shared smoke-test module for non-default rkyv format profiles.
 //!
 //! rkyv's format features (`big_endian`, `pointer_width_*`, `unaligned`) are
-//! global per build, so each profile is a standalone mini-crate outside the
-//! main workspace that includes this file via `#[path]`. Each profile
-//! generates `conformance/formats/cases-<profile>/` with one reduced case
-//! and verifies the JS re-encoding byte-for-byte.
+//! global per build, so the profiles form their own workspace outside the main
+//! one (conformance/formats/Cargo.toml), built one package at a time; each is a
+//! mini-crate that includes this file via `#[path]`. Each profile generates
+//! `conformance/formats/cases-<profile>/` with one reduced case and verifies
+//! the JS re-encoding byte-for-byte.
 
 #[path = "../../src/canonical_json.rs"]
 mod canonical_json;
+#[path = "../../src/rkyv_pin.rs"]
+mod rkyv_pin;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -78,9 +81,10 @@ pub fn run(profile: &str, format: serde_json::Value) {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join(format!("cases-{profile}"));
+    let rkyv = rkyv_version(profile);
 
     match mode.as_str() {
-        "generate" => generate(&dir, profile, format),
+        "generate" => generate(&dir, profile, format, &rkyv),
         "verify" => verify(&dir, profile),
         other => {
             eprintln!("unknown mode {other}; use generate|verify");
@@ -89,7 +93,27 @@ pub fn run(profile: &str, format: serde_json::Value) {
     }
 }
 
-fn generate(dir: &PathBuf, profile: &str, format: serde_json::Value) {
+/// The rkyv version the profiles build against. The formats workspace cannot
+/// inherit the root pin (Cargo inheritance stops at a workspace boundary), so
+/// it repeats it in its own `[workspace.dependencies]`; refuse to run if the
+/// two drifted, so a profile's goldens can never claim a version they were not
+/// generated with.
+fn rkyv_version(profile: &str) -> String {
+    let root = rkyv_pin::workspace_rkyv_version();
+    let formats = rkyv_pin::exact_rkyv_version(
+        include_str!("../Cargo.toml"),
+        &["workspace", "dependencies"],
+    )
+    .unwrap_or_else(|err| panic!("conformance/formats/Cargo.toml: {err}"));
+    assert_eq!(
+        formats, root,
+        "[{profile}] conformance/formats/Cargo.toml pins rkyv {formats} but the root \
+         Cargo.toml pins {root}; keep the two in sync"
+    );
+    root
+}
+
+fn generate(dir: &PathBuf, profile: &str, format: serde_json::Value, rkyv: &str) {
     std::fs::create_dir_all(dir).expect("create cases dir");
     let value = value();
     let bytes = rkyv::to_bytes::<Error>(&value).expect("serialize");
@@ -98,7 +122,7 @@ fn generate(dir: &PathBuf, profile: &str, format: serde_json::Value) {
         .expect("write data.json");
     let manifest = serde_json::json!({
         "profile": profile,
-        "rkyv": "0.8.14",
+        "rkyv": rkyv,
         "format": format,
         "codec": "ArchivedSmokeCase",
     });

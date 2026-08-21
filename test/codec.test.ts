@@ -77,7 +77,7 @@ describe('Codec API', () => {
     });
 
     it('encodes an empty root vec exactly like rkyv', () => {
-      // Verified against rkyv 0.8.14: ptr offset 0, len 0.
+      // Verified against rkyv 0.8.18: ptr offset 0, len 0.
       assert.strictEqual(hex(r.vec(r.u32).encode([])), '00 00 00 00 00 00 00 00');
     });
 
@@ -279,7 +279,7 @@ describe('Codec API', () => {
 
     it('lays out mixed-alignment variants exactly like rkyv (repr(u8) flattening)', () => {
       // enum MixedEnum { V { a: u8, b: u32 }, W(u64) }
-      // Verified against rkyv 0.8.14: tag@0, a@1, b@4 — NOT a@4, b@8.
+      // Verified against rkyv 0.8.18: tag@0, a@1, b@4 — NOT a@4, b@8.
       const MixedEnum = r.taggedEnum({
         V: { a: r.u8, b: r.u32 },
         W: r.u64,
@@ -403,7 +403,7 @@ describe('Codec API', () => {
     });
 
     it('encodes a dead weak pointer as the invalid sentinel (raw offset 1)', () => {
-      // Verified against rkyv 0.8.14 (RelPtr::emplace_invalid).
+      // Verified against rkyv 0.8.18 (RelPtr::emplace_invalid).
       const codec = r.weak(r.u32);
       const data = codec.encode(null);
       assert.strictEqual(hex(data), '01 00 00 00');

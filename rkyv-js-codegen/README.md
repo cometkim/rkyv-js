@@ -52,7 +52,7 @@ export type Person = r.Infer<typeof ArchivedPerson>;
 
 Emitted bindings import from the `rkyv-js` npm package.
 
-Both halves are developed in the same repository and verified together by a bidirectional conformance suite against a pinned rkyv version (currently **0.8.14**), but they are versioned independently - rkyv patch releases can legitimately change wire bytes, so check the project README before mixing versions.
+Both halves are developed in the same repository and verified together by a bidirectional conformance suite against a pinned rkyv version (currently **0.8.18**), but they are versioned independently - rkyv patch releases can legitimately change wire bytes, so check the project README before mixing versions.
 
 ## License
 
