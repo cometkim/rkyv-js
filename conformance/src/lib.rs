@@ -1,5 +1,6 @@
 pub mod canonical_json;
 pub mod cases;
+pub mod rkyv_pin;
 pub mod types;
 
 use std::path::PathBuf;

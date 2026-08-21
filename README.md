@@ -13,7 +13,7 @@ This library allows JavaScript programs to efficiently exchange data with a Rust
 - Bytes written in JS programs can be read in Rust programs in a zero-copy manner, including archived hash map lookups, which work byte-for-byte like Rust's own.
 - Unlike Protobuf or Cap'n Proto, the type is derived directly from your Rust codebase without having to manage additional schema files.
 
-Wire compatibility is enforced by a bidirectional conformance suite: every release is verified against a pinned rkyv version (currently **0.8.14**).
+Wire compatibility is enforced by a bidirectional conformance suite: every release is verified against a pinned rkyv version (currently **0.8.18**).
 
 ## Components
 
@@ -341,7 +341,7 @@ See **[docs.rs](https://docs.rs/rkyv-js-codegen)** for the full API.
 
 ## Conformance & guarantees
 
-- Tested against **rkyv 0.8.14** (pinned; `conformance/cases/manifest.json` records the version). rkyv patch bumps can legitimately change wire bytes - regenerate goldens when bumping.
+- Tested against **rkyv 0.8.18** (pinned in the workspace `Cargo.toml`; `conformance/cases/manifest.json` records the version). rkyv patch bumps can legitimately change wire bytes - regenerate goldens when bumping.
 - The committed golden suite covers primitives at boundary values, string length boundaries, float specials, options, sequences, mixed-alignment enums, pointers, hash/index/btree containers at multiple sizes and key types, external crate types, and non-default format profiles. CI regenerates goldens and fails on diff.
 - `cargo run -p conformance --bin verify` proves JS output with rkyv itself: `bytecheck` validation, deserialization + `PartialEq`, and archived-map key lookups.
 

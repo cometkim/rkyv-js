@@ -52,10 +52,7 @@ jobs:
         with:
           workspaces: |
             .
-            conformance/formats/be
-            conformance/formats/pw16
-            conformance/formats/pw64
-            conformance/formats/unaligned
+            conformance/formats
       - run: yarn install --immutable
       # Goldens are committed; regenerating must be a no-op, so any
       # wire-format change surfaces as a reviewable diff.
