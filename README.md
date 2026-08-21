@@ -1,3 +1,5 @@
+
+
 # rkyv-js
 
  [![npm](https://img.shields.io/npm/v/rkyv-js.svg)](https://npmx.dev/package/rkyv-js)
@@ -32,7 +34,7 @@ yarn add rkyv-js
 rkyv-js-codegen = "0.1"
 ```
 
-Requires Node.js ≥ 22.18 (or any runtime with `TextEncoder`/`DataView`; the package ships plain ESM).
+Requires Node.js ≥ 24 (or any runtime with `TextEncoder`/`DataView`; the package ships plain ESM).
 
 ## Quick Start
 
