@@ -10,7 +10,7 @@ keywords = ["rkyv", "javascript", "typescript", "codegen", "serialization"]
 categories = ["development-tools::ffi", "encoding"]
 
 [dependencies]
-proc-macro2 = { version = "1", features = ["span-locations"] }
+proc-macro2 = { version = "1.0.107", features = ["span-locations"] }
 quote = "1"
 syn = { version = "2.0", features = ["full", "parsing", "extra-traits"] }
 walkdir = "2.5"
