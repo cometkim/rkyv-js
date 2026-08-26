@@ -32,7 +32,7 @@ rkyv = { workspace = true, features = [
     "triomphe-0_1",
 ] }
 serde = { version = "1", features = ["derive", "rc"] }
-serde_json = "1"
+serde_json = "1.0.151"
 siphasher = "1"
 base64 = "0.23.0"
 # Reads the rkyv pin out of the workspace manifest (src/rkyv_pin.rs).
